@@ -1,0 +1,29 @@
+{# Markdown text field. `md_tabs` (new-task form): "Edit / Preview" tabs above the field (static/task_form.js);
+   `md_placeholder` optional. Otherwise a collapsible preview below the field. #}
+{% if md_tabs %}
+<div class="md-field" data-md-field>
+  <div class="md-field-head">
+    <label for="md-{{ md_name }}">{{ md_label }} <small class="muted">{{ _("(Markdown)") }}</small></label>
+    <div class="md-tabs" role="tablist" aria-label="{{ md_label }}">
+      <button type="button" role="tab" class="md-tab" id="md-{{ md_name }}-edit-tab" aria-selected="true"
+              aria-controls="md-{{ md_name }}" data-md-tab="edit">{{ _("Edit") }}</button>
+      <button type="button" role="tab" class="md-tab" id="md-{{ md_name }}-preview-tab" aria-selected="false"
+              aria-controls="md-{{ md_name }}-preview" tabindex="-1" data-md-tab="preview"
+              hx-post="/markdown-preview" hx-include="#md-{{ md_name }}" hx-params="{{ md_name }}"
+              hx-target="#md-{{ md_name }}-preview" hx-trigger="click">{{ _("Preview") }}</button>
+    </div>
+  </div>
+  <textarea name="{{ md_name }}" id="md-{{ md_name }}" rows="{{ md_rows or 5 }}"
+            {% if md_placeholder %}placeholder="{{ md_placeholder }}"{% endif %}>{{ md_value or '' }}</textarea>
+  <div class="md md-preview-pane" id="md-{{ md_name }}-preview" role="tabpanel" tabindex="0"
+       aria-labelledby="md-{{ md_name }}-preview-tab" hidden></div>
+</div>
+{% else %}
+<label>{{ md_label }}
+  <textarea name="{{ md_name }}" rows="5">{{ md_value or '' }}</textarea>
+</label>
+<details class="md-preview">
+  <summary hx-post="/markdown-preview" hx-include="previous textarea" hx-params="{{ md_name }}" hx-target="next .md" hx-trigger="click">{{ _("Preview") }}</summary>
+  <div class="md"></div>
+</details>
+{% endif %}

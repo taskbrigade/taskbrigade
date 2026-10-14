@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{% if sprint %}{{ sprint.name }} · {{ sprint.project }}{% else %}{{ _("New sprint") }}{% endif %} – TaskBrigade{% endblock %}
+{% block head %}<script src="/static/vendor/Sortable.min.js" defer></script><script src="/static/sprint_editor.js?v={{ static_v }}" defer></script>{% endblock %}
+{% block content %}
+{% set action = "/projects/" ~ sprint.project ~ "/sprints/" ~ sprint.id ~ "/editor" if sprint else "/sprints/new" %}
+<div class="headline">
+  <h2>{% if sprint %}{{ sprint.name }} <small><a href="/projects/{{ sprint.project }}">{{ sprint.project }}</a> · {{ _("Sprint editor") }}</small>{% else %}{{ _("New sprint") }}{% endif %}</h2>
+  {% if sprint %}<span><a href="/projects/{{ sprint.project }}/sprints/{{ sprint.id }}">{{ _("Sprint page") }}</a></span>{% endif %}
+</div>
+{% if request.query_params.msg %}<p class="banner ok">{{ request.query_params.msg }}</p>{% endif %}
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+{% if owner_hint %}{% include "_own_projects_hint.html" %}{% endif %}
+
+<form id="sprint-form" method="post" action="{{ action }}" data-guard="sprint" data-manage="{{ manage_keys | tojson | forceescape }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="entries" value="{{ entries_json }}">
+  <input type="hidden" name="removed" value="{{ removed_json }}">
+  <div class="sprint-head">
+    {% if sprint %}
+    <label>{{ _("Project") }} <input value="{{ sprint.project }}" disabled></label>
+    {% else %}
+    <label>{{ _("Project") }} <select name="project" required>
+      {% if projects | length > 1 %}<option value="">{{ _("– choose –") }}</option>{% endif %}
+      {% for k, n in projects %}<option value="{{ k }}" {% if form.project == k %}selected{% endif %}>{{ k }} – {{ n }}</option>{% endfor %}
+    </select></label>
+    {% endif %}
+    <label>{{ _("Sprint name") }} <input name="name" value="{{ form.name }}" required maxlength="120"></label>
+    <label>{{ _("Start") }} <input type="date" name="start_date" value="{{ form.start_date }}"></label>
+    <label>{{ _("End") }} <input type="date" name="end_date" value="{{ form.end_date }}"></label>
+  </div>
+  <label>{{ _("Goal") }} <textarea name="goal" rows="2">{{ form.goal }}</textarea></label>
+</form>
+
+<div class="sprint-editor" id="sprint-editor" data-status-labels="{{ status_labels | tojson | forceescape }}">
+  <section class="se-list" aria-labelledby="se-list-title">
+    <h3 id="se-list-title">{{ _("Tasks") }} <small class="muted" id="se-count">({{ items | length }})</small></h3>
+    <input id="se-add" placeholder="{{ _('New heading – Enter adds it') }}" maxlength="200" aria-describedby="se-add-help">
+    <small class="muted" id="se-add-help">{{ _("Pasting several lines adds one task per line. Drag ⠿ to reorder.") }}</small>
+    <ol id="se-items">
+      {% for e in items %}
+      <li class="se-item{% if loop.first %} selected{% endif %}" tabindex="0" data-index="{{ loop.index0 }}">
+        <span class="se-handle" title="{{ _('Drag to reorder') }}">⠿</span>
+        <span class="se-body"><span class="se-title">{{ e.title }}</span>
+          {% if e.status != "draft" %}<small class="se-ready">{% with status=e.status %}{% include "_status.html" %}{% endwith %} {{ e.task_nr }}</small>
+          {% elif e.missing %}<small class="se-ready missing">{{ _("missing: %(fields)s", fields=e.missing) }}</small>
+          {% else %}<small class="se-ready ok">{{ _("ready") }}</small>{% endif %}</span>
+        {% if e.status == "draft" %}<button type="button" class="se-del" aria-label="{{ _('Remove') }}" title="{{ _('Remove') }}">×</button>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    <p class="muted" id="se-list-empty" {% if items %}hidden{% endif %}>{{ _("No tasks yet.") }}</p>
+    <button type="button" class="secondary small" id="se-prio-order" title="{{ _('Prio 1 for the first entries, prio 5 for the last ones (drafts only)') }}">{{ _("Set prio from order") }}</button>
+  </section>
+
+  <section class="se-detail" id="se-detail" aria-label="{{ _('Task details') }}">
+    <p class="muted" id="se-empty" {% if items %}hidden{% endif %}>{{ _("Add a task heading on the left, then fill in its details here.") }}</p>
+    <div id="se-fields" {% if not items %}hidden{% endif %}>
+      <p class="banner warn" id="se-readonly" hidden>{{ _("This task is no longer a draft – change it on its task page.") }}
+        <a id="se-open" href="#">{{ _("Open task") }}</a></p>
+      <label>{{ _("Title") }} <input id="se-title" data-field="title" maxlength="200"></label>
+      {% set md_name = "description" %}{% set md_value = "" %}{% set md_label = _("Description (Markdown)") %}{% include "_md_field.html" %}
+      {% set md_name = "acceptance_criteria" %}{% set md_value = "" %}{% set md_label = _("Acceptance criteria (Markdown)") %}{% include "_md_field.html" %}
+      <div class="grid">
+        <label>{{ _("Agent") }} <select data-field="assigned_to"><option value="">{{ _("– nobody –") }}</option>
+          {% for a in agents %}<option>{{ a }}</option>{% endfor %}</select></label>
+        <label>{{ _("Prio (1 = highest)") }} <select data-field="prio">{% for p in range(1, 6) %}<option>{{ p }}</option>{% endfor %}</select></label>
+        <label>{{ _("Due") }} <input type="date" data-field="due_date"></label>
+      </div>
+      <div class="grid">
+        <label>{{ _("Model tier") }} <select data-field="model_tier"><option value="">{{ _("– agent default –") }}</option>
+          {% for tier in ("simple", "standard", "complex") %}<option value="{{ tier }}">{{ tier_label(tier) }}</option>{% endfor %}</select></label>
+        <label>{{ _("Concrete model") }} <select data-field="model" data-models="{{ agent_models | tojson | forceescape }}"><option value="">{{ _("– from tier / default –") }}</option></select>
+          <small class="muted" id="se-model-hint" hidden>{{ _("This agent chooses its model itself – tier and model are shown, but ignored by this agent.") }}</small></label>
+      </div>
+      <label>{{ _("Reviewer") }} <select data-field="reviewer"><option value="">{{ _("– project default –") }}</option>
+        <option value="none">{{ _("– owner and admins –") }}</option>
+        {% for r in reviewers %}<option value="{{ r.name }}">{{ r.name }}{% if r.kind == "agent" %} ({{ _("reviewer agent") }}){% endif %}</option>{% endfor %}</select></label>
+    </div>
+  </section>
+</div>
+
+<div class="se-actions">
+  <button type="submit" form="sprint-form" name="action" value="save">{{ _("Save") }}</button>
+  <button type="submit" form="sprint-form" name="action" value="release" class="secondary" id="se-release"
+          {% set can_release = (sprint.project in manage_keys) if sprint else (manage_keys and (not form.project or form.project in manage_keys)) %}{% if not can_release %}hidden{% endif %}
+          onclick="return confirm({{ _('Save and release the sprint? Complete tasks become Defined; the others stay drafts.') | tojson | forceescape }})">{{ _("Save and release sprint") }}</button>
+</div>
+<p class="muted se-note">{{ _("Saving creates the sprint (planned) and every new entry as a draft in one step. Releasing publishes complete tasks; tasks without a description or acceptance criteria stay drafts and are listed on the sprint page.") }}</p>
+{% endblock %}

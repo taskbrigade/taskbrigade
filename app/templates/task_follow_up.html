@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Follow-up task") }} – {{ origin.task_nr }} – TaskBrigade{% endblock %}
+{% block content %}
+<h2>{{ _("Follow-up task") }}</h2>
+<p class="muted">{{ _("Follow-up to") }} <a href="/tasks/{{ origin.task_nr }}">{{ origin.task_nr }}</a> {{ origin.title }} · {{ _("Project") }} {{ origin.project }}</p>
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+<form method="post" action="/tasks/{{ origin.task_nr }}/follow-up" data-guard="follow-up">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div class="grid">
+    <label>{{ _("Status") }} <select name="status">
+      <option value="draft" {% if form.status != "defined" %}selected{% endif %}>{{ _("Draft – still to be worked out") }}</option>
+      <option value="defined" {% if form.status == "defined" %}selected{% endif %}>{{ _("Defined – agents may pick it up (description + acceptance criteria required)") }}</option>
+    </select></label>
+    <label>{{ _("Prio (1 = highest)") }} <select name="prio">{% for p in range(1, 6) %}<option {% if p == form.prio|int %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+    <label>{{ _("Assign to") }} <select name="assigned_to"><option value="">{{ _("– nobody –") }}</option>
+      {% for a in agents %}<option {% if form.assigned_to == a %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+  </div>
+  <label>{{ _("Title") }} <input name="title" required maxlength="200" value="{{ form.title or '' }}"></label>
+  {% set md_name = "description" %}{% set md_value = form.description %}{% set md_label = _("Description (Markdown)") %}{% include "_md_field.html" %}
+  {% set md_name = "acceptance_criteria" %}{% set md_value = form.acceptance_criteria %}{% set md_label = _("Acceptance criteria (Markdown)") %}{% include "_md_field.html" %}
+  {% if form.points %}
+  <fieldset class="open-points">
+    <legend><strong>{{ _("Open points from %(nr)s", nr=origin.task_nr) }}</strong> <small class="muted">{{ _("Selected points are added when the task is created.") }}</small></legend>
+    {% for p in form.points %}
+    <label><input type="checkbox" name="points" value="{{ loop.index0 }}" {% if loop.index0 in form.selected %}checked{% endif %}> {{ p }}</label>
+    {% endfor %}
+    <label>{{ _("Add them to") }} <select name="points_into">
+      <option value="description" {% if form.points_into != "acceptance_criteria" %}selected{% endif %}>{{ _("the description (list)") }}</option>
+      <option value="acceptance_criteria" {% if form.points_into == "acceptance_criteria" %}selected{% endif %}>{{ _("the acceptance criteria (checklist)") }}</option>
+    </select></label>
+  </fieldset>
+  {% else %}
+  <p class="muted">{{ _("%(nr)s has no open points recorded – describe the follow-up above.", nr=origin.task_nr) }}</p>
+  {% endif %}
+  <button type="submit">{{ _("Create follow-up task") }}</button>
+  <a href="/tasks/{{ origin.task_nr }}" class="secondary">{{ _("Back") }}</a>
+</form>
+{% endblock %}

@@ -1,0 +1,30 @@
+[Unit]
+Description=TaskBrigade
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=taskbrigade
+Group=taskbrigade
+WorkingDirectory=/opt/taskbrigade/app
+# Default to localhost; for LAN UI access set TBR_BIND_HOST=0.0.0.0 and LAN_UI_NETWORKS in the env file.
+Environment=TBR_BIND_HOST=127.0.0.1
+EnvironmentFile=/etc/taskbrigade/taskbrigade.env
+# --no-proxy-headers: the app checks the direct peer (localhost = tailscale serve).
+# Proxy headers would make the client the Tailnet IP from X-Forwarded-For and defeat identity checks.
+ExecStart=/opt/taskbrigade/app/.venv/bin/uvicorn app.main:app --host ${TBR_BIND_HOST} --port 8090 --workers 1 --no-proxy-headers
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+StateDirectory=taskbrigade
+StateDirectoryMode=0700
+ReadWritePaths=/var/log/taskbrigade /var/backups/taskbrigade
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Settings") }} – {{ _("Admin") }} – TaskBrigade{% endblock %}
+{% block content %}
+<h2>{{ _("Admin") }}</h2>
+{% include "admin/_nav.html" %}
+<article>
+  <form method="post" action="/admin/settings">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% for key, s in settings.items() %}
+      {% if s.kind == "bool" %}
+      <label><input type="checkbox" name="{{ key }}" value="1" {% if s.value == "true" %}checked{% endif %}> {{ _(s.label) }}</label>
+      {% elif s.kind == "choice" %}
+      <label>{{ _(s.label) }}
+        <select name="{{ key }}">{% for c in s.choices %}<option value="{{ c }}" {% if c == s.value %}selected{% endif %}>{{ LANGUAGES[c] if key == "ui_language" else c }}</option>{% endfor %}</select>
+      </label>
+      {% elif s.secret %}
+      <label>{{ _(s.label) }} {% if s.is_set %}<small>{{ _("(set: <code>%(value)s</code>, source %(source)s)", value=s.value, source=s.source) }}</small>{% endif %}
+        <input type="password" name="{{ key }}" autocomplete="off" placeholder="{{ _('leave empty = unchanged') if s.is_set else _('not set') }}">
+      </label>
+      {% else %}
+      <label>{{ _(s.label) }} <input name="{{ key }}" value="{{ s.value or '' }}" {% if s.kind == "int" %}type="number"{% endif %}></label>
+      {% endif %}
+      {% if s.source == "db" %}<label class="reset"><input type="checkbox" name="reset_{{ key }}" value="1"> {{ _("reset to the .env default") }}</label>{% endif %}
+    {% endfor %}
+    <button type="submit">{{ _("Save") }}</button>
+  </form>
+  <button class="secondary" hx-post="/admin/settings/test-gitea" hx-target="#gitea-test">{{ _("Test Gitea connection") }}</button>
+  <div id="gitea-test"></div>
+  <button class="secondary" hx-post="/admin/settings/test-telegram" hx-target="#telegram-test">{{ _("Test Telegram connection") }}</button>
+  <div id="telegram-test"></div>
+  <button class="secondary" hx-post="/admin/settings/test-sftp" hx-target="#sftp-test">{{ _("Test SFTP connection") }}</button>
+  <div id="sftp-test"></div>
+  <small>{{ _("SFTP: agents upload results with <code>tbr sftp put</code> into the storage pattern below the base folder; every agent has its own SFTP login (Admin → Users & agents). The host key fingerprint is pinned: “Test SFTP connection” shows it for confirmation.") }}</small><br>
+  <small>{{ _("Telegram: create a bot with @BotFather, enter its token and enable it. Every human links their own chat under Profile.") }}</small>
+</article>
+{% if notification_log %}
+<article id="notification-log">
+  <h3>{{ _("Notification delivery log") }}</h3>
+  <small>{{ _("Without message contents; entries are kept for 30 days.") }}</small>
+  <table class="striped">
+    <thead><tr><th>{{ _("Time") }}</th><th>{{ _("Recipient") }}</th><th>{{ _("Event") }}</th><th>{{ _("Task") }}</th><th>{{ _("Status") }}</th><th>{{ _("Attempts") }}</th><th>{{ _("Error") }}</th></tr></thead>
+    <tbody>
+    {% for n, who in notification_log %}
+      <tr><td>{{ n.created_at | localtime }}</td><td>{{ who.name if who else "–" }}</td><td>{{ events.get(n.event, n.event) }}</td>
+          <td>{{ n.task_nr or "–" }}</td><td>{{ status_labels.get(n.status, n.status) }}</td><td>{{ n.attempts }}</td><td>{{ n.last_error or "" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</article>
+{% endif %}
+{% endblock %}

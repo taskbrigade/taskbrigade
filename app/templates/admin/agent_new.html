@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ _("New agent") }} – {{ _("Admin") }} – TaskBrigade{% endblock %}
+{% macro opt(value, current, label=None) %}<option value="{{ value }}" {% if value == current %}selected{% endif %}>{{ label or value }}</option>{% endmacro %}
+{% block content %}
+<h2>{{ _("Admin") }}</h2>
+{% include "admin/_nav.html" %}
+{% set f = form %}
+<article>
+  <header><strong>{{ _("New agent") }}</strong>
+    <small class="muted"> · {{ _("creates the agent and a one-time code; on the agent machine a single <code>tbr join</code> does the rest") }}</small></header>
+  <form method="post" action="/admin/agents/new">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="grid">
+      <label>{{ _("Name (slug)") }} <input name="name" required pattern="[a-z0-9][a-z0-9-]*" maxlength="50" value="{{ f.name or '' }}" placeholder="claude-code-2"></label>
+      <label>{{ _("Display name") }} <input name="display_name" maxlength="100" value="{{ f.display_name or '' }}"></label>
+    </div>
+    <div class="grid">
+      <label>{{ _("Kind") }}
+        <select name="agent_kind">{% for k in kinds %}{{ opt(k, f.agent_kind or 'claude_code') }}{% endfor %}</select>
+      </label>
+      <label>{{ _("Runtime") }}
+        <select name="runtime">{{ opt('local', f.runtime or 'local') }}{{ opt('cloud', f.runtime) }}</select>
+        <small>{{ _("cloud: the agent sends code to an external model provider – no access to local_only projects") }}</small>
+      </label>
+      <label>{{ _("Role") }}
+        <select name="role">{% for r in roles %}{{ opt(r, f.role or 'worker') }}{% endfor %}</select>
+        <small>{{ _("reviewer (agents only): reviews the tasks it is entered for as reviewer and works on tasks like a worker") }}</small>
+      </label>
+    </div>
+    <div class="grid">
+      {% set owner_value = f.owner or "none" %}
+      <label>{{ _("Owner") }}
+        <select name="owner"><option value="none" {% if owner_value == "none" %}selected{% endif %}>{{ _("– no owner –") }}</option>
+          {% for n in humans %}<option {% if owner_value == n %}selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+        <small>{{ _("The human this agent belongs to: it sees the agent in its assignment choices.") }}</small>
+      </label>
+      <label><input type="checkbox" role="switch" name="is_public" value="1" {% if f.is_public %}checked{% endif %}> {{ _("Public") }}
+        <small class="field-help">{{ _("Public agents appear in everyone's assignment choices; others only for their owner (and admins with “Show all agents”).") }}</small></label>
+    </div>
+    {% if projects %}
+    <fieldset>
+      <legend>{{ _("Project access (write)") }}</legend>
+      {% for p in projects %}
+      <label><input type="checkbox" name="projects" value="{{ p.project_key }}" {% if p.project_key in (f.projects or []) %}checked{% endif %}>
+        {#- span: a bare <small> after the input matches Pico's `input + small` (block, negative margin) and overlaps the row above #}
+        <span>{{ p.project_key }} <small class="muted">{{ p.name }}{% if p.privacy == "local_only" %} · {{ _("local only") }}{% endif %}</small></span></label>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
+    <p><small>{% if gitea_auto %}{{ _("A Gitea admin token is configured: the Gitea user and its token are created automatically.") }}
+      {% else %}{{ _("No Gitea admin token configured: the next page guides you through linking a Gitea user manually.") }}{% endif %}</small></p>
+    <button type="submit">{{ _("Create agent and join code") }}</button>
+  </form>
+</article>
+{% endblock %}

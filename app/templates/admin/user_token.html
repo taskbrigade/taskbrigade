@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ _("API token") }} – {{ _("Admin") }} – TaskBrigade{% endblock %}
+{% block content %}
+<h2>{{ _("Admin") }}</h2>
+{% include "admin/_nav.html" %}
+<article>
+  <header><strong>{{ _("Actor created: %(name)s", name=actor.name) if created else _("New token: %(name)s", name=actor.name) }}</strong></header>
+  <p class="banner warn">{{ _("The token is shown <strong>only now</strong>. Only its hash is stored.") }}
+    {% if not created %}{{ _("The old token is invalid from now on.") }}{% endif %}</p>
+  <label>{{ _("API token") }}
+    <input id="token" readonly value="{{ token }}" onclick="this.select()">
+  </label>
+  <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('token').value)">{{ _("Copy token") }}</button>
+  <p>{{ _("Snippet for <code>~/.config/taskbrigade/config.toml</code> on the agent host:") }}</p>
+  <pre id="snippet">url = "{{ base_url }}"
+token = "{{ token }}"</pre>
+  <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('snippet').innerText)">{{ _("Copy snippet") }}</button>
+  <footer><a href="/admin/users/{{ actor.name }}">{{ _("Continue to %(name)s", name=actor.name) }}</a></footer>
+</article>
+{% endblock %}

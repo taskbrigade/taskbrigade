@@ -1,0 +1,10 @@
+{# Reviewer select: `reviewer_value` = current name, `none` (owner and admins) or "" (project default, new tasks only). #}
+<label>{{ _("Reviewer") }}
+  <select name="reviewer" {% if reviewer_locked %}disabled{% endif %}>
+    {% if reviewer_default %}<option value="" {% if not reviewer_value %}selected{% endif %}>{{ _("– project default –") }}</option>{% endif %}
+    <option value="none" {% if reviewer_value == "none" %}selected{% endif %}>{{ _("– owner and admins –") }}</option>
+    {% for r in reviewers %}<option value="{{ r.name }}" {% if reviewer_value == r.name %}selected{% endif %}>{{ r.name }}{% if r.kind == "agent" %} ({{ _("reviewer agent") }}){% endif %}</option>{% endfor %}
+    {% if reviewer_value and reviewer_value != "none" and reviewer_value not in reviewers | map(attribute="name") %}<option value="{{ reviewer_value }}" selected>{{ reviewer_value }}</option>{% endif %}
+  </select>
+  <small class="muted">{{ _("A human or a reviewer agent – never the assignee. The owner and admins can always approve.") }}</small>
+</label>

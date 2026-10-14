@@ -1,0 +1,11 @@
+<article class="card" data-task="{{ t.task_nr }}" data-status="{{ t.status }}">
+  <div class="card-head"><a href="/tasks/{{ t.task_nr }}" class="card-link">{{ t.task_nr }}</a>
+    <span>{% include "_tier.html" %} <span class="prio prio-{{ t.prio }}" title="{{ _('Prio %(prio)s', prio=t.prio) }}">{{ t.prio }}</span></span></div>
+  {% if t.status in ("questions", "aborted") %}<span class="badge card-status st-{{ t.status }}">{{ status_label(t.status) }}</span>{% endif %}
+  <div class="card-title">{{ t.title }}</div>
+  {% if t.waiting %}<div class="card-waiting small muted" title="{{ t.waiting.reason }}">⏳ {{ _("Waiting for a background run: %(reason)s (until %(date)s)", reason=t.waiting.reason, date=t.waiting.until | localtime) }}</div>{% endif %}
+  <div class="card-meta">{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}<span class="agent none">{{ _("not assigned") }}</span>{% endif %}
+    <span>{{ t.project }}</span> {% include "_sprint_hint.html" %}</div>
+  <details class="card-move"><summary>{{ _("Move") }}<span class="visually-hidden"> {{ t.task_nr }}</span></summary>
+    <div class="card-move-list" aria-live="polite"></div></details>
+</article>

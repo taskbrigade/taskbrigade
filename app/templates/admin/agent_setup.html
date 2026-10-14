@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Set up %(name)s", name=actor.name) }} – {{ _("Admin") }} – TaskBrigade{% endblock %}
+{% block content %}
+<h2>{{ _("Admin") }}</h2>
+{% include "admin/_nav.html" %}
+{% set a = actor %}
+<article>
+  <header><strong>{{ _("Set up agent %(name)s", name=a.name) }}</strong>
+    <small class="muted"> · {{ a.agent_kind }} · {{ a.runtime }} · {{ a.role }}</small></header>
+  {% if created %}<p class="banner ok">{{ _("Agent %(name)s created.", name=a.name) }}</p>{% endif %}
+
+  <h4>{{ _("1. Gitea access") }}</h4>
+  {% if gitea_error %}<p class="banner error">{{ gitea_error }}</p>{% endif %}
+  {% if a.gitea_username %}
+  <p>✅ {{ _("Gitea user <strong>%(user)s</strong>, token <code>…%(last4)s</code>, last checked successfully %(date)s", user=a.gitea_username, last4=a.gitea_token_last4, date=a.gitea_token_checked_at | localtime) }}</p>
+  <form method="post" action="/admin/agents/{{ a.name }}/gitea/check">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button type="submit" class="secondary">{{ _("Check now") }}</button>
+  </form>
+  {% elif not gitea_configured %}
+  <p>{{ _("Gitea is not configured yet (Admin → Settings). The agent can join now; link its Gitea user later on this page.") }}</p>
+  {% else %}
+    {% if gitea_auto %}
+    <form method="post" action="/admin/agents/{{ a.name }}/gitea/provision">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit">{{ _("Create Gitea user %(name)s automatically", name=a.name) }}</button>
+    </form>
+    {% endif %}
+  {% if not gitea_auto %}<p><small>{{ _("Tip: with a Gitea admin token (scope <code>write:admin</code>) under <em>Admin → Settings</em>, this page creates the Gitea user and its token with one click.") }}</small></p>{% endif %}
+  <details {% if not gitea_auto or gitea_error %}open{% endif %}>
+    <summary>{{ _("Link a Gitea user manually") }}</summary>
+    <ol>
+      <li>{{ _("Create a Gitea user for the agent (no admin rights), e.g. in Gitea under <em>Site Administration → User Accounts</em>, or on the Gitea server with the <code>gitea</code> command (as the user Gitea runs as, usually <code>git</code>; adjust the path to <code>app.ini</code>):") }}
+        <pre>sudo -u git gitea --config /etc/gitea/app.ini admin user create --username {{ a.name }} --random-password \
+  --email {{ a.name }}@noreply.localhost --must-change-password=false
+sudo -u git gitea --config /etc/gitea/app.ini admin user generate-access-token --username {{ a.name }} \
+  --token-name taskbrigade-agent --scopes write:repository,read:user --raw</pre>
+        <p><small>{{ _("Only if Gitea itself runs in Docker Compose (service <code>gitea</code>), run the same commands inside the container: <code>docker compose exec -u git gitea gitea admin user …</code>") }}</small></p></li>
+      <li>{{ _("Otherwise sign in as that user and create an access token under <em>Settings → Applications</em> with the scopes <code>write:repository</code> and <code>read:user</code>.") }}</li>
+      <li>{{ _("Enter the user and the token here – TaskBrigade checks the token against Gitea before saving it encrypted.") }}</li>
+    </ol>
+    <form method="post" action="/admin/agents/{{ a.name }}/gitea">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="grid">
+        <label>{{ _("Gitea username") }} <input name="gitea_username" required value="{{ a.name }}"></label>
+        <label>{{ _("Access token") }} <input type="password" name="gitea_token" autocomplete="off" required></label>
+        <label>{{ _("Email (for commits)") }} <input type="email" name="gitea_email"></label>
+      </div>
+      <button type="submit">{{ _("Check and save") }}</button>
+    </form>
+  </details>
+  {% endif %}
+
+  <h4>{{ _("2. Join on the agent machine") }}</h4>
+  {% if code %}
+  <p class="banner warn">{{ _("The join code is shown <strong>only now</strong> and is valid once until %(time)s. Only its hash is stored.", time=expires | localtime) }}</p>
+  <div class="join-token" id="join-token-box">
+    <strong>{{ _("Temporary sign-in token:") }}</strong>
+    <code id="join-token">{{ code }}</code>
+    <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('join-token').innerText)">{{ _("Copy token") }}</button>
+  </div>
+  <p>{{ _("Run as the agent's user on the agent machine:") }}</p>
+  <pre id="join-cmd">{{ commands.join }}</pre>
+  <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('join-cmd').innerText)">{{ _("Copy command") }}</button>
+  <p>{{ _("If <code>tbr</code> is not installed there yet, first:") }}</p>
+  <pre id="install-cmd">{{ commands.install }}</pre>
+  <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('install-cmd').innerText)">{{ _("Copy command") }}</button>
+  <p><small>{{ _("<code>tbr join</code> exchanges the code for a fresh API token, creates the work directory with <code>.taskbrigade.toml</code> (mode 600) and checks <code>tbr whoami</code> and the Git access. It never overwrites an existing file without <code>--force</code>. The code only works over HTTPS (tailscale serve) or from trusted peers.") }}</small></p>
+  {% if actor.agent_kind in ("hermes", "openclaw") %}<p><small>{{ _("With <code>--setup</code> it also installs the TaskBrigade skill and the check script into the agent framework and creates its cron job or automation – the agent then looks for tasks every 10 minutes. <code>tbr doctor</code> checks the machine.") }}</small></p>
+  {% elif "--setup" in commands.join %}<p><small>{{ _("With <code>--setup</code> it also writes the runner configuration for the agent kind, checks tmux and the agent command and installs a timer (Linux: systemd user timer, macOS: launchd) – the agent then looks for tasks every 10 minutes. <code>tbr doctor</code> checks the machine.") }}</small></p>{% endif %}
+  {% else %}
+  {% if pending %}<p>{{ _("An unused join code is valid until %(time)s; it is not shown again.", time=pending.expires_at | localtime) }}</p>{% endif %}
+  {% endif %}
+  {% if a.is_active %}
+  <form method="post" action="/admin/agents/{{ a.name }}/join-code"
+        {% if code or pending %}onsubmit="return confirm({{ _('Create a new join code? The current one becomes invalid.') | tojson | forceescape }})"{% endif %}>
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button type="submit" class="secondary">{{ _("New join code (valid %(minutes)s min)", minutes=join_minutes) }}</button>
+  </form>
+  {% endif %}
+  <footer><a href="/admin/users/{{ a.name }}">{{ _("Continue to %(name)s", name=a.name) }}</a></footer>
+</article>
+{% endblock %}

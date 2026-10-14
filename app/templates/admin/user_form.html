@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}{{ actor.name if actor else _("New actor") }} – {{ _("Admin") }} – TaskBrigade{% endblock %}
+{% macro opt(value, current, label=None) %}<option value="{{ value }}" {% if value == current %}selected{% endif %}>{{ label or value }}</option>{% endmacro %}
+{% block content %}
+<h2>{{ _("Admin") }}</h2>
+{% include "admin/_nav.html" %}
+
+{% set a = actor %}
+{% set f = form %}
+<article>
+  <header><strong>{% if a %}{% if a.is_active %}{{ a.name }}{% else %}{{ _("%(name)s (deactivated)", name=a.name) }}{% endif %}{% else %}{{ _("New user / agent") }}{% endif %}</strong>
+    {% if a %}<small> · {{ _("last seen %(date)s", date=a.last_seen_at | localtime) }} · {{ _("open tasks %(count)s", count=counts.open) }}{% if counts.current %} · {{ _("current %(nr)s", nr=counts.current) }}{% endif %}</small>{% endif %}
+  </header>
+  <form method="post" action="{{ '/admin/users/' ~ a.name if a else '/admin/users/new' }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% set type = a.actor_type if a else (f.actor_type or 'agent') %}
+    <div class="grid">
+      {% if not a %}
+      <label>{{ _("Name (slug)") }} <input name="name" required pattern="[a-z0-9][a-z0-9-]*" maxlength="50" value="{{ f.name or '' }}"></label>
+      {% endif %}
+      <label>{{ _("Display name") }} <input name="display_name" {% if a %}required{% endif %} maxlength="100" value="{{ a.display_name if a else (f.display_name or '') }}"></label>
+    </div>
+    <div class="grid">
+      {% if not a %}
+      <label>{{ _("Type") }}
+        <select name="actor_type" onchange="document.querySelectorAll('[data-type]').forEach(e => e.hidden = e.dataset.type !== this.value)">
+          {{ opt('agent', type, _('Agent')) }}{{ opt('human', type, _('Human')) }}
+        </select>
+      </label>
+      {% endif %}
+      <label data-type="agent" {% if type != 'agent' %}hidden{% endif %}>{{ _("Kind") }}
+        <select name="agent_kind">{% for k in kinds %}{{ opt(k, a.agent_kind if a else f.agent_kind) }}{% endfor %}</select>
+      </label>
+      <label>{{ _("Role") }}
+        <select name="role">{% for r in roles %}{{ opt(r, a.role if a else (f.role or 'worker')) }}{% endfor %}</select>
+        <small>{{ _("reviewer (agents only): reviews the tasks it is entered for as reviewer and works on tasks like a worker") }}</small>
+      </label>
+      <label>{{ _("Runtime") }}
+        <select name="runtime">{{ opt('local', a.runtime if a else f.runtime) }}{{ opt('cloud', a.runtime if a else f.runtime) }}</select>
+      </label>
+    </div>
+    <div class="grid" data-type="agent" {% if type != 'agent' %}hidden{% endif %}>
+      {% set owner_value = (owner or "none") if a else (f.owner or "none") %}
+      <label>{{ _("Owner") }}
+        <select name="owner"><option value="none" {% if owner_value == "none" %}selected{% endif %}>{{ _("– no owner –") }}</option>
+          {% for n in humans %}<option {% if owner_value == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+          {% if owner_value != "none" and owner_value not in humans %}<option selected>{{ owner_value }}</option>{% endif %}</select>
+        <small>{{ _("The human this agent belongs to: it sees the agent in its assignment choices.") }}</small>
+      </label>
+      <label><input type="checkbox" role="switch" name="is_public" value="1" {% if (a.is_public if a else f.is_public) %}checked{% endif %}> {{ _("Public") }}
+        <small class="field-help">{{ _("Public agents appear in everyone's assignment choices; others only for their owner (and admins with “Show all agents”).") }}</small></label>
+    </div>
+    <div class="grid">
+      <label>{{ _("Lease minutes") }} <input type="number" name="lease_minutes" min="1" max="10080" value="{{ a.lease_minutes if a else (f.lease_minutes or 120) }}"></label>
+      <label>{{ _("Max. parallel tasks") }} <input type="number" name="max_parallel_tasks" min="1" max="50" value="{{ a.max_parallel_tasks if a else (f.max_parallel_tasks or 2) }}"></label>
+    </div>
+    <fieldset data-type="human" {% if type != 'human' %}hidden{% endif %}>
+      <div class="grid">
+        <label>{{ _("Email") }} <input type="email" name="email" value="{{ (a.email if a else f.email) or '' }}"></label>
+        <label>{{ _("Tailscale login") }} <input name="tailscale_login" placeholder="alex@github" value="{{ (a.tailscale_login if a else f.tailscale_login) or '' }}"></label>
+      </div>
+      {% if not a %}
+      <div class="grid">
+        <label>{{ _("Password") }} <input type="password" name="password" autocomplete="new-password" minlength="10"></label>
+        <label>{{ _("Repeat password") }} <input type="password" name="password2" autocomplete="new-password"></label>
+      </div>
+      {% endif %}
+    </fieldset>
+    {% if a and a.actor_type == "agent" %}
+    <fieldset>
+      <legend><strong>{{ _("Models") }}</strong></legend>
+      {% if not models.applies %}<p class="muted"><small>{{ _("This kind of agent chooses its model itself (Hermes, OpenClaw, desktop apps): tier and model of a task are shown, but ignored by this agent.") }}</small></p>{% endif %}
+      <div class="grid">
+        <label>{{ _("Default model") }} <input name="model_default" maxlength="100" placeholder="{{ _('agent default') }}" value="{{ models.default or '' }}"></label>
+        {% for tier, label in model_tiers.items() %}
+        <label>{{ _("Tier “%(tier)s”", tier=_(label)) }} <input name="model_{{ tier }}" maxlength="100" value="{{ models.tiers.get(tier, '') }}"></label>
+        {% endfor %}
+      </div>
+      <label>{{ _("Allowed models") }} <textarea name="models_allowed" rows="2" placeholder="haiku, sonnet, opus">{{ models.allowed | join(", ") }}</textarea>
+        <small>{{ _("Models a task may name explicitly, separated by commas. Order of use: concrete model of the task → model of its tier → default model → the agent's own default.") }}</small></label>
+    </fieldset>
+    {% endif %}
+    <label>{{ _("Notes") }} <textarea name="notes" rows="2">{{ (a.notes if a else f.notes) or '' }}</textarea></label>
+    <button type="submit">{{ _("Save") if a else _("Create and generate token") }}</button>
+  </form>
+</article>
+
+{% if a %}
+<div class="grid">
+  <article>
+    <header><strong>{{ _("API token") }}</strong></header>
+    {% if a.api_key_hash %}<p><code>{{ a.api_key_prefix }}…</code> {{ _("created %(date)s", date=a.api_key_created_at | localtime) }}</p>
+    {% else %}<p>{{ _("No valid token.") }}</p>{% endif %}
+    {% if a.is_active %}
+    <form method="post" action="/admin/users/{{ a.name }}/rotate-token" onsubmit="return confirm({{ _('Generate a new token? The old one becomes invalid immediately.') | tojson | forceescape }})">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="secondary">{{ _("Rotate token") }}</button>
+    </form>
+    {% if a.actor_type == "agent" %}<p><a href="/admin/agents/{{ a.name }}/setup">{{ _("Join code for tbr join / Gitea setup") }}</a></p>{% endif %}
+    {% endif %}
+  </article>
+  <article>
+    <header><strong>{{ _("Status") }}</strong></header>
+    <form method="post" action="/admin/users/{{ a.name }}/active"
+          {% if a.is_active %}onsubmit="return confirm({{ _('Deactivate %(name)s? The API token becomes invalid immediately.', name=a.name) | tojson | forceescape }})"{% endif %}>
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="active" value="{{ 'false' if a.is_active else 'true' }}">
+      <button type="submit" class="{{ 'contrast' if a.is_active else '' }}">{{ _("Deactivate") if a.is_active else _("Reactivate") }}</button>
+    </form>
+  </article>
+</div>
+
+{% if a.actor_type == "human" %}
+<article>
+  <header><strong>{{ _("Reset password") }}</strong></header>
+  <form method="post" action="/admin/users/{{ a.name }}/password">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="grid">
+      <input type="password" name="password" autocomplete="new-password" minlength="10" placeholder="{{ _('New password') }}" required>
+      <input type="password" name="password2" autocomplete="new-password" placeholder="{{ _('Repeat') }}" required>
+      <button type="submit" class="secondary">{{ _("Set") }}</button>
+    </div>
+  </form>
+</article>
+{% endif %}
+
+<article>
+  <header><strong>{{ _("Gitea") }}</strong></header>
+  {% if a.gitea_username %}
+  <p>{{ _("Gitea user <strong>%(user)s</strong>, token <code>…%(last4)s</code>, email %(email)s, last checked successfully %(date)s", user=a.gitea_username, last4=a.gitea_token_last4, email=a.gitea_email or "–", date=a.gitea_token_checked_at | localtime) }}</p>
+  <div class="grid">
+    <form method="post" action="/admin/users/{{ a.name }}/gitea/check">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="secondary">{{ _("Check now") }}</button>
+    </form>
+    <form method="post" action="/admin/users/{{ a.name }}/gitea/delete" onsubmit="return confirm({{ _('Remove the Gitea credentials?') | tojson | forceescape }})">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="secondary outline">{{ _("Remove") }}</button>
+    </form>
+  </div>
+  {% endif %}
+  <details {% if not a.gitea_username %}open{% endif %}>
+    <summary>{{ _("Replace token") if a.gitea_username else _("Link an existing Gitea user") }}</summary>
+    <form method="post" action="/admin/users/{{ a.name }}/gitea">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="grid">
+        <label>{{ _("Gitea username") }} <input name="gitea_username" required value="{{ a.gitea_username or a.name }}"></label>
+        <label>{{ _("Access token") }} <input type="password" name="gitea_token" autocomplete="off" required></label>
+        <label>{{ _("Email (for commits)") }} <input type="email" name="gitea_email" value="{{ a.gitea_email or '' }}"></label>
+      </div>
+      <small>{{ _("The token is checked against Gitea (<code>GET /api/v1/user</code>) before saving and stored encrypted. Scopes required for agents: <code>write:repository</code>, <code>read:user</code>.") }}</small>
+      <button type="submit">{{ _("Check and save") }}</button>
+    </form>
+  </details>
+</article>
+
+{% if a.actor_type == "agent" %}
+<article id="sftp">
+  <header><strong>{{ _("SFTP storage") }}</strong>{% if not sftp_enabled %} <small class="muted">{{ _("switched off under Admin → Settings") }}</small>{% endif %}</header>
+  {% if a.sftp_username %}
+  <p>{{ _("SFTP user <strong>%(user)s</strong>, password <code>…%(last4)s</code>, last access test %(date)s", user=a.sftp_username, last4=a.sftp_password_last4, date=(a.sftp_checked_at | localtime) if a.sftp_checked_at else "–") }}</p>
+  <div class="grid">
+    <form method="post" action="/admin/users/{{ a.name }}/sftp/check">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="secondary">{{ _("Test access") }}</button>
+    </form>
+    <form method="post" action="/admin/users/{{ a.name }}/sftp/delete" onsubmit="return confirm({{ _('Remove the SFTP login?') | tojson | forceescape }})">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="secondary outline">{{ _("Remove") }}</button>
+    </form>
+  </div>
+  {% endif %}
+  <details {% if not a.sftp_username %}open{% endif %}>
+    <summary>{{ _("Replace SFTP login") if a.sftp_username else _("Add SFTP login") }}</summary>
+    <form method="post" action="/admin/users/{{ a.name }}/sftp">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="grid">
+        <label>{{ _("SFTP user") }} <input name="sftp_username" required maxlength="100" value="{{ a.sftp_username or a.name }}"></label>
+        <label>{{ _("Password") }} <input type="password" name="sftp_password" autocomplete="new-password" required></label>
+      </div>
+      <small>{{ _("Stored encrypted; the agent fetches it over HTTPS or from a trusted peer only (<code>tbr sftp</code>, audited). “Test access” logs in and writes and deletes a test file in the base folder.") }}</small>
+      <button type="submit">{{ _("Save") }}</button>
+    </form>
+  </details>
+</article>
+{% endif %}
+
+<article>
+  <header><strong>{{ _("Project access") }}</strong> <small class="muted">{{ _("sets the Gitea collaborator permissions") }}</small></header>
+  {% if access %}
+  <form method="post" action="/admin/users/{{ a.name }}/projects">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <table>
+      <thead><tr><th>{{ _("Member") }}</th><th>{{ _("Project") }}</th><th>{{ _("Permission") }}</th><th>{{ _("Gitea") }}</th></tr></thead>
+      <tbody>
+      {% for row in access %}{% set p = row.project %}{% set pm = row.member %}
+        <tr>
+          <td><input type="checkbox" name="member_{{ p.project_key }}" value="1" {% if pm %}checked{% endif %}
+                     {% if row.blocked %}disabled title="{{ _('local_only project, cloud actor') }}"{% endif %}></td>
+          <td>{{ p.project_key }} <small class="muted">{{ p.name }}{% if row.blocked %} · {{ _("local only") }}{% endif %}</small></td>
+          <td><select name="perm_{{ p.project_key }}" {% if row.blocked %}disabled{% endif %}>
+            {% for perm in ("write", "read") %}<option {% if pm and pm.gitea_permission == perm %}selected{% endif %}>{{ perm }}</option>{% endfor %}</select></td>
+          <td>{% if pm and pm.sync_error %}<span class="badge st-cancelled">{{ _("Error") }}</span> <small>{{ pm.sync_error }}</small>
+              {% elif pm and pm.gitea_synced_at %}<small>✅ {{ pm.gitea_synced_at | localtime }}</small>
+              {% elif pm %}<small class="muted">{{ _("pending") }}</small>{% else %}–{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit" class="secondary">{{ _("Save / synchronise again") }}</button>
+  </form>
+  {% else %}<p class="muted">{{ _("No projects yet.") }}</p>{% endif %}
+</article>
+{% endif %}
+{% endblock %}

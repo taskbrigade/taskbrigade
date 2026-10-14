@@ -1,0 +1,9 @@
+[Unit]
+Description=TaskBrigade DB-Backup täglich 02:30
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

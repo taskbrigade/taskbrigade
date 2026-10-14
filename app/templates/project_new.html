@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ _("New project") }} – TaskBrigade{% endblock %}
+{% block content %}
+<h2>{{ _("New project") }}</h2>
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+<form method="post" action="/projects/new">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div class="grid">
+    <label>{{ _("Key (2–8 characters A-Z/0-9)") }} <input name="key" required pattern="[A-Za-z0-9]{2,8}" value="{{ form.key or '' }}" style="text-transform: uppercase"></label>
+    <label>{{ _("Name") }} <input name="name" required maxlength="120" value="{{ form.name or '' }}"></label>
+  </div>
+  <label>{{ _("Description") }} <textarea name="description" rows="3">{{ form.description or '' }}</textarea></label>
+  {% if user.is_admin %}
+  <label>{{ _("Owner (responsible human)") }} <select name="owner">{% for h in humans %}<option {% if form.owner == h %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></label>
+  {% endif %}
+  <div class="grid">
+    <label>{{ _("Status") }} <select name="status">{% for s in ("idea", "active", "paused") %}<option value="{{ s }}" {% if form.status == s %}selected{% endif %}>{{ project_status_label(s) }}</option>{% endfor %}</select></label>
+    <label>{{ _("Privacy") }} <select name="privacy">
+      <option value="local_only" {% if form.privacy == "local_only" %}selected{% endif %}>{{ _("local agents only") }}</option>
+      <option value="cloud_ok" {% if form.privacy == "cloud_ok" %}selected{% endif %}>{{ _("cloud agents allowed") }}</option>
+    </select></label>
+  </div>
+  <fieldset>
+    <legend>{{ _("Gitea repo") }}</legend>
+    {% for mode, label in (("create", _("create a new Gitea repo")), ("link", _("link an existing repo")), ("none", _("no repo (idea)"))) %}
+    <label><input type="radio" name="gitea_mode" value="{{ mode }}" {% if form.gitea_mode == mode %}checked{% endif %}
+                  onchange="document.querySelectorAll('[data-mode]').forEach(e => e.hidden = e.dataset.mode !== this.value)"> {{ label }}</label>
+    {% endfor %}
+  </fieldset>
+  <div data-mode="create" {% if form.gitea_mode != "create" %}hidden{% endif %} class="grid">
+    <label>{{ _("Owner (user/org)") }} <input name="gitea_owner" value="{{ form.gitea_owner or '' }}"></label>
+    <label>{{ _("Repo name") }} <input name="gitea_repo" placeholder="{{ _('Default: key in lower case') }}" value="{{ form.gitea_repo or '' }}"></label>
+  </div>
+  <div data-mode="link" {% if form.gitea_mode != "link" %}hidden{% endif %}>
+    <label>{{ _("Repo") }}
+      <select name="linked_repo" hx-get="/projects/repos" hx-trigger="load" hx-swap="innerHTML">
+        <option value="">{{ _("loading repos from Gitea …") }}</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="add_missing_files" value="1" checked> {{ _("add missing files (brain.md, AGENTS.md, CLAUDE.md) with a commit – existing files are never overwritten") }}</label>
+    <label><input type="checkbox" name="protect_branch" value="1"> {{ _("enable branch protection on the default branch") }}</label>
+  </div>
+  <button type="submit">{{ _("Create") }}</button>
+</form>
+{% endblock %}

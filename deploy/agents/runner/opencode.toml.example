@@ -1,0 +1,14 @@
+# ~/taskbrigade-work/opencode/.taskbrigade.toml  (chmod 600)
+url = "https://taskbrigade.example.ts.net"
+token = "PASTE_API_TOKEN_HERE"   # TaskBrigade → Admin → Users & agents → opencode → Rotate token
+# language = "de"   # optional: German prompts, TASK.md and messages (default: English)
+
+[runner]
+# Starts the OpenCode TUI in the worktree with the assignment as the first message.
+# Set permissions for bash (git, tm) in the OpenCode configuration – see docs/cli-agents.md.
+command = ["opencode", "--prompt", "{prompt}"]
+mode = "tmux"
+tmux_session = "taskbrigade"
+# Model per task (tier simple/standard/complex or a concrete model, set in TaskBrigade): the runner adds
+# `--model <model>` after the program. Another switch: model_flag = "--model"; or put "{model}" into the command.
+# model_flag = "--model"

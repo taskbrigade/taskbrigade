@@ -1,0 +1,15 @@
+{% if matches %}
+<p class="banner ok">{{ _("SFTP server reachable, host key matches the stored fingerprint %(fp)s.", fp=fingerprint) }}</p>
+{% elif not stored %}
+<div class="banner warn">
+  <p>{{ _("SFTP server reachable. No fingerprint is stored yet – compare this one with the server (e.g. <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on the NAS) before accepting it:") }}</p>
+  <p><code>{{ fingerprint }}</code></p>
+  <form method="post" action="/admin/settings/sftp-host-key">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="fingerprint" value="{{ fingerprint }}">
+    <button type="submit">{{ _("Accept fingerprint") }}</button>
+  </form>
+</div>
+{% else %}
+<p class="banner error">{{ _("The SFTP server presents host key %(seen)s, but %(stored)s is stored – agents refuse to connect. If the server key was changed on purpose, enter the new fingerprint above.", seen=fingerprint, stored=stored) }}</p>
+{% endif %}

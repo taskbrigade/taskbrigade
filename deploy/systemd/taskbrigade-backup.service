@@ -1,0 +1,16 @@
+[Unit]
+Description=TaskBrigade DB-Backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=taskbrigade
+Group=taskbrigade
+WorkingDirectory=/opt/taskbrigade/app
+EnvironmentFile=/etc/taskbrigade/taskbrigade.env
+ExecStart=/opt/taskbrigade/app/deploy/backup.sh
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/taskbrigade

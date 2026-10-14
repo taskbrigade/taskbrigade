@@ -1,0 +1,13 @@
+{# Model tier and concrete model of a task. Needs `agent_models` (agent → allowed/applies) and `mf` (current
+   model_tier/model); the model choice follows the assignee select of the same form (static/model_fields.js). #}
+<div class="grid model-fields">
+  <label>{{ _("Model tier") }} <select name="model_tier">
+    <option value="none">{{ _("– agent default –") }}</option>
+    {% for tier in ("simple", "standard", "complex") %}<option value="{{ tier }}" {% if mf.model_tier == tier %}selected{% endif %}>{{ tier_label(tier) }}</option>{% endfor %}
+  </select></label>
+  <label>{{ _("Concrete model") }} <select name="model" data-model-select data-models="{{ agent_models | tojson | forceescape }}">
+    <option value="none">{{ _("– from tier / default –") }}</option>
+    {% if mf.model %}<option value="{{ mf.model }}" selected>{{ mf.model }}</option>{% endif %}
+  </select>
+    <small class="muted" data-model-hint hidden>{{ _("This agent chooses its model itself – tier and model are shown, but ignored by this agent.") }}</small></label>
+</div>

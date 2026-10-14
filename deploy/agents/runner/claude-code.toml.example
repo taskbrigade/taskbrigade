@@ -1,0 +1,15 @@
+# ~/taskbrigade-work/claude-code/.taskbrigade.toml  (chmod 600)
+url = "https://taskbrigade.example.ts.net"
+token = "PASTE_API_TOKEN_HERE"   # TaskBrigade → Admin → Users & agents → claude-code → Rotate token
+# language = "de"   # optional: German prompts, TASK.md and messages (default: English)
+
+[runner]
+# Interactive in a tmux window in auto mode; the runner also passes permissions (git, tm, files) as --allowedTools.
+command = ["claude", "--permission-mode", "auto", "{prompt}"]
+mode = "tmux"
+tmux_session = "taskbrigade"
+# Add further allowed commands, e.g. the project's tests:
+# claude_allow = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(git:*)", "Bash(tbr:*)", "Bash(tm:*)", "Bash(npm test:*)", "Bash(pytest:*)"]
+# Model per task (tier simple/standard/complex or a concrete model, set in TaskBrigade): the runner adds
+# `--model <model>` after the program. Another switch: model_flag = "--model"; or put "{model}" into the command.
+# model_flag = "--model"

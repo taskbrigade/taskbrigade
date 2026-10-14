@@ -1,0 +1,5 @@
+<p class="banner error">{{ nr }}: {{ message }}</p>
+<form hx-post="/inbox/{{ nr }}/reject_conflict" hx-target="this" hx-swap="outerHTML">
+  <input name="body" placeholder="{{ _('Optional note to the agent') }}">
+  <button type="submit">{{ _("Return the conflict to the agent") }}</button>
+</form>

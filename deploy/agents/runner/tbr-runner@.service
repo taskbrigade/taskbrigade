@@ -1,0 +1,15 @@
+# systemd user unit: one runner pass for the agent %i (work directory ~/taskbrigade-work/%i)
+#   Installation: ~/.config/systemd/user/  →  systemctl --user enable --now tbr-runner@claude-code.timer
+#   tbr setup <kind> writes equivalent per-agent units itself (tbr-runner-<agent>.service/.timer) – this template is the
+#   manual alternative.
+[Unit]
+Description=TaskBrigade runner for %i
+
+[Service]
+Type=oneshot
+# PATH so that tbr, git, tmux and the agent CLI (claude/codex/opencode) are found – adapt to the machine
+Environment=PATH=%h/.local/bin:%h/.npm-global/bin:%h/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/tbr run --work-root %h/taskbrigade-work/%i
+# The agent keeps running in the tmux window afterwards: if the runner starts the tmux server itself, systemd
+# must not stop it at the end of the pass.
+KillMode=process

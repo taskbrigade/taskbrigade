@@ -1,0 +1,5 @@
+{# Choices of the "Move" menu on a kanban card (GET /kanban/<nr>/moves, static/kanban.js): only the transitions the
+   viewer may run by the normal rules. Moving into "done" means approving and merging, so it asks first. #}
+{% for to in targets %}<button type="button" class="small secondary" data-move-to="{{ to }}" data-label="{{ status_label(to) }}"
+  {% if to == "done" %}data-confirm="{{ _('Merge %(nr)s?', nr=nr) }}"{% endif %}><span class="badge st-{{ to }}">{{ status_label(to) }}</span></button>
+{% else %}<p class="muted"><small>{{ _("No status change allowed for you from here.") }}</small></p>{% endfor %}

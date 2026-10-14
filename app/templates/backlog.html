@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Backlog – TaskBrigade{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ _("Backlog") }}</h2>
+  <span class="headline-actions">{% if can_plan_sprints %}<a href="/sprints/new{% if params.project %}?project={{ params.project | urlencode }}{% endif %}" role="button" class="small secondary">{{ _("New sprint") }}</a>{% endif %}
+  <a href="/tasks/new" role="button" class="small">{{ _("New task") }}</a></span></div>
+{# Search stays visible; the other filters fold into "Filters" on narrow screens (static/shell.js). The sort fields
+   live in _backlog_table.html (form="backlog-filter"), so they follow every table update. #}
+<form id="backlog-filter" class="filters" hx-get="/backlog" hx-target="#backlog-table" hx-push-url="true"
+      hx-trigger="change, keyup changed delay:300ms from:input[name=q]">
+  <input type="search" name="q" placeholder="{{ _('Search…') }}" value="{{ params.q or '' }}" aria-label="{{ _('Search') }}">
+  <button type="button" class="secondary filter-toggle" aria-expanded="false" aria-controls="backlog-more" data-toggle>{{ _("Filters") }}{% if active_filters %} <span class="count">{{ active_filters }}</span>{% endif %}</button>
+  <div id="backlog-more" class="filter-more collapsible">
+  {% include "_owner_filter.html" %}
+  <select name="agent" aria-label="{{ _('Agent') }}">
+    <option value="">{{ _("All actors") }}</option>
+    <option value="none" {% if params.assigned_to == "none" %}selected{% endif %}>{{ _("not assigned") }}</option>
+    {% for a in agents %}<option {% if params.assigned_to == a %}selected{% endif %}>{{ a }}</option>{% endfor %}
+  </select>
+  <select name="project" aria-label="{{ _('Project') }}">
+    <option value="">{{ _("All my projects") if owner_locked else _("All projects") }}</option>
+    {% for key, name in projects %}<option value="{{ key }}" {% if params.project == key %}selected{% endif %}>{{ key }}</option>{% endfor %}
+  </select>
+  {% include "_sprint_filter.html" %}
+  <select name="prio" aria-label="{{ _('Prio') }}">
+    <option value="">{{ _("Any prio") }}</option>
+    {% for p in range(1, 6) %}<option {% if p in params.prio %}selected{% endif %}>{{ p }}</option>{% endfor %}
+  </select>
+  <details class="dropdown">
+    <summary>{{ _("Status (%(count)s)", count=params.status | length or _("all")) }}</summary>
+    <ul>{% for s in statuses %}
+      <li><label><input type="checkbox" name="status" value="{{ s }}" {% if s in params.status %}checked{% endif %}>
+        {{ status_label(s) }}</label></li>{% endfor %}
+    </ul>
+  </details>
+  </div>
+</form>
+{% include "_owner_hint.html" %}
+<div id="backlog-table">{% include "_backlog_table.html" %}</div>
+{% endblock %}

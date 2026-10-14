@@ -1,0 +1,639 @@
+/* --- TaskBrigade design tokens (design review, binding). Change colours only here. ---------------------- */
+:root {
+  --tb-blue: #285F87;          /* Steel blue: primary buttons, links, active navigation, focus ring */
+  --tb-blue-hover: #1F4B6B;
+  --tb-orange: #D95D39;        /* Fire orange: brand accent only (logo); never for controls or small text */
+  --tb-text: #263746;          /* Headings, task titles, form text */
+  --tb-text-2: #617180;        /* Times, explanations, metadata */
+  --tb-bg: #FFFFFF;            /* Whole work area: white; cards/tables are set off by --tb-line borders */
+  --tb-hover: #F2F6FA;         /* Very light hover area on white (e.g. navigation) */
+  --tb-col: #F7F9FB;           /* Kanban columns: barely tinted, framed by --tb-line */
+  --tb-surface: #FFFFFF;       /* Tables, cards, forms */
+  --tb-line: #DDE3EA;          /* Borders and section dividers */
+  --tb-select: #EAF2F8;        /* Active menu item, selected/hovered rows */
+  --tb-control-line: #B9C4CF;  /* Border of secondary buttons (their text label identifies them) */
+  --tb-input-line: #8494A3;    /* Input borders: >= 3:1 against white (WCAG 1.4.11) */
+  --tb-text-2-tint: #56636F;   /* Secondary text on tinted areas (#EAF2F8, kanban columns): keeps >= 4.5:1 */
+  --tb-token-bg: #F5A55D;      /* Temporary sign-in token box (join code): light orange, text --tb-token-fg (>= 4.5:1) */
+  --tb-token-fg: #1F2D3A;
+  --tb-radius: 6px;
+  --tb-radius-lg: 8px;
+  /* Status colours stay independent of the brand colours; every status also shows its label. */
+  --st-blue-bg: #DCEBFA;  --st-blue-fg: #164A7A;     /* In progress, changes requested */
+  --st-green-bg: #DCF1E4; --st-green-fg: #17603A;    /* Done */
+  --st-amber-bg: #FDF0C8; --st-amber-fg: #6E4B00;    /* Questions / intervention needed */
+  --st-red-bg: #FBE0DD;   --st-red-fg: #8E1F17;      /* Error / aborted */
+  --st-violet-bg: #ECE4FB; --st-violet-fg: #4B2A8C;  /* For review */
+  --st-grey-bg: #E8ECF0;  --st-grey-fg: #3B4B59;     /* Defined, draft, cancelled */
+}
+/* The palette is defined for the light theme only: base.html sets data-theme="light" (Pico dark mode off). */
+:root:not([data-theme=dark]), [data-theme=light] {
+  --pico-background-color: var(--tb-bg);
+  --pico-color: var(--tb-text);
+  --pico-muted-color: var(--tb-text-2);
+  --pico-muted-border-color: var(--tb-line);
+  --pico-border-radius: var(--tb-radius);
+  --pico-primary: var(--tb-blue);
+  --pico-primary-background: var(--tb-blue);
+  --pico-primary-border: var(--tb-blue);
+  --pico-primary-underline: rgba(40, 95, 135, .45);
+  --pico-primary-hover: var(--tb-blue-hover);
+  --pico-primary-hover-background: var(--tb-blue-hover);
+  --pico-primary-hover-border: var(--tb-blue-hover);
+  --pico-primary-hover-underline: var(--tb-blue-hover);
+  --pico-primary-focus: rgba(40, 95, 135, .45);
+  --pico-primary-inverse: #fff;
+  --pico-secondary: var(--tb-text-2);
+  --pico-secondary-background: var(--tb-surface);
+  --pico-secondary-border: var(--tb-control-line);
+  --pico-secondary-underline: rgba(97, 113, 128, .45);
+  --pico-secondary-hover: var(--tb-text);
+  --pico-secondary-hover-background: var(--tb-select);
+  --pico-secondary-hover-border: var(--tb-blue);
+  --pico-secondary-focus: rgba(40, 95, 135, .45);
+  --pico-secondary-inverse: var(--tb-text);
+  --pico-contrast: var(--tb-text);
+  --pico-contrast-background: var(--tb-text);
+  --pico-contrast-border: var(--tb-text);
+  --pico-contrast-hover: #18232D;
+  --pico-contrast-hover-background: #18232D;
+  --pico-contrast-hover-border: #18232D;
+  --pico-contrast-focus: rgba(40, 95, 135, .45);
+  --pico-contrast-inverse: #fff;
+  --pico-h1-color: var(--tb-text); --pico-h2-color: var(--tb-text); --pico-h3-color: var(--tb-text);
+  --pico-h4-color: var(--tb-text); --pico-h5-color: var(--tb-text); --pico-h6-color: var(--tb-text);
+  --pico-card-background-color: var(--tb-surface);
+  --pico-card-sectioning-background-color: var(--tb-surface);
+  --pico-card-box-shadow: none;
+  --pico-dropdown-background-color: var(--tb-surface);
+  --pico-dropdown-hover-background-color: var(--tb-select);
+  --pico-table-border-color: var(--tb-line);
+  --pico-form-element-background-color: var(--tb-surface);
+  --pico-form-element-active-background-color: var(--tb-surface);
+  --pico-form-element-border-color: var(--tb-input-line);
+  --pico-form-element-active-border-color: var(--tb-blue);
+  --pico-form-element-focus-color: var(--tb-blue);
+  --pico-form-element-color: var(--tb-text);
+  --pico-text-selection-color: rgba(40, 95, 135, .2);
+  --pico-blockquote-border-color: var(--tb-line);
+  --pico-code-background-color: #EEF2F6;
+  --pico-code-color: var(--tb-text);
+}
+
+/* --- Base size: Pico scales from 100% to 131% with viewport width; keep it compact and fixed here. ------- */
+:root {
+  --pico-font-size: 87.5%;                       /* 14 px */
+  --pico-line-height: 1.45;
+  --pico-form-element-spacing-vertical: .4rem;   /* Buttons and inputs (Pico default .75rem/1rem). */
+  --pico-form-element-spacing-horizontal: .7rem;
+  --pico-spacing: 1rem;
+  --pico-typography-spacing-vertical: .9rem;
+}
+@media (min-width: 1024px) { :root { --pico-font-size: 93.75%; } }  /* 15 px */
+body { background: var(--tb-bg); color: var(--tb-text); }
+/* Page title ~24 px, content 14–15 px, metadata 12–13 px. */
+h1 { font-size: 1.75rem; } h2 { font-size: 1.6rem; } h3 { font-size: 1.2rem; } h4 { font-size: 1.05rem; }
+h1, h2, h3, h4, h5, h6 { font-weight: 600; }
+small, .meta { font-size: .85em; }
+label { font-size: .95rem; }
+select, input:not([type=checkbox],[type=radio]), textarea { font-size: .95rem; }
+button, [role=button], input[type=submit] { font-size: .95rem; }
+button.small, [role=button].small { font-size: .85rem; }
+/* Visible steel-blue focus ring on every control (keyboard users). */
+:where(a, button, [role=button], input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--tb-blue); outline-offset: 2px; }
+/* Secondary actions: white with a neutral border (Pico fills them grey by default). */
+:is(button, [role=button], input[type=submit]).secondary:not(.outline) {
+  background: var(--tb-surface); color: var(--tb-text); border-color: var(--tb-control-line); }
+:is(button, [role=button], input[type=submit]).secondary:not(.outline):is(:hover, :active, :focus) {
+  background: var(--tb-select); color: var(--tb-text); border-color: var(--tb-blue); }
+:is(button, [role=button]).outline.secondary { color: var(--tb-text); border-color: var(--tb-control-line);
+                                              background: var(--tb-surface); }
+article { border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg); box-shadow: none;
+          margin-bottom: 1.5rem; }
+article > header, article > footer { background: var(--tb-surface); border-color: var(--tb-line); }
+section { margin-bottom: 2rem; }
+
+.banner { padding: .6rem 1rem; border-radius: var(--tb-radius); margin: .5rem 0; }
+.banner.warn { background: var(--st-amber-bg); color: var(--st-amber-fg); }
+.banner.error { background: var(--st-red-bg); color: var(--st-red-fg); }
+.banner.ok { background: var(--st-green-bg); color: var(--st-green-fg); }
+.join-token { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; padding: .75rem 1rem;
+  margin: .5rem 0; border-radius: var(--tb-radius); background: var(--tb-token-bg); color: var(--tb-token-fg); }
+.join-token code { background: transparent; color: inherit; font-size: 1.05rem; font-weight: 600; padding: 0;
+  word-break: break-all; }
+.join-token button { margin: 0; width: auto; }
+form.inline { margin: 0; }
+button.small { padding: .25rem .6rem; font-size: .85rem; margin: 0; }
+article.narrow { max-width: 28rem; margin: 2rem auto; }
+nav.subnav ul { gap: 1rem; }
+nav.subnav a[aria-current="page"] { font-weight: 600; color: var(--tb-blue); background: var(--tb-select);
+                                     border-radius: var(--tb-radius); text-decoration: none; }
+tr.inactive td { opacity: .5; }
+label.reset { font-size: .8rem; margin-top: -.6rem; }
+[hidden] { display: none !important; }
+
+/* --- Header: white with a subtle divider; active item light blue with blue text. ---------------------------- */
+.topbar { background: var(--tb-surface); padding-top: .35rem; padding-bottom: .35rem;
+          border-bottom: 1px solid var(--tb-line); margin-bottom: 1.25rem; }
+.topbar nav { padding: 0; }
+.topbar nav, .topbar nav ul { flex-wrap: wrap; }
+.topbar nav a.brand { display: inline-flex; align-items: center; text-decoration: none; padding: .2rem .3rem; }
+.tb-logo { display: block; max-width: 100%; height: auto; }
+.topbar nav ul li { padding-top: .25rem; padding-bottom: .25rem; }
+.topbar nav a:not(.brand) { color: var(--tb-text); border-radius: var(--tb-radius); padding: .35rem .7rem;
+                            margin: 0; text-decoration: none; font-weight: 500; }
+.topbar nav a:not(.brand):hover { background: var(--tb-hover); color: var(--tb-blue); }
+.topbar nav a[aria-current="page"] { background: var(--tb-select); color: var(--tb-blue); font-weight: 600; }
+.topbar .lang-switch a { font-size: .8rem; letter-spacing: .05em; color: var(--tb-text-2); }
+.login-brand { display: flex; justify-content: center; margin: 2.5rem 0 .5rem; }
+/* Pico sets form elements to width:100%; override in flex rows where needed. */
+.quick-capture { display: flex; gap: .4rem; align-items: center; margin: .2rem 0 .3rem; }
+.quick-capture > input, .quick-capture > select, .quick-capture > button {
+  margin: 0; width: auto; height: 2.2rem; padding-top: .2rem; padding-bottom: .2rem; font-size: .9rem; }
+.quick-capture > input[name="title"] { flex: 1 1 14rem; min-width: 0; }
+.quick-capture > select { flex: 0 1 14rem; min-width: 0; }
+.quick-capture > button { flex: 0 0 auto; padding-left: 1rem; padding-right: 1rem; }
+.muted { color: var(--tb-text-2); }
+/* Help text below a checkbox label: own line, indented to the label text (checkbox + gap ~ 2rem). width:auto
+   because Pico's `input + small` rule sets width:100%, which overflows the form with the indent. */
+label > small.field-help { display: block; width: auto; margin: .15rem 0 0 2rem; line-height: 1.35; }
+.headline { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .5rem; }
+.headline h2 { margin-bottom: .5rem; }
+.filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1rem; }
+.filters > input, .filters > select, .filters > details { width: auto; margin: 0; min-width: 10rem; flex: 0 1 auto; }
+.filters > input[type="search"] { flex: 1 1 14rem; }
+.filters details.dropdown { min-width: 12rem; }
+
+/* --- Tables (backlog, inbox lists): white surface framed by a divider line. -------------------------------- */
+.table-card { background: var(--tb-surface); border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg);
+              overflow-x: auto; margin-bottom: 1rem; }
+.table-card table { margin: 0; }
+.table-card :is(th, td) { background: transparent; border-bottom-color: var(--tb-line); }
+.table-card thead th { color: var(--tb-text-2); font-size: .85em; font-weight: 600; }
+.table-card thead th a { color: inherit; text-decoration: none; }
+.table-card tbody tr:last-child td { border-bottom: none; }
+.table-card tbody tr:hover td, .table-card tbody tr[aria-selected="true"] td { background: var(--tb-select); }
+.table-card tbody tr:hover td.date, .table-card tbody tr:hover td.meta { color: var(--tb-text-2-tint); }
+td.task-nr a, a.task-nr { font-weight: 600; white-space: nowrap; }
+td.task-title { color: var(--tb-text); font-weight: 600; }
+td.date, td.meta { color: var(--tb-text-2); font-size: .85em; white-space: nowrap; }
+
+/* --- Status: own colour plus text label (never colour alone). ---------------------------------------------- */
+.badge { display: inline-block; padding: .1rem .55rem; border-radius: 1rem; font-size: .8rem; font-weight: 600;
+         white-space: nowrap; border: 1px solid transparent; line-height: 1.5; }
+.st-draft { background: var(--tb-surface); color: var(--st-grey-fg); border: 1px dashed #8C99A6; }
+.st-defined { background: var(--st-grey-bg); color: var(--st-grey-fg); }
+.st-in_progress { background: var(--st-blue-bg); color: var(--st-blue-fg); }
+.st-changes_requested { background: var(--tb-surface); color: var(--st-blue-fg); border-color: #7DA7CF; }
+.st-questions { background: var(--st-amber-bg); color: var(--st-amber-fg); }
+.st-for_review { background: var(--st-violet-bg); color: var(--st-violet-fg); }
+.st-aborted { background: var(--st-red-bg); color: var(--st-red-fg); }
+.st-done { background: var(--st-green-bg); color: var(--st-green-fg); }
+.st-cancelled { background: var(--st-grey-bg); color: var(--st-grey-fg); text-decoration: line-through; }
+/* Sprint status (planned, released, closed) and missing fields of drafts. */
+.sprint-planned { background: var(--tb-surface); color: var(--st-grey-fg); border: 1px dashed #8C99A6; }
+.sprint-released { background: var(--st-blue-bg); color: var(--st-blue-fg); }
+.sprint-closed { background: var(--st-green-bg); color: var(--st-green-fg); }
+.missing { color: var(--st-red-fg); }
+.sprint-progress { display: inline-block; width: 8rem; margin: 0 .4rem 0 0; vertical-align: middle; }
+.card-sprint { color: var(--tb-text-2); font-size: .8rem; }
+/* Priority: neutral scale (red only for prio 1) – not mixed up with the brand or the status colours. */
+.prio { display: inline-block; min-width: 1.4rem; text-align: center; border-radius: var(--tb-radius);
+        font-size: .8rem; font-weight: 700; border: 1px solid transparent; }
+.prio-1 { background: #B42318; color: #fff; } .prio-2 { background: var(--tb-text); color: #fff; }
+.prio-3 { background: var(--tb-text-2); color: #fff; } .prio-4 { background: var(--st-grey-bg); color: var(--tb-text); }
+.prio-5 { background: var(--tb-surface); color: var(--tb-text-2); border-color: var(--tb-line); }
+/* Model tier of a task: outlined, so it never competes with prio or status. */
+.tier { display: inline-block; padding: 0 .35rem; border: 1px solid var(--tb-line); border-radius: var(--tb-radius);
+        font-size: .75rem; color: var(--tb-text-2-tint); white-space: nowrap; }
+.tier-complex { border-color: var(--tb-text-2); color: var(--tb-text); font-weight: 600; }
+
+/* --- Kanban: framed, barely tinted columns, white cards. All columns share the width from 1024 px on (no
+   horizontal scrolling); titles wrap. Only narrower screens (tablet/phone) scroll horizontally. ----------- */
+.kanban { display: grid; grid-auto-flow: column; grid-template-columns: repeat(var(--cols, 8), minmax(0, 1fr));
+          gap: .5rem; padding-bottom: .5rem; font-size: .875rem; }
+@media (max-width: 1023px) {  /* Tablets and phones in landscape: only the board scrolls sideways (snapping). */
+  .kanban { grid-template-columns: none; grid-auto-columns: minmax(15rem, 1fr); overflow-x: auto;
+            overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding-left: 0; }
+  .kanban-col { scroll-snap-align: start; } }
+@media (min-width: 600px) and (max-width: 1023px) { .kanban { grid-auto-columns: 240px; } }
+.kanban-col { background: var(--tb-col); border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg);
+              padding: .4rem; min-width: 0; }
+.kanban-col h4 { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .3rem; font-size: .85rem;
+                 margin: .1rem 0 .5rem; line-height: 1.2; }
+.kanban-col h4 .badge { white-space: normal; }  /* Long status names wrap in narrow columns. */
+.kanban-col h4 small { font-size: .8rem; color: var(--tb-text-2); font-weight: 500; }
+.kanban-list { min-height: 4rem; }
+.kanban-hint { margin: 0 0 .5rem; line-height: 1.3; }
+.kanban-hint small { font-size: .75rem; color: var(--tb-text-2-tint); }
+.card { margin: 0 0 .4rem; padding: .45rem .5rem; cursor: grab; background: var(--tb-surface);
+        border: 1px solid var(--tb-line); border-radius: var(--tb-radius); }
+.card:hover { border-color: #A9BCCD; }
+.card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .2rem .4rem;
+             font-size: .8rem; }
+.card-head a { white-space: nowrap; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Use German hyphenation (lang="de") instead of arbitrary breaks inside words. */
+.card-title { font-size: .875rem; font-weight: 600; color: var(--tb-text); margin: .3rem 0; line-height: 1.3;
+              hyphens: auto; overflow-wrap: break-word; }
+.card-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem .4rem; font-size: .8rem;
+             color: var(--tb-text-2); min-width: 0; }
+.card-meta > * { min-width: 0; overflow-wrap: anywhere; }
+.card-waiting { font-size: .8rem; margin: .2rem 0; overflow-wrap: anywhere; }
+.card .prio { min-width: 1.2rem; font-size: .75rem; }
+/* Shared column "questions / aborted": the status is also written on the card (.card-status); aborted cards are
+   light red with a red border. Contrast on #FDECEA: text 10.7:1, link 6.0:1, tinted secondary text 5.4:1,
+   border #C0392B 5.2:1 against the column. */
+.card .card-status { margin-top: .3rem; font-size: .75rem; }
+.card[data-status="aborted"] { background: #FDECEA; border-color: #C0392B; }
+.card[data-status="aborted"]:hover { border-color: var(--st-red-fg); }
+.card[data-status="aborted"] .card-meta, .card[data-status="aborted"] .card-sprint,
+.card[data-status="aborted"] .agent.none { color: var(--tb-text-2-tint); }
+.agent { display: inline-flex; align-items: center; gap: .25rem; color: var(--tb-text); font-weight: 600; }
+.agent::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: var(--tb-blue); }
+.agent.none { color: var(--tb-text-2); font-weight: 400; }
+.agent.none::before { background: transparent; border: 1px solid var(--tb-text-2); }
+.sortable-ghost { opacity: .4; }
+
+/* --- Task details: the cards of the new-task form (editor left, about 72 %), context cards on the right. ------- */
+.task-page { max-width: 80rem; margin: 0 auto 2rem; }
+.task-head { margin-bottom: 1rem; }
+nav.crumbs ol { display: flex; flex-wrap: wrap; gap: .3rem; list-style: none; padding: 0; margin: 0 0 .35rem;
+             font-size: .85rem; color: var(--tb-text-2-tint); }
+nav.crumbs li { list-style: none; margin: 0; padding: 0; }
+.crumbs li + li::before { content: "/"; margin-right: .3rem; }
+.crumbs a { color: var(--tb-text-2-tint); }
+.task-head h2 { margin: 0; overflow-wrap: anywhere; hyphens: auto; }
+.task-version { margin: .1rem 0 0; font-size: .85rem; color: var(--tb-text-2-tint); }
+.detail-grid { display: grid; grid-template-columns: minmax(0, 2.6fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .detail-grid { grid-template-columns: minmax(0, 1fr); } }
+.task-page label > :is(select, input) + small { margin-top: -.6rem; margin-bottom: var(--pico-spacing); }
+.static-field[readonly] { background: var(--tb-col); border-color: var(--tb-line); color: var(--tb-text); cursor: default; }
+.spec-section { border-top: 1px solid var(--tb-line); padding-top: .8rem; margin-top: 1rem; }
+.spec-section > h5 { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+                     color: var(--tb-text-2); }
+.fact-label { display: block; font-size: .85rem; color: var(--tb-text-2); margin-bottom: .2rem; }
+.facts-head { margin-bottom: .2rem; }
+dl.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: .6rem 1rem;
+           margin: 1rem 0; padding-top: .8rem; border-top: 1px solid var(--tb-line); }
+dl.facts dt { font-size: .8rem; font-weight: 600; color: var(--tb-text-2); margin: 0; }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+.fold-body > dl.facts { border-top: 0; padding-top: 0; margin-top: 0; }
+.side-card { background: var(--tb-surface); border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg);
+             padding: 1rem 1.1rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
+.side-card > h3 { font-size: 1.1rem; margin-bottom: .8rem; }
+details.side-card > summary { display: flex; align-items: center; gap: .5rem; margin: 0; font-size: 1.1rem;
+                              font-weight: 700; }
+details.side-card > summary:not([role]), details.side-card[open] > summary:not([role]):not(:focus) { color: var(--tb-text); }
+details.side-card > summary::after { margin-left: auto; }
+details.side-card[open] > summary { margin-bottom: .8rem; }
+.side-card > :last-child, .side-card form:last-child { margin-bottom: 0; }
+.empty-note { text-align: center; }
+/* Actions: one compact release check instead of competing banners; secondary actions as framed folds. */
+.release-check { background: var(--st-amber-bg); border: 1px solid #E2C46A; border-radius: var(--tb-radius);
+                 padding: .65rem .9rem; margin-bottom: .8rem; font-size: .9rem; color: var(--tb-text); }
+.release-check[data-state="ready"] { background: var(--st-green-bg); border-color: #9CCFB0; }
+.release-check .rc-title { margin: 0; }
+.release-check [data-rc] { display: none; }
+.release-check[data-state="blocked"] [data-rc="blocked"], .release-check[data-state="unassigned"] [data-rc="unassigned"],
+.release-check[data-state="ready"] [data-rc="ready"] { display: inline; }
+.release-check ul { margin: .35rem 0 0; padding-left: 1.2rem; }
+.release-check li { margin: 0; }
+.release-form button { width: 100%; margin-bottom: .3rem; }
+.release-form small { display: block; }
+.notice-box { background: var(--st-amber-bg); color: var(--tb-text); border-radius: var(--tb-radius);
+              padding: .6rem .8rem; font-size: .9rem; }
+.notice-box.error { background: var(--st-red-bg); }
+.action-wide { display: block; width: 100%; margin-bottom: .8rem; }
+.action-fold { border: 1px solid var(--tb-line); border-radius: var(--tb-radius); padding: 0 .9rem; }
+.action-fold > summary { padding: .6rem 0; margin: 0; font-weight: 600; color: var(--tb-text); }
+.action-fold[open] > summary { border-bottom: 1px solid var(--tb-line); margin-bottom: .7rem; }
+.action-fold[open] { padding-bottom: .1rem; }
+dl.struct { margin: 0; }
+dl.struct > div { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: .5rem; padding: .45rem 0;
+                  border-top: 1px solid var(--tb-line); }
+dl.struct > div:first-child { border-top: 0; padding-top: 0; }
+dl.struct dt { font-weight: 600; margin: 0; }
+dl.struct dd, dl.struct ul { margin: 0; }
+.upload-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.upload-form input[type=file] { flex: 1 1 100%; margin: 0; min-width: 0; }
+.upload-form button { width: auto; margin: 0; }
+.upload-form small { flex: 1 1 100%; margin: 0; }
+.links .created { margin: .7rem 0 0; padding-top: .6rem; border-top: 1px solid var(--tb-line); }
+.comment-form { display: flex; gap: .75rem; align-items: flex-start; }
+.comment-form textarea { flex: 1 1 auto; margin: 0; }
+.comment-form button { width: auto; margin: 0; }
+.discussion .history { margin: 1rem 0 .75rem; }
+.discussion .history .events-wrap { padding: .5rem 1rem; }
+.comment { border-left: 3px solid var(--tb-line); padding: .2rem .8rem; margin-bottom: .9rem; }
+.ct-question { border-left-color: #C98A00; } .ct-answer { border-left-color: #2E8B57; }
+.ct-review { border-left-color: #6F4BC1; } .ct-system { border-left-color: #A9B4BF; }
+.md p:last-child { margin-bottom: 0; }
+ul.plain { list-style: none; padding-left: 0; } ul.plain li { list-style: none; }
+table.events td { padding: .2rem .4rem; font-size: .85rem; background: transparent; }
+.actions form, .actions details { margin-bottom: .8rem; }
+
+/* --- Inbox: what a human has to do now first, notices after that. -------------------------------------------- */
+.inbox-group { margin-bottom: 2.25rem; }
+.inbox-group > h3 { display: flex; align-items: baseline; gap: .6rem; padding-bottom: .4rem;
+                    border-bottom: 2px solid var(--tb-line); margin-bottom: 1rem; }
+.inbox-group.act > h3 { border-bottom-color: var(--tb-blue); }
+.inbox-group > h3 small { color: var(--tb-text-2); font-weight: 400; font-size: .85rem; }
+.inbox-group section { margin-bottom: 1.5rem; }
+.inbox-group section > h4 { display: flex; align-items: center; gap: .5rem; }
+
+/* --- Sprint editor: headings on the left, details of the selected entry on the right. ------------------------ */
+.headline-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.sprint-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0 1rem; }
+.sprint-head > label:nth-child(2) { grid-column: span 2; }
+.sprint-editor { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 1.25rem; align-items: start; }
+@media (max-width: 900px) {
+  .sprint-editor { grid-template-columns: 1fr; }
+  .sprint-head > label:nth-child(2) { grid-column: auto; }
+}
+.se-list h3, .se-detail h3 { font-size: 1.05rem; margin-bottom: .6rem; }
+/* Pico pulls `input + small` up with a negative margin; the help text sits below the input here. */
+.se-list #se-add { margin-bottom: .3rem; }
+.se-list #se-add + small#se-add-help { display: block; margin: 0 0 .6rem; }
+.se-list ol { list-style: none; padding: 0; margin: 0 0 .75rem; border: 1px solid var(--tb-line);
+              border-radius: var(--tb-radius-lg); background: var(--tb-surface); }
+.se-list ol:empty { display: none; }
+.se-item { list-style: none; display: flex; align-items: flex-start; gap: .5rem; margin: 0; padding: .5rem .6rem;
+           border-bottom: 1px solid var(--tb-line); cursor: pointer; }
+.se-item:last-child { border-bottom: 0; }
+.se-item:hover { background: var(--tb-hover); }
+.se-item.selected { background: var(--tb-select); box-shadow: inset 3px 0 0 var(--tb-blue); }
+.se-item:focus-visible { outline: 2px solid var(--tb-blue); outline-offset: -2px; }
+.se-handle { cursor: grab; color: var(--tb-text-2); user-select: none; line-height: 1.5; }
+.se-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.se-title { overflow-wrap: anywhere; font-weight: 600; }
+.se-ready { font-size: .8rem; color: var(--tb-text-2-tint); }
+.se-ready.ok { color: var(--st-green-fg); }
+.se-ready.missing { color: var(--st-red-fg); }
+.se-item button.se-del { background: none; border: 0; color: var(--tb-text-2-tint); padding: 0 .35rem; margin: 0;
+                         width: auto; font-size: 1.1rem; line-height: 1.3; }
+.se-item button.se-del:hover { color: var(--st-red-fg); }
+.se-ghost { opacity: .4; }
+.se-detail { border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg); padding: 1rem 1.1rem;
+             background: var(--tb-surface); }
+.se-detail input:disabled, .se-detail textarea:disabled, .se-detail select:disabled { opacity: .75; }
+.se-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .75rem; margin-top: 1rem; }
+.se-actions button { width: auto; margin: 0; }
+.se-note { font-size: .85rem; text-align: right; margin-top: .5rem; }
+
+/* --- New-task form: centred cards on a calm tinted page; content first, planning below, rare options folded. -- */
+body.tinted { background: var(--tb-col); }
+.task-form { max-width: 72rem; margin: 0 auto 2rem; }
+.form-card { background: var(--tb-surface); border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg);
+             padding: 1.25rem 1.5rem .5rem; margin-bottom: 1rem; }
+.form-card > h2 { margin-bottom: .15rem; }
+.form-card > h3 { margin-bottom: .9rem; }
+.form-card .form-lead { margin-bottom: 1rem; }
+/* Rows: 2/3 + 1/3 (project, status), two or three equal columns; one column on narrow screens. */
+.form-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 1rem; }
+@media (min-width: 768px) {
+  .form-row.cols-2-1 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .form-row.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form-row.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.form-row > label { min-width: 0; }
+/* Pico pulls `select + small` up with a negative margin; help text sits below the field here. */
+.task-form label > :is(select, input) + small { margin-top: -.6rem; margin-bottom: var(--pico-spacing); }
+/* Markdown fields: label left, "Edit / Preview" tabs right. */
+.md-field { margin-bottom: var(--pico-spacing); }
+.md-field-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end;
+                 gap: .3rem 1rem; margin-bottom: .3rem; }
+.md-field-head label { margin: 0; }
+.md-field textarea { margin-bottom: 0; resize: vertical; }
+.md-tabs { display: inline-flex; border: 1px solid var(--tb-line); border-radius: var(--tb-radius); overflow: hidden; }
+.md-tabs .md-tab { margin: 0; width: auto; padding: .2rem .8rem; font-size: .8rem; border: 0; border-radius: 0;
+                   background: var(--tb-surface); color: var(--tb-text-2); border-bottom: 2px solid transparent; }
+.md-tabs .md-tab + .md-tab { border-left: 1px solid var(--tb-line); }
+.md-tabs .md-tab[aria-selected="true"] { background: var(--tb-select); color: var(--tb-blue); font-weight: 600;
+                                         border-bottom-color: var(--tb-blue); }
+.md-tabs .md-tab:focus-visible { outline-offset: -2px; }
+.md-preview-pane { min-height: 7.5rem; padding: .5rem .7rem; border: 1px solid var(--tb-line);
+                   border-radius: var(--tb-radius); background: var(--tb-col); overflow-wrap: anywhere; }
+/* Folded sections and attachments: framed boxes with the title on the left and a short summary next to it. */
+.form-fold { border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg); padding: 0; margin: 0 0 .75rem; }
+.form-fold > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem 1.5rem;
+                       padding: .7rem 1rem; margin: 0; line-height: 1.4; }
+.form-fold > summary::after { margin-left: auto; align-self: center; }
+.form-fold[open] > summary { margin-bottom: 0; border-bottom: 1px solid var(--tb-line); }
+.form-fold .fold-title { font-weight: 600; color: var(--tb-text); }
+.form-fold .fold-summary { color: var(--tb-text-2); font-size: .85rem; }
+.form-fold .fold-body { padding: .9rem 1rem 0; }
+fieldset.form-fold { padding: .7rem 1rem .2rem; }
+fieldset.form-fold > legend { float: left; width: 100%; padding: 0; margin: 0 0 .6rem; }
+fieldset.form-fold > legend + * { clear: both; }
+.attach-row { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1rem; margin-bottom: .6rem; }
+.attach-row input[type=file] { width: auto; max-width: 100%; margin: 0; }
+.attach-row small { margin: 0; width: auto; }
+.form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .75rem; margin: 1rem 0; }
+.form-actions > :is(a, button) { width: auto; margin: 0; }
+
+/* --- Mobile app shell ("compact header" mockup). The layout follows the available width, never the
+   user agent or the orientation: below 960 px a small header with logo, "+ Task" and a menu button (static/shell.js
+   opens `.collapsible` elements); below 600 px phone layouts. Without JavaScript (no `html.js`) everything stays
+   visible. Touch targets >= 44 px and 16 px input text (no iOS zoom) on narrow screens. ----------------------- */
+.topbar-compact, .qc-label { display: none; }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+                   white-space: nowrap; }
+html, body { max-width: 100%; overflow-x: clip; }
+main { min-width: 0; }
+@media (max-width: 959px) {
+  .topbar { padding-top: max(.35rem, env(safe-area-inset-top)); margin-bottom: 1rem;
+            padding-left: max(var(--pico-spacing), env(safe-area-inset-left));
+            padding-right: max(var(--pico-spacing), env(safe-area-inset-right)); }
+  main.container-fluid { padding-left: max(var(--pico-spacing), env(safe-area-inset-left));
+                         padding-right: max(var(--pico-spacing), env(safe-area-inset-right));
+                         padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  .topbar nav { flex-wrap: wrap; align-items: center; }
+  .topbar nav > ul:first-child { flex: 1 1 auto; min-width: 0; }
+  .topbar-compact { display: flex; align-items: center; gap: .5rem; }
+  .topbar-compact :is(button, [role=button]) { min-height: 44px; min-width: 44px; margin: 0; width: auto;
+                                              display: inline-flex; align-items: center; justify-content: center; }
+  .topbar-compact .menu-toggle { font-size: 1.25rem; padding: 0 .6rem; }
+  .js .collapsible:not(.is-open) { display: none !important; }
+  /* Menu: the existing navigation as a vertical list below the header. */
+  .topbar nav > ul#main-nav.collapsible { flex: 1 0 100%; flex-direction: column; align-items: stretch;
+                                          margin: .35rem 0 .2rem; padding: .35rem 0 0; border-top: 1px solid var(--tb-line); }
+  .topbar nav > ul#main-nav.collapsible > li { padding: 0; }
+  .topbar nav > ul#main-nav.collapsible a:not(.brand) { display: flex; align-items: center; min-height: 44px;
+                                                        padding: .4rem .75rem; }
+  .topbar nav > ul#main-nav.collapsible form.inline button { width: 100%; min-height: 44px; margin: .3rem 0; }
+  .topbar nav > ul#main-nav.collapsible .lang-switch a { font-size: .9rem; }
+  /* "+ Task": the quick capture opens as a compact sheet below the header (same form, same defaults). */
+  .quick-capture.collapsible { flex-wrap: wrap; padding: .6rem 0 .3rem; border-top: 1px solid var(--tb-line);
+                               margin-top: .35rem; }
+  .quick-capture.collapsible > input[name="title"] { flex: 1 0 100%; }
+  .quick-capture.collapsible > select { flex: 1 1 10rem; }
+  .quick-capture > input, .quick-capture > select, .quick-capture > button { height: auto; min-height: 44px; }
+  .quick-capture .qc-label { display: inline; margin-left: .3rem; }
+  select, input:not([type=checkbox],[type=radio]), textarea { font-size: 16px; }
+  :is(button, [role=button], input[type=submit], select, summary[role=button]) { min-height: 44px; }
+  input:not([type=checkbox],[type=radio],[type=hidden]) { min-height: 44px; }
+  button.small, [role=button].small { padding-top: .35rem; padding-bottom: .35rem; }
+  .headline { flex-wrap: wrap; }
+  :is(button, [role=button]):not(.menu-toggle) { display: inline-flex; align-items: center; justify-content: center; }
+  details > summary:not([role=button]) { min-height: 44px; display: flex; align-items: center; }
+  details > summary:not([role=button])::after { margin-left: auto; }
+  .topbar nav a.brand { min-height: 44px; }
+  fieldset { min-width: 0; }
+  .attach-row input[type=file] { min-width: 0; width: 100%; }
+}
+@media (max-width: 599px) { .topbar .tb-logo { height: 28px; width: auto; } }
+@media (min-width: 960px) { .topbar #main-nav { display: flex; } }
+@media (max-width: 599px) {
+  h2 { font-size: 1.4rem; }
+  .headline h2 { margin-bottom: .25rem; }
+  .table-card { border-radius: var(--tb-radius); }
+}
+
+/* Filter rows (backlog, kanban): search stays visible, the other filters fold into "Filters" on narrow screens. */
+.filter-toggle { display: none; }
+.filter-more { display: contents; }
+.filters > .filter-more > :is(select, details) { width: auto; margin: 0; min-width: 10rem; flex: 0 1 auto; }
+.filters > .filter-more > details.dropdown { min-width: 12rem; }
+.filter-reset { align-self: center; }
+.filter-state { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; margin-bottom: .6rem; }
+.filter-state p { margin: 0; }
+@media (max-width: 959px) {
+  .filters { gap: .5rem; }
+  .filters > input[type="search"] { flex: 1 1 12rem; min-width: 0; }
+  .filters > .filter-toggle { display: inline-flex; align-items: center; gap: .4rem; width: auto; margin: 0; }
+  .js .filters > .filter-more.collapsible.is-open { display: grid; }
+  .filters > .filter-more { flex: 1 0 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+                           gap: .5rem; }
+  .filters > .filter-more > :is(select, details) { width: 100%; min-width: 0; margin: 0; }
+  .filters > .filter-more details.dropdown > summary { min-height: 44px; }
+  .filters > .filter-more details.dropdown li label { min-height: 44px; display: flex; align-items: center; gap: .4rem; }
+  .filter-toggle .count { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: 1rem;
+                          background: var(--tb-blue); color: #fff; font-size: .8rem; text-align: center; }
+}
+.sort-ctl { display: none; }
+@media (max-width: 899px) {
+  .sort-ctl { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 0 0 .6rem; }
+  .sort-ctl select { width: auto; flex: 1 1 9rem; margin: 0; }
+  .sort-ctl label { margin: 0; font-size: .85rem; color: var(--tb-text-2); }
+}
+
+/* Task tables as stacked cards on narrow screens (backlog, inbox): the same rows and data, only laid out
+   vertically. The task number link covers the whole card; other links inside sit above it. */
+@media (max-width: 899px) {
+  table.cards thead { display: none; }
+  table.cards, table.cards tbody { display: block; }
+  table.cards tr { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; position: relative;
+                   padding: .7rem .85rem; border-bottom: 1px solid var(--tb-line); }
+  table.cards tbody tr:last-child { border-bottom: 0; }
+  table.cards td { display: block; padding: 0; border: 0; background: transparent !important; min-width: 0; }
+  table.cards td.task-nr a::after { content: ""; position: absolute; inset: 0; }
+  table.cards td a:not(.task-nr a) { position: relative; z-index: 1; }
+  table.cards td.task-title { order: 1; flex: 1 0 100%; font-size: 1rem; line-height: 1.35; white-space: normal;
+                              overflow-wrap: anywhere; hyphens: auto; }
+  table.cards td.c2 { order: 2; }
+  table.cards td.c3 { order: 3; }
+  table.cards td.c3.first { margin-left: auto; }
+  table.cards td.card-hide { display: none; }
+  table.cards td.date, table.cards td.meta { white-space: normal; }
+  table.cards td[data-label]::before { content: attr(data-label) " "; color: var(--tb-text-2); }
+  table.cards td.empty { flex: 1 0 100%; }
+  table.cards tbody tr:hover td { background: transparent; }
+  table.cards tbody tr:hover, table.cards tbody tr:focus-within { background: var(--tb-select); }
+}
+
+/* Inbox: compact "all done" message and folded notice groups. */
+.all-clear { display: flex; align-items: center; gap: .6rem; padding: .75rem 1rem; border: 1px solid var(--tb-line);
+             border-left: 4px solid var(--st-green-fg); border-radius: var(--tb-radius-lg); margin: 0 0 .5rem; }
+.all-clear strong { color: var(--st-green-fg); }
+.notice { border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg); margin: 0 0 .6rem; }
+.notice > summary { display: flex; align-items: center; gap: .5rem; min-height: 44px; padding: .4rem .9rem; margin: 0;
+                    font-weight: 600; }
+.notice > summary::after { margin-left: auto; }
+.notice[open] > summary { border-bottom: 1px solid var(--tb-line); }
+.notice > .notice-body { padding: .6rem .9rem 0; }
+.notice .table-card { border: 0; }
+.count-pill { display: inline-block; min-width: 1.6rem; padding: 0 .45rem; border-radius: 1rem; text-align: center;
+              background: var(--tb-select); color: var(--tb-blue); font-size: .8rem; font-weight: 700; }
+.inbox-group.act section > h4 .count-pill { background: var(--tb-blue); color: #fff; }
+@media (max-width: 599px) {
+  .inbox-group { margin-bottom: 1.5rem; }
+  .inbox-group > h3 { font-size: 1.1rem; margin-bottom: .75rem; }
+  .inbox-group section { margin-bottom: 1rem; }
+  .inbox-group article { padding: .75rem; margin-bottom: .75rem; }
+  .inbox-group article > header { margin: -.75rem -.75rem .6rem; padding: .6rem .75rem; overflow-wrap: anywhere; }
+  .inbox-group .grid { grid-template-columns: 1fr 1fr; gap: .5rem; }
+  .headline .filters { width: 100%; }
+  .headline .filters > select { flex: 1 1 10rem; }
+}
+
+/* Kanban on phones (< 600 px): one column at a time, chosen with the "Status column" picker (view only). Without
+   JavaScript all columns are stacked. From 600 px the picker is hidden and the columns sit side by side. */
+.kanban-picker { display: none; }
+.kanban-empty { margin: .3rem .2rem .5rem; }
+.kanban-list:has(.card) > .kanban-empty { display: none; }
+#kanban-msg:empty { display: none; }
+.card { position: relative; }
+.card-move { margin: .3rem 0 0; }
+.card-move > summary { font-size: .8rem; color: var(--tb-blue); padding: .1rem 0; margin: 0; line-height: 1.4;
+                       width: fit-content; }
+.card-move[open] > summary { margin-bottom: .3rem; }
+.card-move-list { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; }
+.card-move-list button { width: 100%; margin: 0; text-align: left; display: flex; align-items: center; }
+.card-move-list button .badge { white-space: normal; }
+.card-move-list p { margin: 0; }
+.card-sprint, .card-move { position: relative; z-index: 1; }
+@media (max-width: 1023px), (pointer: coarse) {
+  /* Touch: the whole card opens the task; "Move" and the sprint link sit above that area. */
+  .card .card-link::after { content: ""; position: absolute; inset: 0; }
+  .card { cursor: default; }
+  .card-move > summary { min-height: 44px; display: flex; align-items: center; font-size: .875rem; }
+  .card-move-list button { min-height: 44px; }
+  .card-head a, .card-head { font-size: .85rem; }
+}
+@media (max-width: 599px) {
+  .kanban-picker { display: block; margin-bottom: .75rem; }
+  .kanban-picker label { font-weight: 600; margin-bottom: .2rem; }
+  .kanban-picker select { margin: 0; }
+  .kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: minmax(0, 1fr); overflow-x: visible;
+            font-size: .95rem; }
+  .js .kanban .kanban-col:not([data-current]) { display: none; }
+  .js .kanban-col h4 { justify-content: space-between; }
+  .card { padding: .65rem .75rem; margin-bottom: .55rem; }
+  .card-title { font-size: 1rem; }
+  .card-meta, .card-head { font-size: .85rem; }
+}
+
+/* Task details on narrow screens: primary actions first, then the tabs "Details" / "Discussion" (one panel at a
+   time), then the folded side cards. Managers read first; "Edit" opens the form. From 960 px both panels show. */
+.detail-tabs, .edit-toggle, .details-head { display: none; }
+.more-actions-body { padding-top: .1rem; }
+.more-actions-body > :is(form, details, a) { margin-bottom: .8rem; }
+.events-wrap { overflow-x: auto; }
+@media (min-width: 960px) {
+  .read-view { display: none; }
+}
+@media (max-width: 959px) {
+  .detail-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--tb-line); margin: 0 0 1rem; }
+  .detail-tabs [role=tab] { flex: 1 1 0; margin: 0 0 -1px; border: 0; border-bottom: 3px solid transparent;
+                            border-radius: 0; background: transparent; color: var(--tb-text-2-tint); font-weight: 600;
+                            min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; }
+  .detail-tabs [role=tab][aria-selected="true"] { color: var(--tb-blue); border-bottom-color: var(--tb-blue); }
+  .detail-tabs [role=tab]:focus-visible { outline-offset: -2px; }
+  .js .tab-hidden { display: none !important; }
+  .details-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .6rem;
+                  overflow-wrap: anywhere; }
+  .edit-toggle { display: inline-flex; align-items: center; width: auto; flex: 0 0 auto; }
+  .js .read-view:has(+ #edit.is-open) { display: none; }
+  .detail-grid { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+  .detail-main, .detail-side { display: contents; }
+  .detail-side > .actions { order: -2; }
+  .detail-tabs { order: -1; }
+  .detail-main > .tab-panel { order: 0; }
+  .detail-side > :not(.actions) { order: 1; }
+  .actions .grid { grid-template-columns: 1fr 1fr; }
+  .form-card, .side-card { padding: .9rem; }
+  .comment-form { flex-direction: column; align-items: stretch; }
+  .comment-form button { width: 100%; }
+  dl.struct > div { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+}

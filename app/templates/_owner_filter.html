@@ -1,0 +1,5 @@
+{% if not owner_locked %}<select name="owner" aria-label="{{ _('Owner') }}" title="{{ _('Filter projects by owner (remembered)') }}">
+  <option value="me" {% if owner == "me" %}selected{% endif %}>{{ _("My projects") }}</option>
+  <option value="all" {% if owner == "all" %}selected{% endif %}>{{ _("All owners") }}</option>
+  {% for o in owners %}<option value="{{ o }}" {% if owner == o %}selected{% endif %}>{{ _("Owner: %(name)s", name=o) }}</option>{% endfor %}
+</select>{% endif %}

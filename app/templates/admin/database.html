@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Database") }} – {{ _("Admin") }} – TaskBrigade{% endblock %}
+{% block content %}
+<h2>{{ _("Admin") }}</h2>
+{% include "admin/_nav.html" %}
+
+<section id="db-status">
+  {% include "admin/_db_status.html" %}
+</section>
+
+<article>
+  <form id="db-form" hx-post="/admin/database/test" hx-target="#db-result" hx-swap="innerHTML">
+    <div class="grid">
+      <label>{{ _("Host") }} <input name="host" value="{{ cfg.host }}" required></label>
+      <label>{{ _("Port") }} <input name="port" type="number" value="{{ cfg.port }}" required></label>
+    </div>
+    <div class="grid">
+      <label>{{ _("Database") }} <input name="database" value="{{ cfg.database }}" required></label>
+      <label>{{ _("User") }} <input name="user" value="{{ cfg.user }}" required></label>
+    </div>
+    <label>{{ _("Password") }}
+      <input type="password" name="password" autocomplete="new-password"
+             placeholder="{% if cfg.password_set %}{{ _('leave empty = unchanged') }}{% else %}{{ _('not set yet') }}{% endif %}">
+    </label>
+    <label>
+      <input type="checkbox" name="change_in_db" value="1" {% if not cfg.password_set %}disabled{% endif %}>
+      {{ _("Also change the password in MariaDB (field above = new password; the connection uses the previous one)") }}
+    </label>
+    <small>{{ _("Note: if the DB user exists for several hosts (e.g. <code>@'%%'</code> and <code>@'&lt;ip&gt;'</code>), <code>SET PASSWORD</code> only changes the account the current connection is logged in with.") }}</small>
+    <button type="submit">{{ _("Test connection") }}</button>
+  </form>
+  <div id="db-result"></div>
+</article>
+{% endblock %}

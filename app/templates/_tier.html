@@ -1,0 +1,1 @@
+{% if t.model_tier or t.model %}<span class="tier tier-{{ t.model_tier or 'model' }}" title="{{ _('Model tier') }}{% if t.model %}: {{ t.model }}{% endif %}">{{ tier_label(t.model_tier) if t.model_tier else t.model }}</span>{% endif %}

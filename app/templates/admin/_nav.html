@@ -1,0 +1,11 @@
+<nav class="subnav">
+  <ul>
+    <li><a href="/admin/database" {% if section == 'database' %}aria-current="page"{% endif %}>{{ _("Database") }}</a></li>
+    {% if db_ready %}
+    <li><a href="/admin/users" {% if section == 'users' %}aria-current="page"{% endif %}>{{ _("Users &amp; agents") }}</a></li>
+    <li><a href="/admin/settings" {% if section == 'settings' %}aria-current="page"{% endif %}>{{ _("Settings") }}</a></li>
+    {% endif %}
+  </ul>
+</nav>
+{% if message %}<p class="banner ok">{{ message }}</p>{% endif %}
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}

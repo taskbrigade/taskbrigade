@@ -1,0 +1,8 @@
+{# TaskBrigade logo (assets in app/static/brand/, built from mediaassets/Taskbrigade_logo.png by
+   mediaassets/build_brand.py). height: CSS pixels; the browser picks the file that fits the screen density. #}
+{% macro full(height=36, alt="TaskBrigade") -%}
+{% set width = (height * 415 / 72) | round | int %}
+<img class="tb-logo" src="/static/brand/logo.png?v={{ static_v }}"
+     srcset="/static/brand/logo.png?v={{ static_v }} 207w, /static/brand/logo@2x.png?v={{ static_v }} 415w, /static/brand/logo-readme.png?v={{ static_v }} 691w"
+     sizes="{{ width }}px" width="{{ width }}" height="{{ height }}" alt="{{ alt }}">
+{%- endmacro %}

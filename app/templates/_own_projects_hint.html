@@ -1,0 +1,2 @@
+<p class="banner warn">{{ _("You are not the owner of any project yet, and only your own projects are shown.") }}
+  <a href="/profile#display">{{ _("Turn on “Show all projects” in your profile") }}</a>{% if user and (user.is_admin or user.role == "member") %} · <a href="/projects/new">{{ _("New project") }}</a>{% endif %}</p>

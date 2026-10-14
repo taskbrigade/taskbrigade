@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Profile") }} – TaskBrigade{% endblock %}
+{% block content %}
+<h2>{{ _("Profile") }} – {{ actor.display_name or actor.name }}</h2>
+{% if message %}<p class="banner ok">{{ message }}</p>{% endif %}
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+
+<article id="display">
+  <h3>{{ _("Display") }}</h3>
+  <form method="post" action="/profile/display">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label><input type="checkbox" role="switch" name="show_all_projects" value="1" {% if actor.show_all_projects %}checked{% endif %}> {{ _("Show all projects") }}</label>
+    <small class="field-help">{{ _("Off: project list, backlog, kanban, inbox, sprints and project choices show only the projects you own. On: all projects, with the owner filter. Other projects stay reachable through direct links either way.") }}</small>
+    {% if actor.role == "admin" %}
+    <label><input type="checkbox" role="switch" name="show_all_agents" value="1" {% if actor.show_all_agents %}checked{% endif %}> {{ _("Show all agents") }}</label>
+    <small class="field-help">{{ _("Off: assignee and reviewer choices and agent filters show only your own and public agents. On: all agents. As an admin you may assign any agent either way; Admin → Users & agents always lists all.") }}</small>
+    {% endif %}
+    <button type="submit">{{ _("Save") }}</button>
+  </form>
+</article>
+
+<article id="telegram">
+  <h3>{{ _("Telegram") }}</h3>
+  {% if link %}
+    <p>{{ _("Linked with the chat %(chat)s since %(since)s.", chat=link.chat_name or link.chat_id, since=link.linked_at | localtime) }}</p>
+    <form method="post" action="/profile/telegram/unlink">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="secondary" type="submit">{{ _("Unlink") }}</button>
+    </form>
+    <small>{{ _("Sending /stop to the bot also unlinks the chat.") }}</small>
+  {% elif not bot_enabled %}
+    <p>{{ _("The Telegram bot is not enabled yet – an admin sets it up under Admin → Settings.") }}</p>
+  {% else %}
+    {% if code %}
+      <p>{{ _("Send this message to the bot within 15 minutes (the code works once):") }}</p>
+      <p><code class="copy">/start {{ code }}</code></p>
+      {% if bot_username %}<p><a href="https://t.me/{{ bot_username }}?start={{ code }}" target="_blank" rel="noopener">{{ _("Open @%(bot)s in Telegram", bot=bot_username) }}</a></p>{% endif %}
+      <small>{{ _("Valid until %(time)s.", time=code_expires | localtime) }}</small>
+    {% else %}
+      <p>{{ _("Not linked. Create a one-time code and send it to the bot to receive notifications in Telegram.") }}</p>
+      {% if pending %}<small>{{ _("An earlier code is valid until %(time)s; a new code replaces it.", time=pending.expires_at | localtime) }}</small>{% endif %}
+    {% endif %}
+    <form method="post" action="/profile/telegram/code">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" {% if code %}class="secondary"{% endif %}>{{ _("Create link code") }}</button>
+    </form>
+  {% endif %}
+</article>
+
+<article id="notifications">
+  <h3>{{ _("Notifications") }}</h3>
+  <form method="post" action="/profile/notifications">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <fieldset>
+      <legend>{{ _("Events") }}</legend>
+      {% for key, label in events.items() %}
+      <label><input type="checkbox" name="event_{{ key }}" value="1" {% if key in enabled %}checked{% endif %}> {{ label }}</label>
+      {% endfor %}
+      {% if actor.role == "admin" %}
+      <label><input type="checkbox" name="all_projects" value="1" {% if all_projects %}checked{% endif %}> {{ _("All projects (not only the ones I own)") }}</label>
+      {% endif %}
+    </fieldset>
+    <fieldset class="grid">
+      <legend>{{ _("Quiet hours (messages are collected and sent afterwards)") }}</legend>
+      <label>{{ _("from") }} <input type="time" name="quiet_start" value="{{ quiet_start }}"></label>
+      <label>{{ _("to") }} <input type="time" name="quiet_end" value="{{ quiet_end }}"></label>
+    </fieldset>
+    {% for field, current, label in [("mute_all", mute_all, _("Mute all messages")), ("mute_review", mute_review, _("Mute review requests"))] %}
+    <fieldset class="grid">
+      <legend>{{ label }}:
+        {% if current is none %}{{ _("off") }}{% elif current >= forever %}{{ _("permanently") }}{% else %}{{ _("until %(time)s", time=current | localtime) }}{% endif %}
+      </legend>
+      <label>{{ _("Change") }}
+        <select name="{{ field }}">{% for value, text in mute_options %}<option value="{{ value }}">{{ text }}</option>{% endfor %}</select>
+      </label>
+      <label>{{ _("until (for “until …”)") }} <input type="datetime-local" name="{{ field }}_at"></label>
+    </fieldset>
+    {% endfor %}
+    <button type="submit">{{ _("Save") }}</button>
+  </form>
+  <small>{{ _("In the bot: /pause 2h, /pause until 18:00, /resume, /reviews off, /inbox, /status.") }}</small>
+</article>
+
+{% if log %}
+<article id="delivery-log">
+  <h3>{{ _("Delivery log") }}</h3>
+  <table class="striped">
+    <thead><tr><th>{{ _("Time") }}</th><th>{{ _("Event") }}</th><th>{{ _("Task") }}</th><th>{{ _("Status") }}</th><th>{{ _("Attempts") }}</th><th>{{ _("Error") }}</th></tr></thead>
+    <tbody>
+    {% for n in log %}
+      <tr><td>{{ n.created_at | localtime }}</td><td>{{ (log_events | default(events)).get(n.event, n.event) }}</td><td>{{ n.task_nr or "–" }}</td>
+          <td>{{ status_labels.get(n.status, n.status) }}</td><td>{{ n.attempts }}</td><td>{{ n.last_error or "" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</article>
+{% endif %}
+{% endblock %}

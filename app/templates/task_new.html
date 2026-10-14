@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ _("New task") }} – TaskBrigade{% endblock %}
+{% block body_attrs %} class="tinted"{% endblock %}
+{% block head %}<script src="/static/task_form.js?v={{ static_v }}" defer></script>{% endblock %}
+{% block content %}
+{# Content first (project/status, title, description, criteria), then planning; rarely needed options fold away.
+   A section opens when it holds values or a validation error (`error_section`: "model" or "links"). #}
+{% set open_sprints = sprints | default([]) | rejectattr("status", "equalto", "closed") | list %}
+{% set has_tier = form.model_tier and form.model_tier != "none" %}{% set has_model = form.model and form.model != "none" %}
+{% set model_open = has_tier or has_model or error_section == "model" %}
+{% set links_open = form.parent_task_nr or form.depends_on or error_section == "links" %}
+<div class="task-form">
+{% if own_projects_only and not projects %}{% include "_own_projects_hint.html" %}{% endif %}
+<form method="post" action="/tasks/new" enctype="multipart/form-data" data-guard="new" id="new-task-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="back" value="{{ back or '/backlog' }}">
+  <section class="form-card" aria-labelledby="new-task-heading">
+    <h2 id="new-task-heading">{{ _("New task") }}</h2>
+    <p class="form-lead muted">{{ _("Describe the task and plan its execution") }}</p>
+    {% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+    <div class="form-row cols-2-1">
+      <label>{{ _("Project") }} <select name="project" required>
+        {% for key, name in projects %}<option value="{{ key }}" {% if form.project == key %}selected{% endif %}>{{ key }} – {{ name }}</option>{% endfor %}
+      </select></label>
+      <label>{{ _("Status") }} <select name="status" aria-describedby="new-task-status-help">
+        <option value="draft" {% if form.status != "defined" %}selected{% endif %}>{{ _("Draft – still to be worked out") }}</option>
+        <option value="defined" {% if form.status == "defined" %}selected{% endif %}>{{ _("Defined – agents may pick it up") }}</option>
+      </select>
+        <small class="muted" id="new-task-status-help">{{ _("Defined needs a description and acceptance criteria.") }}</small></label>
+    </div>
+    <label>{{ _("Title") }} <input name="title" required maxlength="200" value="{{ form.title or '' }}"
+                                   placeholder="{{ _('What needs to be done?') }}"></label>
+    {% set md_tabs = True %}{% set md_rows = 5 %}
+    {% set md_name = "description" %}{% set md_value = form.description %}{% set md_label = _("Description") %}
+    {% set md_placeholder = _("Describe the goal, context and expected result …") %}{% include "_md_field.html" %}
+    {% set md_name = "acceptance_criteria" %}{% set md_value = form.acceptance_criteria %}{% set md_label = _("Acceptance criteria") %}
+    {% set md_placeholder = _("- [ ] Define a verifiable result") %}{% include "_md_field.html" %}
+  </section>
+
+  <section class="form-card" aria-labelledby="new-task-planning">
+    <h3 id="new-task-planning">{{ _("Planning & assignment") }}</h3>
+    <div class="form-row cols-2">
+      <label>{{ _("Priority") }} <select name="prio">{% for p in range(1, 6) %}<option value="{{ p }}" {% if p == form.prio|int %}selected{% endif %}>{{ prio_label(p) }}</option>{% endfor %}</select></label>
+      <label>{{ _("Sprint") }}
+        {% if open_sprints %}
+        <select name="sprint" id="new-task-sprint" aria-describedby="new-task-sprint-help"><option value="">{{ _("– no sprint –") }}</option>
+          {% for key, group in open_sprints | groupby("project") %}<optgroup label="{{ key }}" data-project="{{ key }}">
+            {% for x in group %}<option value="{{ x.id }}" {% if form.sprint | string == x.id | string %}selected{% endif %}>{{ x.name }} ({{ sprint_status_label(x.status) }})</option>{% endfor %}
+          </optgroup>{% endfor %}</select>
+        <small class="muted" id="new-task-sprint-help">{{ _("Tasks in a planned sprint stay drafts until the sprint is released.") }}</small>
+        {% else %}
+        <select disabled aria-describedby="new-task-sprint-help"><option>{{ _("– no sprint –") }}</option></select>
+        <small class="muted" id="new-task-sprint-help">{{ _("No open sprint available.") }}</small>
+        {% endif %}
+      </label>
+    </div>
+    <div class="form-row cols-3">
+      <label>{{ _("Assign to") }} <select name="assigned_to"><option value="">{{ _("– nobody –") }}</option>
+        {% for a in agents %}<option {% if form.assigned_to == a %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+      {% set reviewer_value = form.reviewer or "" %}{% set reviewer_default = True %}{% include "_reviewer_field.html" %}
+      <label>{{ _("Due") }} <input type="date" name="due_date" value="{{ form.due_date or '' }}"></label>
+    </div>
+
+    <details class="form-fold" id="new-task-model" {% if model_open %}open{% endif %}>
+      <summary><span class="fold-title">{{ _("Model & execution") }}</span>
+        <span class="fold-summary" data-model-summary data-default="{{ _('Agent default') }}">
+          {%- if has_tier or has_model %}{{ ([tier_label(form.model_tier) if has_tier else None, form.model if has_model else None] | select | join(" · ")) }}{% else %}{{ _("Agent default") }}{% endif -%}
+        </span></summary>
+      <div class="fold-body">{% with mf=form %}{% include "_model_fields.html" %}{% endwith %}</div>
+    </details>
+
+    <details class="form-fold" id="new-task-links" {% if links_open %}open{% endif %}>
+      <summary><span class="fold-title">{{ _("Task links") }}</span>
+        <span class="fold-summary">{{ _("Parent task and dependencies") }}</span></summary>
+      <div class="fold-body form-row cols-2">
+        <label>{{ _("Parent task") }} <input name="parent_task_nr" placeholder="KET-0001" value="{{ form.parent_task_nr or '' }}"></label>
+        <label>{{ _("Depends on") }} <input name="depends_on" placeholder="KET-0002 KET-0003" value="{{ form.depends_on or '' }}"></label>
+      </div>
+    </details>
+
+    <fieldset class="form-fold attachments">
+      <legend class="fold-title">{{ _("Attachments") }}</legend>
+      <div class="attach-row">
+        <input type="file" name="attachments" multiple id="new-task-files" aria-describedby="new-task-files-help">
+        <small class="muted" id="new-task-files-help">{{ _("Max. 10 MB per file, stored in the project repo under <code>tasks/&lt;task no.&gt;/</code>") }}</small>
+      </div>
+      <label><input type="checkbox" name="create_spec_file" value="1" {% if form.create_spec_file %}checked{% endif %}>
+        <span>{{ _("Create spec file <code>tasks/&lt;nr&gt;.md</code> in the repo") }}</span></label>
+    </fieldset>
+
+    <div class="form-actions">
+      <a href="{{ back or '/backlog' }}" role="button" class="secondary">{{ _("Cancel") }}</a>
+      <button type="submit">{{ _("Create task") }}</button>
+    </div>
+  </section>
+</form>
+</div>
+{% endblock %}

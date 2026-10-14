@@ -1,0 +1,13 @@
+# Build context: only what the image needs (see Dockerfile COPY lines).
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!alembic.ini
+!app/
+!cli/
+!migrations/
+!deploy/agents/
+**/__pycache__
+**/*.pyc

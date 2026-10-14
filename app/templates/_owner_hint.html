@@ -1,0 +1,3 @@
+{% if owner_hint and owner_locked %}{% include "_own_projects_hint.html" %}
+{% elif owner_hint %}<p class="banner warn">{{ _("You are not the owner of any project yet – that is why the list is empty.") }}
+  <a href="?owner=all">{{ _("Show all owners") }}</a></p>{% endif %}

@@ -1,0 +1,19 @@
+# ~/taskbrigade-work/codex/.taskbrigade.toml  (chmod 600)
+url = "https://taskbrigade.example.ts.net"
+token = "PASTE_API_TOKEN_HERE"   # TaskBrigade → Admin → Users & agents → codex → Rotate token
+# language = "de"   # optional: German prompts, TASK.md and messages (default: English)
+
+[runner]
+# Sandbox workspace-write with network (tbr ask/comment/heartbeat). No approval prompts (never), so the run does not hang.
+# Codex locks the Git metadata (.git) in its sandbox – hence git = "runner": Codex only edits files and
+# creates .tm-submit.md at the end; the runner commits, pushes and submits after the run.
+# Turn off the update dialog at startup: check_for_update_on_startup = false in ~/.codex/config.toml.
+# The runner handles the trust dialog per worktree (entry in ~/.codex/config.toml, removed afterwards).
+command = ["codex", "--sandbox", "workspace-write", "--ask-for-approval", "never",
+           "-c", "sandbox_workspace_write.network_access=true", "{prompt}"]
+git = "runner"
+mode = "tmux"
+tmux_session = "taskbrigade"
+# Model per task (tier simple/standard/complex or a concrete model, set in TaskBrigade): the runner adds
+# `-m <model>` after the program. Another switch: model_flag = "--model"; or put "{model}" into the command.
+# model_flag = "-m"

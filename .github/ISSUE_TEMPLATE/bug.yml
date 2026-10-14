@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in TaskBrigade does not behave as it should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Please do not include tokens, passwords, or private task content.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Smallest sequence that shows the bug.
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: TaskBrigade version
+      description: From `pyproject.toml`, the UI, or `tbr --version` if available.
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python, browser (for UI bugs), and whether this is the API, CLI, or web UI.
+      placeholder: |
+        - OS:
+        - Python:
+        - Surface: web UI / CLI / API
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs with secrets removed, screenshots, or related issues.
+    validations:
+      required: false

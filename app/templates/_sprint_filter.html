@@ -1,0 +1,7 @@
+<select name="sprint" aria-label="{{ _('Sprint') }}" title="{{ _('Filter by sprint') }}">
+  <option value="">{{ _("All sprints") }}</option>
+  <option value="none" {% if sprint_filter == "none" %}selected{% endif %}>{{ _("Without sprint") }}</option>
+  {% for key, group in sprints | groupby("project") %}<optgroup label="{{ key }}">
+    {% for x in group %}<option value="{{ x.id }}" {% if sprint_filter == x.id | string %}selected{% endif %}>{{ x.name }}{% if x.status == "closed" %} ({{ sprint_status_label(x.status) }}){% endif %}</option>{% endfor %}
+  </optgroup>{% endfor %}
+</select>

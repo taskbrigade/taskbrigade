@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Projects") }} – TaskBrigade{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ _("Projects") }}</h2>{% if can_create %}<a href="/projects/new" role="button" class="small">{{ _("New project") }}</a>{% endif %}</div>
+{% if own_only %}{% if not items %}{% include "_own_projects_hint.html" %}{% else %}
+<p class="muted">{{ _("Only your own projects are shown.") }} <a href="/profile#display">{{ _("Show all projects") }}</a></p>{% endif %}{% endif %}
+<div class="overflow-auto">
+<table class="striped">
+  <thead><tr><th>{{ _("Key") }}</th><th>{{ _("Name") }}</th><th>{{ _("Owner") }}</th><th>{{ _("Status") }}</th><th>{{ _("Privacy") }}</th><th>{{ _("Repo") }}</th><th>{{ _("Open tasks") }}</th></tr></thead>
+  <tbody>
+  {% for p in items %}
+    {% set c = counts.get(p.id, {}) %}
+    <tr>
+      <td><a href="/projects/{{ p.project_key }}"><strong>{{ p.project_key }}</strong></a></td>
+      <td>{{ p.name }}</td>
+      {% set o = owners.get(p.owner_id) %}
+      <td>{{ o.name if o else "–" }}{% if o and not o.is_active %} <span class="badge st-cancelled" title="{{ _('Owner is deactivated – transfer the project') }}">{{ _("deactivated") }}</span>{% endif %}</td>
+      <td>{{ project_status_label(p.status) }}</td>
+      <td>{{ _("local only") if p.privacy == "local_only" else _("cloud ok") }}</td>
+      <td>{% if p.gitea_url %}<a href="{{ p.gitea_url }}" target="_blank" rel="noopener">{{ p.gitea_owner }}/{{ p.gitea_repo }} ↗</a>{% else %}–{% endif %}</td>
+      <td>
+        {% for st in ("defined", "in_progress", "questions", "for_review", "changes_requested") if c.get(st) %}
+          <a href="/backlog?project={{ p.project_key }}&status={{ st }}">{% with status=st %}{% include "_status.html" %}{% endwith %} {{ c[st] }}</a>
+        {% else %}<span class="muted">–</span>{% endfor %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted">{{ _("You do not own any projects.") if own_only else _("No projects yet.") }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

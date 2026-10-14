@@ -1,0 +1,38 @@
+# Optional Tailscale sidecar: HTTPS on the tailnet and login by Tailscale identity, as with the native installation.
+# Use it together with compose.yaml, e.g. COMPOSE_FILE=compose.yaml:compose.tailscale.yaml in .env (docs/docker.md).
+# TaskBrigade joins the network namespace of the sidecar, so `tailscale serve` reaches it on 127.0.0.1:8090 and
+# Tailscale-User-Login arrives from loopback. Needs TS_AUTHKEY in .env.
+
+services:
+  tailscale:
+    image: ${TBR_TAILSCALE_IMAGE:-tailscale/tailscale:stable}
+    hostname: ${TBR_TS_HOSTNAME:-taskbrigade}
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY in .env (Tailscale admin console → Settings → Keys)}
+      TS_HOSTNAME: ${TBR_TS_HOSTNAME:-taskbrigade}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      # Userspace networking: no /dev/net/tun or NET_ADMIN; serve still proxies into the shared namespace.
+      TS_USERSPACE: "true"
+      TS_EXTRA_ARGS: ${TS_EXTRA_ARGS:-}
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./deploy/docker/tailscale-serve.json:/config/serve.json:ro
+    # The published port moves here: TaskBrigade has no network of its own any more. Host agents keep using it.
+    ports:
+      - "${TBR_PUBLISH:-127.0.0.1:8090}:8090"
+    networks:
+      - taskbrigade
+
+  taskbrigade:
+    network_mode: service:tailscale
+    ports: !reset []
+    networks: !reset {}
+    depends_on:
+      tailscale:
+        condition: service_started
+
+volumes:
+  tailscale-state:
+    name: taskbrigade-tailscale-state

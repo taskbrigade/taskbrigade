@@ -1,0 +1,18 @@
+<article>
+  <header><strong>{{ _("Current status") }}</strong></header>
+  {% if probe.ok %}
+  <p>✅ {{ _("Connected – server version <code>%(version)s</code>", version=probe.server_version) }},
+     SKIP LOCKED: {{ _("available") if probe.skip_locked else _("not available (FOR UPDATE without SKIP LOCKED)") }}</p>
+  <p>{{ _("Schema: current <code>%(current)s</code>, latest <code>%(head)s</code>", current=probe.current_revision or _("empty"), head=probe.head_revision) }}
+    {% if probe.schema_current %}✅{% endif %}</p>
+  {% if not probe.schema_current %}
+  <form hx-post="/admin/database/upgrade" hx-target="#db-status"
+        hx-confirm="{{ _('Back up the database first! Upgrade the schema now?') }}">
+    <button type="submit">{{ _("Upgrade schema") }}</button>
+  </form>
+  {% endif %}
+  {% else %}
+  <p>❌ {{ _("Not connected: %(error)s", error=probe.error) }}</p>
+  {% endif %}
+  {% if message %}<p class="banner {{ message_kind or 'ok' }}">{{ message }}</p>{% endif %}
+</article>

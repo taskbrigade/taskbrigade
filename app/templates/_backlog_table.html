@@ -1,0 +1,43 @@
+{% macro th(col, label) %}<th><a href="{{ sort_url(col) }}" hx-get="{{ sort_url(col) }}" hx-target="#backlog-table" hx-push-url="true">{{ label }}{% if params.sort == col %} {{ "▼" if params.desc else "▲" }}{% endif %}</a></th>{% endmacro %}
+{# Desktop: table with sortable column heads. Below 900 px the same rows become cards (table.cards in app.css) and
+   the sort fields below take over; they belong to the filter form and carry the sort on every filter change. #}
+<div class="filter-state">
+  <p class="muted">{{ ngettext("%(num)d task", "%(num)d tasks", total) }}{% if active_filters %} · {{ ngettext("%(num)d filter active", "%(num)d filters active", active_filters) }}{% endif %}</p>
+  {% if active_filters or params.q %}<a href="/backlog" class="small">{{ _("Reset filters") }}</a>{% endif %}
+</div>
+<div class="sort-ctl" hx-get="/backlog" hx-include="#backlog-filter" hx-target="#backlog-table" hx-push-url="true"
+     hx-trigger="change">
+  <label for="backlog-sort">{{ _("Sort") }}</label>
+  <select id="backlog-sort" name="sort" form="backlog-filter">
+    {% for col, label in (("prio", _("Prio")), ("task_nr", _("Task")), ("title", _("Title")), ("status", _("Status")), ("created_at", _("Created")), ("updated_at", _("Changed"))) %}
+    <option value="{{ col }}" {% if params.sort == col %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    {% if params.sort not in ("prio", "task_nr", "title", "status", "created_at", "updated_at") %}<option value="{{ params.sort }}" selected>{{ params.sort }}</option>{% endif %}
+  </select>
+  <select name="desc" form="backlog-filter" aria-label="{{ _('Sort order') }}">
+    <option value="0" {% if not params.desc %}selected{% endif %}>{{ _("ascending") }}</option>
+    <option value="1" {% if params.desc %}selected{% endif %}>{{ _("descending") }}</option>
+  </select>
+</div>
+<div class="table-card">
+<table class="cards backlog">
+  <thead><tr>
+    {{ th("task_nr", _("Task")) }}{{ th("title", _("Title")) }}<th>{{ _("Project") }}</th><th>{{ _("Sprint") }}</th>{{ th("status", _("Status")) }}{{ th("prio", _("Prio")) }}
+    <th>{{ _("Assigned") }}</th>{{ th("created_at", _("Created")) }}{{ th("updated_at", _("Changed")) }}
+  </tr></thead>
+  <tbody>
+  {% for t in items %}
+    <tr>
+      <td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td>
+      <td class="task-title">{{ t.title }}</td><td class="meta c2">{{ t.project }}</td>
+      <td class="meta c2{% if not (t.sprint and t.sprint in sprint_names) %} card-hide{% endif %}">{% if t.sprint and t.sprint in sprint_names %}<a href="/projects/{{ t.project }}/sprints/{{ t.sprint }}">{{ sprint_names[t.sprint] }}</a>{% else %}–{% endif %}</td>
+      <td class="c2">{% with status=t.status %}{% include "_status.html" %}{% endwith %}</td>
+      <td><span class="prio prio-{{ t.prio }}">{{ t.prio }}</span> {% include "_tier.html" %}</td>
+      <td class="c2">{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}<span class="agent none">–</span>{% endif %}</td>
+      <td class="date card-hide" data-label="{{ _('Created') }}">{{ t.created_at | localtime("short") }}</td><td class="date c3 first" data-label="{{ _('Changed') }}">{{ t.updated_at | localtime("short") }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="muted empty">{{ _("No tasks match these filters.") }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

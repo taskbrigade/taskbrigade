@@ -1,0 +1,177 @@
+# TaskBrigade with MariaDB. Quick start: cp .env.example .env, fill in the "Docker Compose" section,
+# then `docker compose up -d` and sign in at http://127.0.0.1:8090 (details: docs/docker.md).
+# With a bundled Gitea and a demo project: `docker compose --profile gitea up -d`.
+# Backup, restore and update: deploy/docker/backup.sh, restore.sh, update.sh (docs/docker.md).
+# The native installation (deploy/install.sh) does not use this file.
+
+name: taskbrigade
+
+x-taskbrigade-env: &taskbrigade-env
+  # Container-specific values override .env (which also serves the native installation).
+  TBR_STATE_DIR: /var/lib/taskbrigade
+  TBR_BIND_HOST: 0.0.0.0
+  TBR_DB_HOST: mariadb
+  TBR_DB_PORT: 3306
+  TBR_DB_NAME: ${TBR_DB_NAME:-taskbrigade}
+  TBR_DB_USER: ${TBR_DB_USER:-taskbrigade}
+  TBR_DB_PASSWORD: ${TBR_DB_PASSWORD:?set TBR_DB_PASSWORD in .env}
+
+x-gitea-admin-env: &gitea-admin-env
+  TBR_GITEA_ADMIN_USER: ${TBR_GITEA_ADMIN_USER:-giteaadmin}
+  # Default: the TaskBrigade admin's initial password, so the profile needs no extra value in .env.
+  TBR_GITEA_ADMIN_PASSWORD: ${TBR_GITEA_ADMIN_PASSWORD:-${TBR_INITIAL_ADMIN_PASSWORD:-}}
+
+services:
+  taskbrigade:
+    image: ${TBR_IMAGE:-taskbrigade:local}
+    build: .
+    # Build locally by default; never look for the local tag in a registry. Set TBR_PULL_POLICY=always with TBR_IMAGE.
+    pull_policy: ${TBR_PULL_POLICY:-build}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *taskbrigade-env
+      # The published port reaches the app through the bridge gateway, not loopback (docs/docker.md).
+      TRUSTED_PEER_NETWORKS: ${TRUSTED_PEER_NETWORKS:-172.31.250.1/32}
+    ports:
+      - "${TBR_PUBLISH:-127.0.0.1:8090}:8090"
+    volumes:
+      - taskbrigade-state:/var/lib/taskbrigade
+    networks:
+      - taskbrigade
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  mariadb:
+    image: ${TBR_MARIADB_IMAGE:-mariadb:11.4}
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${TBR_DB_NAME:-taskbrigade}
+      MARIADB_USER: ${TBR_DB_USER:-taskbrigade}
+      MARIADB_PASSWORD: ${TBR_DB_PASSWORD:?set TBR_DB_PASSWORD in .env}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?set MARIADB_ROOT_PASSWORD in .env}
+      MARIADB_AUTO_UPGRADE: "1"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - taskbrigade-db:/var/lib/mysql
+    networks:
+      - taskbrigade
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+
+  # --- Profile "gitea": bundled Gitea, admin/service user/token and demo project (docs/docker.md) -----
+
+  gitea:
+    image: ${TBR_GITEA_IMAGE:-gitea/gitea:1.24}
+    profiles: [gitea]
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__service__DISABLE_REGISTRATION: "true"
+      GITEA__repository__DEFAULT_BRANCH: main
+      # Links and clone URLs point to the address agents and browsers use, not to http://gitea:3000.
+      GITEA__server__ROOT_URL: ${GITEA_PUBLIC_URL:-http://localhost:3000}/
+      GITEA__server__SSH_PORT: ${TBR_GITEA_SSH_PORT:-2222}
+    ports:
+      - "${TBR_GITEA_PUBLISH:-127.0.0.1:3000}:3000"
+      # Never port 22 of the host: that is the host's own SSH server.
+      - "${TBR_GITEA_SSH_PUBLISH:-127.0.0.1:2222}:22"
+    volumes:
+      - gitea-data:/data
+    networks:
+      - taskbrigade
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/api/v1/version"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 20
+
+  # The Gitea API cannot create the first admin, so this one-shot container uses the Gitea CLI.
+  gitea-admin:
+    image: ${TBR_GITEA_IMAGE:-gitea/gitea:1.24}
+    profiles: [gitea]
+    restart: "no"
+    user: git
+    environment:
+      <<: *gitea-admin-env
+      TBR_GITEA_ADMIN_EMAIL: ${TBR_GITEA_ADMIN_EMAIL:-giteaadmin@noreply.localhost}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        test -n "$$TBR_GITEA_ADMIN_PASSWORD" || { echo "Set TBR_GITEA_ADMIN_PASSWORD or TBR_INITIAL_ADMIN_PASSWORD in .env" >&2; exit 1; }
+        if gitea admin user list | awk 'NR > 1 { print $$2 }' | grep -qxF "$$TBR_GITEA_ADMIN_USER"; then
+          echo "Gitea admin $$TBR_GITEA_ADMIN_USER exists"
+        else
+          gitea admin user create --admin --username "$$TBR_GITEA_ADMIN_USER" --password "$$TBR_GITEA_ADMIN_PASSWORD" \
+            --email "$$TBR_GITEA_ADMIN_EMAIL" --must-change-password=false
+        fi
+    volumes:
+      - gitea-data:/data
+    networks:
+      - taskbrigade
+    depends_on:
+      gitea:
+        condition: service_healthy
+
+  # Service user, token and URLs in TaskBrigade, optional demo project; idempotent (app/gitea_init.py).
+  gitea-init:
+    image: ${TBR_IMAGE:-taskbrigade:local}
+    build: .
+    pull_policy: ${TBR_PULL_POLICY:-build}
+    profiles: [gitea]
+    restart: "no"
+    entrypoint: ["python", "-m", "app.gitea_init"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: [*taskbrigade-env, *gitea-admin-env]
+      GITEA_URL: http://gitea:3000
+      GITEA_PUBLIC_URL: ${GITEA_PUBLIC_URL:-http://localhost:3000}
+      TBR_GITEA_DEMO: ${TBR_GITEA_DEMO:-1}
+      TBR_PUBLIC_URL: ${TBR_PUBLIC_URL:-http://127.0.0.1:8090}
+    volumes:
+      - taskbrigade-state:/var/lib/taskbrigade
+    networks:
+      - taskbrigade
+    healthcheck:
+      disable: true
+    depends_on:
+      taskbrigade:
+        condition: service_healthy
+      gitea-admin:
+        condition: service_completed_successfully
+
+networks:
+  taskbrigade:
+    name: taskbrigade
+    ipam:
+      config:
+        # Fixed so that TRUSTED_PEER_NETWORKS can name the gateway; change both if the range is taken.
+        - subnet: ${TBR_DOCKER_SUBNET:-172.31.250.0/24}
+          gateway: ${TBR_DOCKER_GATEWAY:-172.31.250.1}
+
+volumes:
+  taskbrigade-db:
+    name: taskbrigade-db
+  taskbrigade-state:
+    name: taskbrigade-state
+  gitea-data:
+    name: taskbrigade-gitea

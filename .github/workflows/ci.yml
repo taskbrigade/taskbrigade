@@ -1,0 +1,115 @@
+# Lint, tests against a throwaway MariaDB, multi-arch image build, Compose smoke test; GHCR release on tags.
+# Locally: `act -j <job>` (see docs/ci.md) or Gitea Actions.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  # Public GitHub repository taskbrigade/taskbrigade (lowercase, as GHCR requires).
+  IMAGE: ghcr.io/taskbrigade/taskbrigade
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uvx ruff@0.14.0 check --output-format github .
+
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      # Throwaway database for this job only; conftest refuses any database name not ending in _test.
+      mariadb:
+        image: mariadb:10.5
+        env:
+          MARIADB_ROOT_PASSWORD: ci-root-password-not-secret
+          MARIADB_DATABASE: tm_test
+          MARIADB_USER: tm
+          MARIADB_PASSWORD: ci-throwaway-password-for-tests
+        ports:
+          # Fixed port: act does not fill job.services.<id>.ports.
+          - 33306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-root-password-not-secret"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: mariadb-dump for tests/test_backup.py
+        run: |
+          command -v mariadb-dump || { sudo apt-get update -qq && sudo apt-get install -y -qq mariadb-client; }
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run pytest -q
+        env:
+          TBR_TEST_DATABASE_URL: mysql+pymysql://tm:ci-throwaway-password-for-tests@127.0.0.1:33306/tm_test?charset=utf8mb4
+
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ env.PLATFORMS }} (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --no-dev
+      # Builds the image for the runner's platform, starts the stack with profile gitea, checks /healthz and runs
+      # one task through create → tm prepare → push → tm submit.
+      - run: deploy/docker/smoke-test.sh
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, image, smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha

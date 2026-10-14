@@ -1,0 +1,86 @@
+[project]
+name = "taskbrigade"
+version = "0.13.3"
+description = "Task system that coordinates humans and AI agents through assignment, leases, review, and merge."
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "TaskBrigade contributors" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pymysql>=1.1",
+    "cryptography>=43",
+    "argon2-cffi>=23.1",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "itsdangerous>=2.2",
+    "httpx>=0.27",
+    "apscheduler>=3.10,<4",
+    "typer>=0.12",
+    "pydantic-settings>=2.4",
+    "markdown-it-py>=3.0",
+    "mcp>=2,<3",
+    # SFTP storage (`cli/sftp.py`): pure Python on top of `cryptography` (already a dependency), host-key check
+    # via a client callback before the password is sent, and a built-in SFTP server for the tests – paramiko would
+    # add bcrypt/pynacl and needs a hand-written test server.
+    "asyncssh>=2.14",
+]
+
+[project.scripts]
+tbr = "cli.tm:app"
+tbr-admin = "cli.tm_admin:app"
+# Old names during the transition (TaskBrigade 0.5): same commands plus a rename notice on stderr
+# (cli/legacy.py, TBR_NO_RENAME_NOTICE=1 turns it off).
+tm = "cli.legacy:tm"
+tm-admin = "cli.legacy:tm_admin"
+
+[project.urls]
+Homepage = "https://github.com/taskbrigade/taskbrigade"
+Repository = "https://github.com/taskbrigade/taskbrigade"
+Issues = "https://github.com/taskbrigade/taskbrigade/issues"
+Changelog = "https://github.com/taskbrigade/taskbrigade/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = ["pytest>=8", "respx>=0.21"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "cli"]
+
+# Templates for `tm setup` on agent machines (cli/setup_apps.agent_file); the source of truth stays deploy/agents.
+[tool.hatch.build.targets.wheel.force-include]
+"deploy/agents/hermes" = "cli/agent_files/hermes"
+"deploy/agents/openclaw" = "cli/agent_files/openclaw"
+"deploy/agents/cowork/taskbrigade-skill.zip" = "cli/agent_files/cowork/taskbrigade-skill.zip"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint.per-file-ignores]
+# Fixtures are shared by importing them (F811 at each use); git setup chains stay on one line (E702).
+"tests/**" = ["F811", "E702"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "db: benötigt echte MariaDB (TBR_TEST_DATABASE_URL)",
+    "gitea_live: gegen echte Gitea-Instanz (TBR_TEST_GITEA_TOKEN)",
+]

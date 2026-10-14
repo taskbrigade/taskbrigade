@@ -1,0 +1,11 @@
+# One runner pass every 10 minutes for the agent %i (without a task: no LLM call)
+[Unit]
+Description=TaskBrigade runner schedule for %i
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Unit=tbr-runner@%i.service
+
+[Install]
+WantedBy=timers.target
