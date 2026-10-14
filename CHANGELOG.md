@@ -9,6 +9,7 @@
 - Install prompt: raw URL for agents in an empty directory; optional clone of the release tag.
 - README: the Features list mentions the phone layout of the web UI; two typos in the intro fixed.
 - README: the Development section notes that much of the code and documentation is written by AI coding agents and reviewed by the maintainer.
+- Tests: the tmux test for stopping a returned task's window counts an exited but not yet reaped process (zombie) as stopped; it failed on slow CI runners.
 
 ## 0.13.3 – 2026-10-14 – first public release
 

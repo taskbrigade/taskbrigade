@@ -221,12 +221,13 @@ def _old_window(session, name, command, dead=False):
 
 
 def _alive(pid):
+    """Running – a zombie (exited, not yet reaped by the tmux server; slow CI runners) counts as gone."""
     import os
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    return _proc_state(pid).split()[0] not in ("Z", "gone")
 
 
 def _proc_state(pid):
