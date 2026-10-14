@@ -17,7 +17,7 @@ paste tokens into a chat.**
 
 ## In short
 
-1. **⏸ Admin:** *Admin → Benutzer & Agenten → Neuer Agent* (new agent) – name, kind, runtime, role, projects. The
+1. **⏸ Admin:** *Admin → Users & agents → New agent* – name, kind, runtime, role, projects. The
    page shows a one-time code and the command to copy.
 2. On the agent host, as the agent's user:
 
@@ -105,8 +105,8 @@ checks everything once more. The CLI itself must be installed and logged in once
 | `opencode` | `opencode` | local or cloud (step 2) |
 
 The names are examples; any names work. A fresh installation contains only the admin, so **⏸ Admin:** create each
-agent under *Admin → Benutzer & Agenten → Neuer Agent* (new agent; step 3), then create the Gitea users and link each
-one to its actor (*Admin → Benutzer & Agenten → <agent> → Gitea*) – or let TaskBrigade do it with a join code (step 3).
+agent under *Admin → Users & agents → New agent*, then create the Gitea users and link each
+one to its actor (*Admin → Users & agents → <agent> → Gitea*) – or let TaskBrigade do it with a join code (step 3).
 
 ## Network: how the second machine reaches TaskBrigade
 
@@ -148,7 +148,7 @@ The script runs as the agent user (no root) on Linux and macOS. It installs `uv`
 missing (official installer from astral.sh), then `tbr` as a uv tool from the server's wheel
 (`/download/taskbrigade-<version>-py3-none-any.whl`; Python 3.12 and the dependencies come from PyPI). Running it
 again leaves an installed `tbr` of the same version alone. If `~/.local/bin` is not on your `PATH` yet, it says so
-(`uv tool update-shell`). The server address in the script is *Admin → Einstellungen → TaskBrigade-URL* (settings),
+(`uv tool update-shell`). The server address in the script is *Admin → Settings → TaskBrigade URL*,
 otherwise the address the request came in on; `TBR_URL=<url>` overrides it:
 `curl -fsSL <url>/install.sh | TBR_URL=<url> sh`.
 
@@ -275,11 +275,11 @@ keep using `tm`. `tbr setup` writes absolute paths into timers, MCP entries and 
 
 ### Recommended: join code
 
-**⏸ Admin:** in TaskBrigade *Admin → Benutzer & Agenten → Neuer Agent* (new agent) enter name, kind, runtime, role
+**⏸ Admin:** in TaskBrigade *Admin → Users & agents → New agent* enter name, kind, runtime, role
 and the projects the agent may work on. For an existing agent (e.g. one an older version created at installation), open it and follow
-„Einmal-Code für tbr join / Gitea-Einrichtung“ (join code / Gitea setup).
+“Join code for tbr join / Gitea setup”.
 
-- With a **Gitea admin token** in *Admin → Einstellungen* (settings, „Gitea-Admin-Token“; the Docker profile
+- With a **Gitea admin token** in *Admin → Settings* (“Gitea admin token”; the Docker profile
   `gitea` sets it) TaskBrigade creates the agent's Gitea user and token itself. The user gets no admin rights; the
   token has the scopes `write:repository` and `read:user`.
 - Without it, the page guides through the manual step (create the Gitea user and a token, enter both, TaskBrigade
@@ -353,14 +353,14 @@ tbr doctor --work-root ~/taskbrigade-work/<agent>     # or in the work directory
 | Tasks | own task *in progress* with an expired lease or without a running session (warnings) | next `tbr run` resumes |
 | Agent login | the agent CLI is not logged in (`claude auth status`, `codex login status`, `opencode auth list`); warning if it cannot be checked | log in, e.g. `claude /login` |
 | Runner block | the start check has blocked the runner (error, with the reason); removed once the agent login is ok | fix the cause, run `tbr doctor` again |
-| SFTP | only when SFTP storage is enabled on the server: no SFTP login for this agent (warning), login or host key fails (error) | admin: *Admin → Benutzer & Agenten → <agent>* „Zugang testen“; network to the SFTP host |
+| SFTP | only when SFTP storage is enabled on the server: no SFTP login for this agent (warning), login or host key fails (error) | admin: *Admin → Users & agents → <agent>* “Test access”; network to the SFTP host |
 | tmux windows | open windows in the runner session, finished ones and agents still running although their task ended (warning) | `tbr cleanup [--stale]` |
 
 Missing Git credentials are an error only with a `[runner]` section or a desktop app/framework set up by `tbr setup`
 (an orchestrator identity does not need Git).
 `tbr doctor` exits with 1 if any check fails and never prints the token.
 
-The code is valid for 15 minutes (*Admin → Einstellungen*, „Gültigkeit von Einmal-Codes“), works once and is stored
+The code is valid for 15 minutes (*Admin → Settings*, “Join code validity (minutes)”), works once and is stored
 only as a hash; creating a new one invalidates the previous one. It is redeemed only over HTTPS through
 `tailscale serve` or from loopback/`TRUSTED_PEER_NETWORKS` – the same rule as Git credentials; `API_NETWORKS` peers
 get `403 insecure_channel`. Expired, used or unknown codes get a clear error (`join_code_expired`,
@@ -378,7 +378,7 @@ Then create `~/taskbrigade-work/<agent>/.taskbrigade.toml` with `chmod 600` – 
 fill in the token yourself; leave the placeholder. Ready-made files are in
 [`deploy/agents/runner/`](../deploy/agents/runner/).
 
-**⏸ Admin:** in TaskBrigade *Admin → Benutzer & Agenten → <agent> → Token rotieren* (rotate token), copy the token
+**⏸ Admin:** in TaskBrigade *Admin → Users & agents → <agent> → Rotate token*, copy the token
 and replace `PASTE_API_TOKEN_HERE` with `nano ~/taskbrigade-work/<agent>/.taskbrigade.toml`.
 
 Prompts, `TASK.md` and `tbr` messages are English. For German, add `language = "de"` at the top of the file (above
@@ -481,13 +481,13 @@ tbr list                            # connection and permissions ok, shows own t
 ```
 
 If `tbr git-credential` reports "404 … keine Gitea-Credentials" (no Gitea credentials) → **⏸ Admin** links the
-Gitea user in TaskBrigade (*Admin → Benutzer & Agenten → <agent> → Gitea*).
+Gitea user in TaskBrigade (*Admin → Users & agents → <agent> → Gitea*).
 
 ### Model per task (tiers)
 
 Simple tasks can run on a cheaper, faster model and complex ones on a stronger one. A task carries an optional
 **model tier** – `simple`, `standard` or `complex` (UI: *einfach / standard / komplex*) – and optionally a
-**concrete model**. Each agent maps the tiers to models; **⏸ Admin** sets this under *Admin → Benutzer & Agenten →
+**concrete model**. Each agent maps the tiers to models; **⏸ Admin** sets this under *Admin → Users & agents →
 <agent> → Modelle* (models): *Standardmodell* (default model), one model per tier (*Stufe*) and the
 *freigegebene Modelle* (allow list) a task may name explicitly.
 
@@ -521,7 +521,7 @@ Set the tier in the task form, the sprint editor, with `tbr create/update --tier
 
 ### Reviewer agents
 
-An agent with the role `reviewer` (*Admin → Benutzer & Agenten*) reviews tasks it is entered for as reviewer and
+An agent with the role `reviewer` (*Admin → Users & agents*) reviews tasks it is entered for as reviewer and
 works on its own tasks like a worker. Its runner needs no extra setup: `tbr run` claims a review job before new work
 (in the same `max_parallel_tasks` budget), checks the task branch out read-only in `<KEY>/.worktrees/<NR>-review`
 with `REVIEW.md` (task, criteria, thread, the assignee's summary and open points, `git diff --stat` against the base,
@@ -658,14 +658,14 @@ Without linger, user timers only run while the user is logged in.
   limit), then `tbr doctor`; it removes `.agent-blocked` once the agent login checks out. If the login cannot be
   checked automatically, delete the file yourself.
 - By default an agent works on up to two tasks at a time (TaskBrigade: *max. parallele Tasks*, max. parallel tasks,
-  under *Admin → Benutzer & Agenten*). At the limit `tbr claim`/`tbr prepare` say so and name the tasks in progress.
+  under *Admin → Users & agents*). At the limit `tbr claim`/`tbr prepare` say so and name the tasks in progress.
 
 ## 8. Creating tasks from your own Claude Code sessions (actor `orchestrator-claude`)
 
 Your interactive Claude Code sessions on the host can get their own actor. It only creates and assigns tasks – it
 does not work on them. The runner actor `claude-code` stays a `worker`.
 
-**⏸ Admin** – in TaskBrigade under *Admin → Benutzer & Agenten → Neu* (new):
+**⏸ Admin** – in TaskBrigade under *Admin → Users & agents → New agent*:
 
 | Field | Value |
 |---|---|
@@ -710,7 +710,7 @@ Notes:
 - For a second opinion from another agent or model: "Duplicate DEMO-0042 for codex" → `duplicate_task` (CLI:
   `tbr duplicate DEMO-0042 --assign codex`). The copy is a draft titled "(duplicate) …" without thread, review or
   branch and links to the original; publish it with `reset_task`/`tbr reset`. The web UI has the same action
-  („Duplizieren“, duplicate) in the task detail view.
+  (“Duplicate”) in the task detail view.
 
 ## See also
 

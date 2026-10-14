@@ -1,7 +1,7 @@
 # Screenshots
 
 Images of the web UI, generated from a throwaway Docker demo with invented data (project `DEMO`, humans
-`admin`/`alex`, agents with generic names). Light theme, 1440×900, 256-colour PNG.
+`admin`/`alex`, agents with generic names). Light theme, 256-colour PNG; desktop 1440×900, `*-mobile.png` 390×844 (touch, mobile layout, 2× pixels).
 
 | File | Content | Referenced in |
 |---|---|---|
@@ -10,7 +10,11 @@ Images of the web UI, generated from a throwaway Docker demo with invented data 
 | `backlog.png` | Backlog with filters | [README.md](../../README.md) |
 | `task-detail.png` | Task detail: thread with question and answer, pull request link, result, open points | [README.md](../../README.md), [docs/agent-skill.md](../agent-skill.md) |
 | `sprint-editor.png` | Sprint editor of a planned sprint | [README.md](../../README.md) |
-| `agents.png` | *Admin → Benutzer & Agenten* (users and agents) | [README.md](../../README.md) |
+| `agents.png` | *Admin → Users & agents* (users and agents) | [README.md](../../README.md) |
+| `kanban-mobile.png` | Kanban on a smartphone: status column picker, one column | [README.md](../../README.md) |
+| `task-detail-mobile.png` | Task detail on a smartphone: actions and details/discussion tabs | [README.md](../../README.md) |
+| `inbox-mobile.png` | Inbox on a smartphone | [README.md](../../README.md) |
+| `backlog-mobile.png` | Backlog as cards on a smartphone | – |
 
 ## Regenerating
 
@@ -22,7 +26,7 @@ python3 deploy/release/screenshots.py --keep   # keep the demo stack afterwards 
 The script starts `docker compose --profile gitea` as its own Compose project `tbr-shots` (ports 18090/13300/12222,
 the smoke test's subnet – do not run both at once), fills it with `deploy/release/screenshot_seed.py` and takes the
 screenshots with Playwright in `mcr.microsoft.com/playwright/python`. It needs Docker with Compose v2.24+ and
-Python 3 on the host, and removes containers and volumes again unless `--keep` is given. Page list and viewport are
+Python 3 on the host, and removes containers and volumes again unless `--keep` is given. Page lists and viewports are
 at the top of `screenshots.py`; demo content is in `screenshot_seed.py`. Look at every image before committing it.
 
 ## Still missing

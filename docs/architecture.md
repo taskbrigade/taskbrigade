@@ -49,16 +49,16 @@ stateDiagram-v2
 
 Any state that is not final can also be moved to `cancelled` by an admin, orchestrator or the project owner.
 
-| State | UI label (German) | Meaning |
+| State | UI label | Meaning |
 |---|---|---|
-| `draft` | Entwurf | Still being written; never handed to an agent |
-| `defined` | Definiert | Ready; the assigned agent may claim it |
-| `in_progress` | In Arbeit | Claimed; the agent holds a lease |
-| `questions` | Rückfrage | The agent asked; waiting for a human answer |
+| `draft` | Draft | Still being written; never handed to an agent |
+| `defined` | Defined | Ready; the assigned agent may claim it |
+| `in_progress` | In progress | Claimed; the agent holds a lease |
+| `questions` | Questions | The agent asked; waiting for a human answer |
 | `for_review` | Review | Pull request open; waiting for a human |
-| `changes_requested` | Nacharbeit | Rejected with comments; the agent continues on the same branch |
-| `done` | Erledigt | Merged |
-| `aborted` | Abgebrochen (Agent) | The agent cannot solve it; a human reassigns or reopens it |
+| `changes_requested` | Rework | Rejected with comments; the agent continues on the same branch |
+| `done` | Done | Merged |
+| `aborted` | Aborted (agent) | The agent cannot solve it; a human reassigns or reopens it |
 | `cancelled` | Verworfen | Dropped |
 
 **Release vs. abort.** `release` hands the task back unchanged – useful for technical problems a retry may fix,
@@ -92,7 +92,7 @@ The server claim (`POST /agents/me/claim`) picks the highest-priority task that 
 - free of open dependencies,
 
 and only while the agent is below its parallel-task limit (`max_parallel_tasks`, default 2, editable under
-*Admin → Benutzer & Agenten*). Due dates are informational and play no role. If the runner finds assigned tasks that
+*Admin → Users & agents*). Due dates are informational and play no role. If the runner finds assigned tasks that
 it could not claim, it writes the reason per task to `logs/runner.log` in the agent's work directory. A claim of a
 named task at the limit fails with `409 parallel_limit` and names the tasks in progress; a claim without a task
 number returns 204, and `tbr claim`/`tbr prepare`/MCP `start_task` explain the limit themselves.
@@ -120,14 +120,14 @@ Create, edit, assign and batch-create: admins, orchestrators and the project own
 the project owner. `GET /tasks?sprint=<id>[,<id>]` or `?sprint=none` filters the backlog.
 
 In the web UI (`app/web/sprints_ui.py`) the project page lists the sprints with status, period and task counts per
-status and has *Neuer Sprint* (new sprint). The sprint page (`/projects/{key}/sprints/{id}`) shows goal, period,
-progress and the task table with the missing fields of each draft. *Sprint freigeben* (release sprint) previews
-„werden freigegeben“ (will be released) and „bleiben Entwurf“ (stay drafts, with the missing fields) and asks for
-confirmation; *Sprint abschließen* (close sprint) offers „verschieben nach Sprint …“ (move to sprint) or „aus dem
-Sprint lösen“ (detach). *Tasks gesammelt erfassen* (batch capture) takes one task per line – `Title` or
+status and has *New sprint*. The sprint page (`/projects/{key}/sprints/{id}`) shows goal, period,
+progress and the task table with the missing fields of each draft. *Release sprint* previews
+“Will be released” and “Stay drafts” (with the missing fields) and asks for
+confirmation; *Close sprint* offers “move to sprint …” or “detach from the
+sprint”. *Add tasks in batch* takes one task per line – `Title` or
 `Title | Agent | Prio | Reviewer` – shows a preview and creates the lines as drafts, which are then completed on
 their task pages. The task forms have a sprint field (open sprints of the task's project), and backlog, kanban and inbox filter
-by sprint (all / *Ohne Sprint* (without sprint) / one sprint) and show the sprint as a column or card hint.
+by sprint (all / *Without sprint* / one sprint) and show the sprint as a column or card hint.
 
 Agents and orchestrators have the same flow without the web UI: `tbr sprint list|show|create|release|close|add-tasks`,
 `--sprint` on `tbr create`/`tbr update`/`tbr list`, and the MCP tools `list_sprints`, `show_sprint`, `create_sprint`,
@@ -141,7 +141,7 @@ Agents and orchestrators have the same flow without the web UI: `tbr sprint list
 An agent names what remains open separately from its summary: `open_points` on submit (`tbr submit
 --open-point "…"`, MCP `submit_task(open_points=[…])`, or a `## Open points` list at the end of `.tm-submit.md`).
 The points are stored at the task (`tasks.open_points`, JSON list), shown in the task view and added to the pull
-request text. „Follow-up-Task erstellen“ (create follow-up task) in the task view opens a form with a prefilled title
+request text. “Create follow-up task” in the task view opens a form with a prefilled title
 „Follow-up to <NR>: …“, the open points preselected (each can be deselected; they go into the description as a list
 or into the acceptance criteria as a checklist) and creates the task as a draft in the same project. The link is kept
 in `tasks.follow_up_of_id`: the new task shows „Follow-up to <NR>“, the origin task lists its follow-up tasks. The API
@@ -182,8 +182,7 @@ style (default squash) and closes the task. Rejecting sends the task back to the
 ## Merge conflicts
 
 When approving fails because the base branch moved on (typically: a parallel task was merged first), TaskBrigade
-asks Gitea for the conflicting files and keeps the task in review. The reviewer clicks **return conflict**
-(„Konflikt zurückgeben“): the task goes to `changes_requested` with ready-made instructions. On the next claim,
+asks Gitea for the conflicting files and keeps the task in review. The reviewer clicks **Return conflict**: the task goes to `changes_requested` with ready-made instructions. On the next claim,
 `tbr prepare` merges the current base branch into the task branch; remaining conflicts are listed in `TASK.md`, and
 the agent resolves the markers, keeping both sides, and submits again.
 

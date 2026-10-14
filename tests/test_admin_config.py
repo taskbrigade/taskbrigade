@@ -164,7 +164,9 @@ def test_tm_env_file_overrides_lookup(tmp_path, monkeypatch):
     assert path.read_text() == "UI_LANGUAGE=de\n"
 
 
-def test_systemd_unit_names_the_file(monkeypatch):
+def test_systemd_unit_names_the_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfgfile, "DEFAULT_ENV_FILE", tmp_path / "taskbrigade.env")  # never the real /etc
+    monkeypatch.setattr(cfgfile, "LEGACY_ENV_FILE", tmp_path / "taskmeister.env")
     monkeypatch.setattr(cfgfile.shutil, "which", lambda _cmd: "/usr/bin/systemctl")
     seen = []
 
@@ -178,6 +180,40 @@ def test_systemd_unit_names_the_file(monkeypatch):
     monkeypatch.delenv("TBR_ENV_FILE", raising=False)
     monkeypatch.setattr(cfgfile, "in_container", lambda: False)
     assert cfgfile.env_file() == cfgfile.DEFAULT_ENV_FILE
+
+
+def test_unreadable_config_directory_is_not_a_traceback(tmp_path, monkeypatch, restarts):
+    """`/etc/taskbrigade` exists but is not readable for this user (e.g. on a production host): no traceback, a hint to use sudo."""
+    locked = tmp_path / "locked"  # stands for /etc/taskbrigade
+    default, legacy = locked / "taskbrigade.env", tmp_path / "legacy" / "taskmeister.env"
+    monkeypatch.setattr(cfgfile, "DEFAULT_ENV_FILE", default)
+    monkeypatch.setattr(cfgfile, "LEGACY_ENV_FILE", legacy)
+    monkeypatch.setattr(cfgfile, "_systemd_env_file", lambda service=cfgfile.SERVICE: None)
+    monkeypatch.setattr(cfgfile, "in_container", lambda: False)
+    for name in ("TBR_ENV_FILE", "TM_ENV_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    real_exists, real_read_text = Path.exists, Path.read_text
+
+    def denied(path):
+        return path == locked or locked in path.parents
+
+    def exists(self, *args, **kwargs):
+        if denied(self):
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_exists(self, *args, **kwargs)
+
+    def read_text(self, *args, **kwargs):
+        if denied(self):
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_read_text(self, *args, **kwargs)
+    monkeypatch.setattr(Path, "exists", exists)
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    assert cfgfile.env_file() == default
+    for args in (["list"], ["set", "TZ_DISPLAY", "UTC", "--no-restart"]):
+        r = admin(*args)
+        assert r.exit_code == 1 and "sudo" in r.output and "Traceback" not in r.output, r.output
+    assert restarts == []
 
 
 def test_values_round_trip_through_quotes():

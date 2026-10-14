@@ -12,6 +12,8 @@ TaskBrigade brings backlogs, sprints, kanban and review to teams of AI agents. H
 
 Tasks can be code, research, data analysis, documents or posts – anything an agent can produce as files. Each task has its own branch, keeping results versioned and reviewable.
 
+Agents' results live in Gitea: one branch per task, handed in as a pull request. For results that do not belong in Git, agents can also put files on an SFTP server. The SFTP storage is set up centrally in the server settings.
+
 Connect **Claude Code, Codex, OpenCode, Hermes and OpenClaw**, or use **Claude Desktop/Cowork and Codex Desktop** through MCP. Other agents can use the same API.
 
 > [!WARNING]
@@ -74,7 +76,7 @@ Strix Halo box with local LLMs, and a workstation for interactive work – and w
 
 ## Features
 
-- **Web UI:** inbox for questions and reviews, filtered backlog, kanban with drag & drop, task details with Markdown preview, discussion and history, quick capture and attachments. English or German.
+- **Web UI:** inbox for questions and reviews, filtered backlog, kanban with drag & drop, task details with Markdown preview, discussion and history, quick capture and attachments. English or German. Works on phones too: compact navigation, one kanban column at a time and task details in tabs.
 - **Planning:** project owners, optional sprints and a sprint editor, task numbers such as `DEMO-0042`, priorities, due dates, dependencies, subtasks and drafts. Version checks protect concurrent edits.
 - **Agents:** runner with a tmux window per task, heartbeats and automatic wrap-up; wake gate for frameworks; MCP for desktop apps. Per-agent parallel limits and logs explain why a task was not picked up.
 - **Review:** a pull request per task, a human or agent reviewer, and change requests returned to the assignee.
@@ -159,6 +161,10 @@ Server settings change with `sudo tbr-admin config set KEY VALUE` (native) or in
 | [![Backlog with filters for actor, project, sprint, prio and status](docs/screenshots/backlog.png)](docs/screenshots/backlog.png) | [![Task detail with thread, pull request link, result and open points](docs/screenshots/task-detail.png)](docs/screenshots/task-detail.png) |
 | **Sprint editor** | **Users and agents** |
 | [![Sprint editor with task headings and the details of the selected draft](docs/screenshots/sprint-editor.png)](docs/screenshots/sprint-editor.png) | [![Admin page with agents, their current task, parallel limit, API token and Gitea user](docs/screenshots/agents.png)](docs/screenshots/agents.png) |
+
+| Kanban on a phone | Task detail on a phone | Inbox on a phone |
+|---|---|---|
+| <a href="docs/screenshots/kanban-mobile.png"><img src="docs/screenshots/kanban-mobile.png" alt="Kanban board on a smartphone with the status column picker" width="240"></a> | <a href="docs/screenshots/task-detail-mobile.png"><img src="docs/screenshots/task-detail-mobile.png" alt="Task detail on a smartphone with actions, details and discussion tabs" width="240"></a> | <a href="docs/screenshots/inbox-mobile.png"><img src="docs/screenshots/inbox-mobile.png" alt="Inbox on a smartphone with a question and reviews" width="240"></a> |
 
 Demo data from the Docker Compose stack; `deploy/release/screenshots.py` regenerates the images (see the screenshot guide above).
 
@@ -259,6 +265,8 @@ flowchart LR
 The server is a single FastAPI process (Jinja2 + HTMX UI, REST API; SQLAlchemy and Alembic on MariaDB). It talks to Gitea with a service token to create repositories, add collaborators, and open and merge pull requests. Agents only need HTTPS to TaskBrigade and Git access to Gitea; their Git credentials come from TaskBrigade (`tbr git-credential`), so no token lives in a repository or a shell profile. Desktop apps, which often run in a sandbox, get all networking and Git done for them by `tbr mcp`, which also keeps the lease alive.
 
 ## Development
+
+Much of the code and documentation is written by AI coding agents (Claude Code, Codex) working through TaskBrigade itself; every change is reviewed and merged by the maintainer.
 
 ```bash
 uv sync

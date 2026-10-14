@@ -8,7 +8,7 @@ short: install the server → create the agent in the UI → `curl …/install.s
 
 You do not edit `deploy/install.sh`. Paths and hosts are environment variables. The script refuses to run as a normal user, and it stops with a concrete install command when Python 3.12, uv, git, systemd, or a MariaDB client older than 10.5 is missing.
 
-The UI labels below are German; that is the current interface. This guide is the English map.
+The UI labels below are the English ones (the default). `UI_LANGUAGE=de` in the environment file, *Admin → Settings* or the EN/DE switch in the top bar changes the UI to German; the translations are in `app/locales/de.json`.
 
 ## What you are installing
 
@@ -159,30 +159,30 @@ writes the env file the service reads, refuses anything that is not an Argon2 ha
 
 Open `http://127.0.0.1:8090` and sign in as `admin` with the password you just hashed.
 
-**Admin → Datenbank:** host `127.0.0.1`, port `3306`, database `taskbrigade`, user `taskadmin`, the password from step 1. Then **Verbindung testen**, **Speichern**, **Schema aktualisieren**. No restart. `/healthz` should switch from 503 to a healthy response (`"db":"ok"`).
+**Admin → Database:** host `127.0.0.1`, port `3306`, database `taskbrigade`, user `taskadmin`, the password from step 1. Then **Test connection**, **Save**, **Upgrade schema**. No restart. `/healthz` should switch from 503 to a healthy response (`"db":"ok"`).
 
 Back up `/var/lib/taskbrigade/master.key` somewhere that is not the database backup. Without it the saved password and tokens cannot be decrypted.
 
 ## 6. Gitea in the UI
 
-**Admin → Einstellungen:**
+**Admin → Settings:**
 
-- Gitea-URL: `http://127.0.0.1:3001`
-- Gitea-Service-Token: the `taskbrigade` token from step 2
-- Standard-Owner/Org: `taskbrigade`
-- Gitea-Admin-Token: the Gitea admin token from step 2
-- TaskBrigade-URL: `http://127.0.0.1:8090` (or your `https://<name>.ts.net` if you enabled Tailscale). This is what shows up in pull-request links and in the install command for agents.
+- Gitea URL: `http://127.0.0.1:3001`
+- Gitea service token: the `taskbrigade` token from step 2
+- Default owner/org: `taskbrigade`
+- Gitea admin token: the Gitea admin token from step 2
+- TaskBrigade URL: `http://127.0.0.1:8090` (or your `https://<name>.ts.net` if you enabled Tailscale). This is what shows up in pull-request links and in the install command for agents.
 
-Save, then **Gitea-Verbindung testen**. It should name the Gitea user that owns the token.
+Save, then **Test Gitea connection**. It should name the Gitea user that owns the token.
 
 ## 7. Create the Claude Code agent in the UI
 
 A fresh installation contains only the admin – create the agent yourself.
 
-**Admin → Benutzer & Agenten → Neuer Agent** (users & agents → new agent): name `claude-code`, kind `claude_code`,
+**Admin → Users & agents → New agent**: name `claude-code`, kind `claude_code`,
 role `worker`. **Runtime** `local`: a Claude Code process on this server counts as local, and a `local_only` project
-refuses a `cloud` actor. (Choose `cloud` only if the project privacy will be `cloud_ok`.) Then **Agent und
-Einmal-Code anlegen** (create agent and join code).
+refuses a `cloud` actor. (Choose `cloud` only if the project privacy will be `cloud_ok`.) Then **Create agent and
+join code**.
 
 With the Gitea admin token from step 6, TaskBrigade creates the Gitea user `claude-code` and its token itself. The
 next page shows a one-time join code (valid for 15 minutes, usable once) and the two commands for step 8:
@@ -192,8 +192,8 @@ curl -fsSL http://127.0.0.1:8090/install.sh | sh
 tbr join http://127.0.0.1:8090 tmj_… --dir ~/taskbrigade-work/claude-code --setup claude-code
 ```
 
-Copy them; the code is not shown again (a new code can be created on the agent's page, „Einmal-Code für tbr join /
-Gitea-Einrichtung“). No API token is copied by hand: `tbr join` fetches it.
+Copy them; the code is not shown again (a new code can be created on the agent's page, “Join code for tbr join /
+Gitea setup”). No API token is copied by hand: `tbr join` fetches it.
 
 ## 8. Agent account: one command
 
@@ -237,21 +237,21 @@ No task assigned yet: the command exits without starting Claude. That is the che
 
 ## 9. First project and first task
 
-In the UI, **Projekte → Neues Projekt**:
+In the UI, **Projects → New project**:
 
 - Key `DEMO` (2–8 letters or digits), name `Demo`
 - Status `active` (an idea or a paused project is never claimed)
-- Privacy `nur lokale Agenten` (`local_only`), matching the runtime you set in step 7
-- Gitea: **neues Gitea-Repo anlegen**, owner `taskbrigade`, repo name `demo`
+- Privacy `local agents only` (`local_only`), matching the runtime you set in step 7
+- Gitea: **create a new Gitea repo**, owner `taskbrigade`, repo name `demo`
 
-Then **Neuer Task**:
+Then **New task**:
 
-- Projekt `DEMO`
-- Status **Definiert – Agent darf abholen** (the UI default is a draft, and drafts are never claimed)
-- Zuweisen an `claude-code`
-- Titel `Add a README greeting`
-- Beschreibung: `Create README.md with a single line: Hello from TaskBrigade.`
-- Akzeptanzkriterien: `README.md exists on the task branch and contains that line. Submit the result as a pull request.`
+- Project `DEMO`
+- Status **Defined – agents may pick it up** (the UI default is a draft, and drafts are never claimed)
+- Assign to `claude-code`
+- Title `Add a README greeting`
+- Description: `Create README.md with a single line: Hello from TaskBrigade.`
+- Acceptance criteria: `README.md exists on the task branch and contains that line. Submit the result as a pull request.`
 
 Defined tasks need both a description and acceptance criteria. Prio does not matter. A due date does not matter; the runner does not look at it.
 
@@ -296,8 +296,8 @@ If the runner claims nothing, read `~/taskbrigade-work/claude-code/logs/runner.l
 | `No permission to change /etc/taskbrigade/taskbrigade.env` | Run `tbr-admin config set` with `sudo`. |
 | `tbr join`: `join_code_expired` / `join_code_used` | Create a new code on the agent's page and run `tbr join` again. |
 | `tbr doctor`: Git access error | The agent has no Gitea user: add the Gitea admin token (step 6) and create a new join code, or [link one manually](#a1-gitea-user-for-the-agent). |
-| `/healthz` is 503 after the UI save | The password or the schema step did not stick. **Admin → Datenbank** again, or `sudo -u taskbrigade tbr-admin db-status`. |
-| Runner log: skipped, Entwurf | Set the task to **Definiert** and assign `claude-code`. |
+| `/healthz` is 503 after the UI save | The password or the schema step did not stick. **Admin → Database** again, or `sudo -u taskbrigade tbr-admin db-status`. |
+| Runner log: "is a draft and is only claimed after it is published" | Set the task to **Defined** and assign `claude-code`. |
 | Runner log: privacy / cloud | Set the actor runtime to `local`, or the project to `cloud_ok`. |
 
 ## Next steps
@@ -317,13 +317,13 @@ you want to see every piece.
 ### A.1 Gitea user for the agent
 
 In Gitea, create the user `claude-code` and a personal access token with scopes `write:repository` and `read:user`
-(the **agent** token). On the agent's setup page in TaskBrigade („Gitea-User manuell verknüpfen“, link a Gitea user
-manually) enter the username, that token and the user's email, then **Prüfen und speichern** (check and save). The
+(the **agent** token). On the agent's setup page in TaskBrigade (“Link a Gitea user manually”)
+enter the username, that token and the user's email, then **Check and save**. The
 form reports whether Gitea accepted the token. `tbr join` works the same afterwards.
 
 ### A.2 API token and identity file by hand
 
-Instead of `tbr join`: on the agent's page **Token rotieren** (rotate token) and copy the TaskBrigade API token – it
+Instead of `tbr join`: on the agent's page **Rotate token** and copy the TaskBrigade API token – it
 is shown once. Write `~/taskbrigade-work/claude-code/.taskbrigade.toml` and `chmod 600` it:
 
 ```toml

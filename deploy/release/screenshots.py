@@ -10,7 +10,7 @@ Steps:
 2. `deploy/release/screenshot_seed.py` inside the app container fills it with neutral demo data (project DEMO,
    sprints, tasks in every status, agents with generic names).
 3. Playwright in the container `mcr.microsoft.com/playwright/python` (host network) signs in as `admin` and saves
-   the pages in the light theme at 1440×900 as palette PNGs (`capture` subcommand of this script).
+   the pages in the light theme at 1440×900 (plus 390×844 phone pages) as palette PNGs (`capture` subcommand of this script).
 
 Requirements: Docker with Compose v2.24+ and Python 3 on the host; nothing else is installed on the host.
 Only invented demo data is visible – check the images before committing them anyway.
@@ -31,6 +31,7 @@ PROJECT = "tbr-shots"
 PLAYWRIGHT_VERSION = "1.63.0"
 PLAYWRIGHT_IMAGE = f"mcr.microsoft.com/playwright/python:v{PLAYWRIGHT_VERSION}-noble"
 VIEWPORT = {"width": 1440, "height": 900}
+MOBILE_VIEWPORT = {"width": 390, "height": 844}  # Smartphone, portrait.
 MAX_HEIGHT = 1500  # Long pages (task detail) are cut here.
 
 # file name → (path, full page?, description); "{editor}" is filled in from the seed output.
@@ -41,6 +42,13 @@ SHOTS = {
     "task-detail.png": ("/tasks/DEMO-0001", True, "Task detail with thread and pull request"),
     "sprint-editor.png": ("{editor}", False, "Sprint editor"),
     "agents.png": ("/admin/users", False, "Users and agents"),
+}
+# Same demo data at phone size (touch, mobile layout); same format as SHOTS.
+MOBILE_SHOTS = {
+    "inbox-mobile.png": ("/", False, "Inbox on a smartphone"),
+    "backlog-mobile.png": ("/backlog", False, "Backlog as cards on a smartphone"),
+    "kanban-mobile.png": ("/kanban", False, "Kanban board with the status column picker on a smartphone"),
+    "task-detail-mobile.png": ("/tasks/DEMO-0001", False, "Task detail on a smartphone"),
 }
 
 
@@ -129,26 +137,34 @@ def capture(url: str, out: Path, paths: dict) -> None:
     from PIL import Image
     from playwright.sync_api import sync_playwright
 
+    def save(page, name: str, full: bool) -> None:
+        png = page.screenshot(full_page=full)
+        img = Image.open(BytesIO(png)).convert("RGB")
+        if img.height > MAX_HEIGHT:
+            img = img.crop((0, 0, img.width, MAX_HEIGHT))
+        # 256-colour palette without dithering: UI screenshots stay sharp at a fraction of the size.
+        img.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(
+            out / name, optimize=True)
+        print(f"{name}: {(out / name).stat().st_size // 1024} KiB", flush=True)
+
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport=VIEWPORT, color_scheme="light", locale="en-US")
-        page.goto(f"{url}/language?lang=en")
-        page.goto(f"{url}/login")
-        page.fill("input[name=username]", "admin")
-        page.fill("input[name=password]", os.environ["TBR_SHOTS_PASSWORD"])
-        page.press("input[name=password]", "Enter")
-        page.wait_for_url(f"{url}/")
-        for name, (path, full, _desc) in SHOTS.items():
-            page.goto(url + path.format(**paths))
-            page.wait_for_load_state("networkidle")
-            png = page.screenshot(full_page=full)
-            img = Image.open(BytesIO(png)).convert("RGB")
-            if img.height > MAX_HEIGHT:
-                img = img.crop((0, 0, img.width, MAX_HEIGHT))
-            # 256-colour palette without dithering: UI screenshots stay sharp at a fraction of the size.
-            img.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(
-                out / name, optimize=True)
-            print(f"{name}: {(out / name).stat().st_size // 1024} KiB", flush=True)
+        for shots, ctx_args in ((SHOTS, {"viewport": VIEWPORT}),
+                                (MOBILE_SHOTS, {"viewport": MOBILE_VIEWPORT, "is_mobile": True, "has_touch": True,
+                                                "device_scale_factor": 2})):
+            context = browser.new_context(color_scheme="light", locale="en-US", **ctx_args)
+            page = context.new_page()
+            page.goto(f"{url}/language?lang=en")
+            page.goto(f"{url}/login")
+            page.fill("input[name=username]", "admin")
+            page.fill("input[name=password]", os.environ["TBR_SHOTS_PASSWORD"])
+            page.press("input[name=password]", "Enter")
+            page.wait_for_url(f"{url}/")
+            for name, (path, full, _desc) in shots.items():
+                page.goto(url + path.format(**paths))
+                page.wait_for_load_state("networkidle")
+                save(page, name, full)
+            context.close()
         browser.close()
 
 

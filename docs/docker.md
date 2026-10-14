@@ -7,7 +7,8 @@ the native installation ([quickstart](quickstart.md), `deploy/install.sh`), whic
 Agents (`tbr`, the runner, `tbr mcp`) do not run in a container; install them on the agent machines as described in
 [CLI agents](cli-agents.md) and [desktop apps via MCP](desktop-apps-mcp.md).
 
-The UI labels below are German; this guide names them verbatim with an English gloss.
+The UI labels below are the English ones (the default). With `UI_LANGUAGE=de` in `.env`, *Admin → Settings* or the
+EN/DE switch in the top bar the UI is German; the translations are in `app/locales/de.json`.
 
 - [Quickstart: first agent task in 5 minutes](#quickstart-first-agent-task-in-5-minutes)
 - [Variants](#variants) – with or without the Gitea profile, with or without Tailscale
@@ -39,13 +40,14 @@ Set these values in `.env` (each key already exists in the file):
 | `TBR_DB_PASSWORD` | Password of the MariaDB user `TBR_DB_USER`, e.g. the output of `openssl rand -base64 24`. |
 | `MARIADB_ROOT_PASSWORD` | Another random value (used only inside the database container and by the backup). |
 | `TBR_INITIAL_ADMIN_PASSWORD` | Initial UI password (min. 10 characters) for the human `admin`; also the Gitea admin's password. |
+| `TBR_IMAGE`, `TBR_PULL_POLICY` | Recommended: the public release image, `TBR_IMAGE=ghcr.io/taskbrigade/taskbrigade:0.13.3` (replace with the version you cloned; tags `<version>`, `<major>.<minor>` and `latest`, amd64 + arm64) and `TBR_PULL_POLICY=always`. Without them Compose builds the image from the checkout (`taskbrigade:local`), which you need only for your own changes. |
 
 Without `SECRET_KEY` a random session key is created once in the state volume.
 
 ### 2. Start (1 minute)
 
 ```bash
-docker compose --profile gitea up -d --wait   # builds the image; all services ready after about a minute
+docker compose --profile gitea up -d --wait   # pulls the image (builds it without TBR_IMAGE); ready after about a minute
 docker compose logs gitea-init                # "TaskBrigade + Gitea are ready."
 ```
 
@@ -59,9 +61,9 @@ instead.
 The flow: create the agent in the UI → `curl …/install.sh | sh` → `tbr join … --setup …` → `tbr doctor`.
 
 A fresh installation contains only the admin (plus the demo agent from `gitea-init`), so create the agent first.
-Open <http://127.0.0.1:8090>, sign in as `admin` with `TBR_INITIAL_ADMIN_PASSWORD` and go to *Admin → Benutzer &
-Agenten → Neuer Agent* (users & agents → new agent): name `claude-code`, kind `claude_code`, runtime `cloud` (Claude
-Code sends code to Anthropic), role `worker`, then **Agent und Einmal-Code anlegen** (create agent and join code).
+Open <http://127.0.0.1:8090>, sign in as `admin` with `TBR_INITIAL_ADMIN_PASSWORD` and go to *Admin → Users &
+agents → New agent*: name `claude-code`, kind `claude_code`, runtime `cloud` (Claude
+Code sends code to Anthropic), role `worker`, then **Create agent and join code**.
 `gitea-init` stored a Gitea admin token, so TaskBrigade creates the Gitea user `claude-code` and its token itself (no
 admin rights). The next page shows the join code once and the commands to copy. On the same machine:
 
@@ -84,9 +86,9 @@ from trusted peers or over HTTPS. Without a Gitea admin token, or to write the i
 
 ### 4. First task (1 minute)
 
-In the UI, **Projekte → Neues Projekt** (new project): key `HELLO`, status `active`, privacy `cloud_ok` (the
-`claude-code` agent has runtime `cloud`), Gitea **neues Gitea-Repo anlegen** (create a new repo) with
-owner `taskbrigade`, repo `hello`. Then **Neuer Task** (new task): project `HELLO`, status **Definiert** (defined),
+In the UI, **Projects → New project**: key `HELLO`, status `active`, privacy `cloud_ok` (the
+`claude-code` agent has runtime `cloud`), Gitea **create a new Gitea repo** with
+owner `taskbrigade`, repo `hello`. Then **New task**: project `HELLO`, status **Defined**,
 assigned to `claude-code`, title `Add a README greeting`, description `Create README.md with the line "Hello from
 TaskBrigade".`, acceptance criteria `README.md on the task branch contains that line.`
 
@@ -97,7 +99,7 @@ tmux attach -t taskbrigade
 ```
 
 When Claude Code runs `tbr submit`, TaskBrigade opens the pull request in Gitea and the task moves to review.
-**Abnehmen** (approve) in the UI merges it. For a timer that polls every 10 minutes and for more agents see
+**Approve** in the UI merges it. For a timer that polls every 10 minutes and for more agents see
 [CLI agents](cli-agents.md); for Claude Desktop see [desktop apps via MCP](desktop-apps-mcp.md).
 
 ## Variants
@@ -108,8 +110,8 @@ When Claude Code runs `tbr submit`, TaskBrigade opens the pull request in Gitea 
 | --- | --- | --- |
 | Start | `docker compose --profile gitea up -d` (or `COMPOSE_PROFILES=gitea` in `.env`) | `docker compose up -d` |
 | Gitea | `gitea/gitea:1.24` (`TBR_GITEA_IMAGE`), SQLite, volume `taskbrigade-gitea` | as it is |
-| Service user, token, settings | created by `gitea-init` | in Gitea's web UI and *Admin → Einstellungen*, as in the [native quickstart](quickstart.md#2-gitea) |
-| Agent users and tokens | created by *Neuer Agent* with the Gitea admin token from `gitea-init` (quickstart step 3) | in Gitea's web UI, or with a „Gitea-Admin-Token“ under *Admin → Einstellungen* |
+| Service user, token, settings | created by `gitea-init` | in Gitea's web UI and *Admin → Settings*, as in the [native quickstart](quickstart.md#2-gitea) |
+| Agent users and tokens | created by *New agent* with the Gitea admin token from `gitea-init` (quickstart step 3) | in Gitea's web UI, or with a “Gitea admin token” under *Admin → Settings* |
 | Backup | `deploy/docker/backup.sh` includes the Gitea volume | back up your Gitea yourself |
 
 TaskBrigade calls Gitea's API; Gitea never calls TaskBrigade, so no webhook setup is needed. With your own Gitea,
@@ -143,13 +145,13 @@ No further values are needed in `.env`. The profile adds three services:
 | --- | --- |
 | `gitea` | Official Gitea image with SQLite in the volume `taskbrigade-gitea`. HTTP on `127.0.0.1:3000` (`TBR_GITEA_PUBLISH`), SSH on `127.0.0.1:2222` (`TBR_GITEA_SSH_PUBLISH`, never port 22 of the host). Registration is disabled. |
 | `gitea-admin` | One-shot: creates the Gitea admin `giteaadmin` (`TBR_GITEA_ADMIN_USER`) with the Gitea CLI. Password: `TBR_GITEA_ADMIN_PASSWORD`, default `TBR_INITIAL_ADMIN_PASSWORD`. |
-| `gitea-init` | One-shot (`python -m app.gitea_init`): creates the Gitea user `taskbrigade` and its token, stores token, owner and both Gitea addresses in TaskBrigade (*Admin → Settings*), plus a token of the Gitea admin (`taskbrigade-admin`, scopes `write:admin`, `read:user`) as „Gitea-Admin-Token“ so *Neuer Agent* creates Gitea users for agents, and – unless `TBR_GITEA_DEMO=0` – sets up the demo. |
+| `gitea-init` | One-shot (`python -m app.gitea_init`): creates the Gitea user `taskbrigade` and its token, stores token, owner and both Gitea addresses in TaskBrigade (*Admin → Settings*), plus a token of the Gitea admin (`taskbrigade-admin`, scopes `write:admin`, `read:user`) as “Gitea admin token” so *New agent* creates Gitea users for agents, and – unless `TBR_GITEA_DEMO=0` – sets up the demo. |
 
 The demo consists of the agent `demo-agent` (with its own Gitea user and token, runtime `local`), the project
 `DEMO` owned by `admin` with the repository `taskbrigade/demo`, and the task `DEMO-0001` assigned to
 `demo-agent`. Every step checks what exists, so `gitea-init` runs again on each `up` without creating duplicates;
 an invalid service token is replaced. The demo agent's TaskBrigade API token is printed only on the run that
-creates the agent – rotate it under *Admin → Benutzer & Agenten* (users and agents) if the log is gone.
+creates the agent – rotate it under *Admin → Users & agents* if the log is gone.
 
 Try the demo on the Docker host (`tbr` installed as in [CLI agents](cli-agents.md)):
 
@@ -249,15 +251,17 @@ the backup. A backup of an older version is migrated on that start.
 ## Updates
 
 ```bash
-git pull                     # new source (the image is built locally by default)
-deploy/docker/update.sh      # backup, pull MariaDB/Gitea, rebuild, recreate; --no-backup skips the backup
+git pull                     # new source (scripts, compose.yaml); with the registry image also set the new TBR_IMAGE tag in .env
+deploy/docker/update.sh      # backup, pull MariaDB/Gitea (and the TaskBrigade image), recreate; --no-backup skips the backup
 ```
 
 `update.sh` runs `backup.sh`, then `docker compose pull` for the registry images, `docker compose build --pull`
 for TaskBrigade and `docker compose up -d --wait`. The new `taskbrigade` container runs the migrations before it
-serves requests; `--wait` returns once it is healthy. With a registry image (`TBR_IMAGE` and
-`TBR_PULL_POLICY=always`) the script pulls instead of building – the manual equivalent is
-`docker compose pull && docker compose up -d`. Remove old images with `docker image prune`. An installation from
+serves requests; `--wait` returns once it is healthy. With the registry image (`TBR_IMAGE=ghcr.io/taskbrigade/taskbrigade:<version>`
+and `TBR_PULL_POLICY=always`, as in the quickstart) the script pulls instead of building – the manual equivalent is
+`docker compose pull && docker compose up -d`. A fixed `<version>` tag changes only when you edit it in `.env`; the
+tags `<major>.<minor>` and `latest` move with each release. Without `TBR_IMAGE` the image is built locally from the
+checkout. Remove old images with `docker image prune`. An installation from
 before 0.8 is moved to the new names first ([below](#from-the-taskmeister-names-taskbrigade-08)). Going back to an older
 version: restore the backup taken before the update with the older checkout or image.
 
@@ -346,7 +350,7 @@ loopback and is trusted exactly as on a native server. Funnel (public internet) 
    `COMPOSE_FILE`; on Windows the separator in `COMPOSE_FILE` is `;`). The node state lives in the volume `taskbrigade-tailscale-state`; the auth key is only
    needed for the first login and can be removed from `.env` afterwards.
 4. Sign in at `https://taskbrigade.example.ts.net`, map the Tailscale login to the actor `admin` in
-   *Admin → Benutzer & Agenten* and set the TaskBrigade URL under *Einstellungen* (settings), as in
+   *Admin → Users & agents* and set the TaskBrigade URL under *Settings*, as in
    [operations](operations.md#tailscale). Agents on other tailnet machines use that URL in `.taskbrigade.toml`.
 
 The sidecar uses userspace networking (`TS_USERSPACE=true`): no `/dev/net/tun` and no extra capabilities, which
@@ -423,7 +427,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t registry.example.inter
 ```
 
 Cross-building needs QEMU on the build host (`docker run --privileged --rm tonistiigi/binfmt --install arm64`,
-included in Docker Desktop). To run a pushed image set `TBR_IMAGE` and `TBR_PULL_POLICY=always` in `.env`;
+included in Docker Desktop). To run a pushed image (your own, or the public `ghcr.io/taskbrigade/taskbrigade`) set `TBR_IMAGE` and `TBR_PULL_POLICY=always` in `.env`;
 `docker compose up -d` then pulls instead of building.
 
 ## Changing settings
@@ -438,7 +442,7 @@ docker compose exec taskbrigade tbr-admin config get GITEA_PUBLIC_URL
 ```
 
 `tbr-admin config set` refuses inside the container and points to `.env` – a file written there would be lost on the
-next `up`. Settings stored in the UI (*Admin → Einstellungen*) override `.env` for the keys they cover. The native
+next `up`. Settings stored in the UI (*Admin → Settings*) override `.env` for the keys they cover. The native
 installation edits its env file with `sudo tbr-admin config set KEY VALUE` instead ([quickstart](quickstart.md#4-bootstrap-password)).
 
 ## Troubleshooting
@@ -451,7 +455,7 @@ installation edits its env file with `sudo tbr-admin config set KEY VALUE` inste
 | UI or `tbr` gets 403 | The peer is not trusted. `docker compose logs taskbrigade` shows the address; OrbStack and other runtimes may use a different one than the gateway – add exactly that address to `TRUSTED_PEER_NETWORKS`. |
 | `port is already allocated` | Port 8090, 3000 or 2222 is in use: `TBR_PUBLISH=127.0.0.1:8091`, or for the profile `TBR_GITEA_PUBLISH=127.0.0.1:3005` with `GITEA_PUBLIC_URL=http://localhost:3005`, `TBR_GITEA_SSH_PUBLISH=127.0.0.1:2223`. |
 | `gitea-init` exits with an error | `docker compose logs gitea-init`; it needs `TBR_INITIAL_ADMIN_PASSWORD` (or `TBR_GITEA_ADMIN_PASSWORD`) and runs again on the next `docker compose --profile gitea up -d`. |
-| *Gitea-Verbindung testen* (test connection) fails | The container does not reach `GITEA_URL` (profile: `http://gitea:3000`). With your own Gitea test with the `urllib` command under [variants](#with-or-without-the-gitea-profile); `localhost` is the container itself. |
+| *Test Gitea connection* fails | The container does not reach `GITEA_URL` (profile: `http://gitea:3000`). With your own Gitea test with the `urllib` command under [variants](#with-or-without-the-gitea-profile); `localhost` is the container itself. |
 | Clone fails on the agent, `tbr git-credential` returns nothing | The agent reaches Gitea under a different scheme, host or port than `GITEA_PUBLIC_URL` (or `GITEA_URL` if that is empty) – they must match exactly. |
 | Gitea links or clone URLs point to the wrong host | Gitea's `ROOT_URL` comes from `GITEA_PUBLIC_URL` in `.env`: set it and run `docker compose --profile gitea up -d` again ([details](#internal-and-public-gitea-address)). |
 | Login fails after a restore | Logins, API tokens and Gitea tokens come from the backup – use the passwords of the backed-up installation. |
@@ -495,7 +499,7 @@ beyond `127.0.0.1`.
 - **Claude Code via `tbr run`:** quickstart step 3 (`install.sh`, `tbr join … --setup claude-code`, `tbr doctor`;
   on macOS the timer is a launchd agent). `tbr whoami` in `~/taskbrigade-work/claude-code` must answer `claude-code`, and
   `printf 'protocol=http\nhost=localhost:3000\n\n' | tbr git-credential get` must print `username=claude-code`.
-- **Claude Desktop via `tbr mcp` (optional):** create a second agent `claude-desktop` (*Neuer Agent*, runtime
+- **Claude Desktop via `tbr mcp` (optional):** create a second agent `claude-desktop` (*New agent*, runtime
   `cloud`; TaskBrigade creates its Gitea user), then on the Mac
   `tbr join http://127.0.0.1:8090 tmj_… --dir ~/taskbrigade-work/claude-desktop --setup claude-desktop` and
   `tbr doctor --work-root ~/taskbrigade-work/claude-desktop` ([desktop apps via MCP](desktop-apps-mcp.md)).
@@ -506,12 +510,12 @@ beyond `127.0.0.1`.
 
 Create the project `HELLO` as in quickstart step 4. Tick each line:
 
-- [ ] **Create task:** task for `claude-code`, status *Definiert*. Description: `Create README.md with the line
+- [ ] **Create task:** task for `claude-code`, status *Defined*. Description: `Create README.md with the line
       "Hello from TaskBrigade". Add brain-changes/<TASK-NR>.md with a section "## add: Test notes" and
       the line "- Docker test run on a Mac mini".` – acceptance criteria accordingly.
 - [ ] **Prerequisites:** `command -v tmux claude` finds both. If not, `tbr run` stops **before** claiming with
       `Prerequisites missing – no task claimed` and an install hint (`brew install tmux`; Claude Code: `npm install -g
-      @anthropic-ai/claude-code`), exit code 1; the task stays *Definiert*.
+      @anthropic-ai/claude-code`), exit code 1; the task stays *Defined*.
 - [ ] **Claim:** `tbr run --work-root ~/taskbrigade-work/claude-code` claims it; the task shows *in_progress*,
       `tmux attach -t taskbrigade` shows Claude Code working in `~/taskbrigade-work/claude-code/HELLO/…`.
       Should the start fail after the claim, `tbr run` prints the reason (no traceback) and gives the task back.
@@ -520,7 +524,7 @@ Create the project `HELLO` as in quickstart step 4. Tick each line:
       window is still running, a second `tbr run` starts nothing for it.
 - [ ] **Pull request:** after `tbr submit` the task is in review, and the pull request exists in Gitea
       (`http://localhost:3000/taskbrigade/hello/pulls`, signed in as `giteaadmin`) with the task branch.
-- [ ] **Approve:** **Abnehmen** in the UI; the task is *done*, the pull request merged.
+- [ ] **Approve:** **Approve** in the UI; the task is *done*, the pull request merged.
 - [ ] **brain-changes applied:** on `main` in Gitea, `brain.md` has a new section *Test notes* with that line, a separate
       commit by the service user applied it, and `brain-changes/<TASK-NR>.md` is gone.
 - [ ] **MCP (optional):** in Claude Desktop "Check whether there is a TaskBrigade task for you" for a task assigned
@@ -530,7 +534,7 @@ Create the project `HELLO` as in quickstart step 4. Tick each line:
 - [ ] **Restore on a fresh installation:** `docker compose --profile gitea down -v` (deletes all data!;
       `docker volume ls` shows no `taskbrigade-*` volume), then
       `deploy/docker/restore.sh backups/taskbrigade-docker-….tar`: project `HELLO` and the done task are back,
-      *Gitea-Verbindung testen* succeeds and `docker compose logs gitea-init` says *Nothing to do* (the service token
+      *Test Gitea connection* succeeds and `docker compose logs gitea-init` says *Nothing to do* (the service token
       decrypts, so `master.key` was restored), the `hello` repository with the merged commit is back in Gitea, and
       `tbr whoami` still works with the old API token.
 - [ ] **Update:** `deploy/docker/update.sh` takes a backup and ends with all services healthy.
@@ -550,12 +554,12 @@ docker compose exec -u git gitea gitea admin user generate-access-token --userna
 ```
 
 With your own Gitea, create the user and a token with the same scopes in its web UI. Then on the agent's setup page
-in TaskBrigade („Gitea-User manuell verknüpfen“, link a Gitea user manually) enter username, token and email and
-**Prüfen und speichern** (check and save). `tbr join` works as in the quickstart afterwards.
+in TaskBrigade (“Link a Gitea user manually”) enter username, token and email and
+**Check and save**. `tbr join` works as in the quickstart afterwards.
 
 **`tbr` without `/install.sh`.** From the checkout: `uv tool install --python 3.12 --from . taskbrigade`.
 
-**Identity file by hand.** Instead of `tbr join`: on the agent's page **Token rotieren** (rotate token), copy the API
+**Identity file by hand.** Instead of `tbr join`: on the agent's page **Rotate token**, copy the API
 token (shown once) and write `~/taskbrigade-work/claude-code/.taskbrigade.toml` with mode 600:
 
 ```toml

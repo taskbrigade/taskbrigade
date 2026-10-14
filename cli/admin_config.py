@@ -205,6 +205,15 @@ def _systemd_env_file(service: str = SERVICE) -> Path | None:
     return None
 
 
+def _exists(path: Path) -> bool:
+    """`Path.exists()` raises PermissionError where a parent directory (`/etc/taskbrigade`) is not readable for this
+    user; such a file is not visible to tbr-admin, so it counts as absent instead of ending in a traceback."""
+    try:
+        return path.exists()
+    except PermissionError:
+        return False
+
+
 def env_file() -> Path | None:
     """The file to edit; None means Docker (no file in the container)."""
     from cli.legacy import getenv
@@ -216,7 +225,7 @@ def env_file() -> Path | None:
     found = _systemd_env_file() or _systemd_env_file(LEGACY_SERVICE)
     if found:
         return found
-    return LEGACY_ENV_FILE if not DEFAULT_ENV_FILE.exists() and LEGACY_ENV_FILE.exists() else DEFAULT_ENV_FILE
+    return LEGACY_ENV_FILE if not _exists(DEFAULT_ENV_FILE) and _exists(LEGACY_ENV_FILE) else DEFAULT_ENV_FILE
 
 
 def service_name() -> str:

@@ -109,7 +109,7 @@ curl -s -X POST -H "Authorization: Bearer $TBR_TOKEN" -H "Content-Type: applicat
 `summary` is for the reviewer: what changed, how it was tested. `open_points` (optional, `--open-point` per point,
 MCP `submit_task(..., open_points=[…])`, or a `## Open points` bullet list at the end of `.tm-submit.md`) lists what
 remains open, one short self-contained sentence per point. TaskBrigade stores them at the task and shows them in the
-task view; „Follow-up-Task erstellen“ (create follow-up task) offers them preselected for the new task.
+task view; “Create follow-up task” offers them preselected for the new task.
 
 ## 3c. Give the task back
 

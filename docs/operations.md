@@ -18,13 +18,13 @@ It checks Python 3.12, uv, a MariaDB client ≥ 10.5, Gitea and (only with `TAIL
 `LAN_UI_NETWORK=192.168.1.0/24` additionally opens the UI over HTTP to that network; leave it out for localhost or
 Tailscale only. Every setting the service reads is documented in [`.env.example`](../.env.example).
 
-On first start the app runs in **setup mode**: under *Admin → Datenbank* (database) enter the password, then
-„Verbindung testen“ (test connection), „Speichern“ (save), „Schema aktualisieren“ (upgrade schema) – no restart
+On first start the app runs in **setup mode**: under *Admin → Database* enter the password, then
+“Test connection”, “Save”, “Upgrade schema” – no restart
 needed. For a MariaDB on another host, prepare it with [`deploy/mariadb-setup.sql`](../deploy/mariadb-setup.sql).
 
 ## Gitea service token
 
-The service token (of the Gitea service user, e.g. `taskbrigade`, entered under *Admin → Einstellungen*, settings;
+The service token (of the Gitea service user, e.g. `taskbrigade`, entered under *Admin → Settings*;
 an installation from before 0.8 keeps its user `taskmeister` – it is not renamed) needs the scopes
 `write:repository`, `write:issue` (pull-request comments) and `write:user` (create repositories in its own
 namespace; for repositories in an organisation use `write:organization` instead). Gitea admin rights are not
@@ -53,7 +53,7 @@ names).
 2. `sudo tailscale serve --bg --https=443 http://127.0.0.1:8090` (persists across reboots), or install with
    `TAILSCALE_SERVE=1`.
 3. In `/etc/taskbrigade/taskbrigade.env`: `UI_ALLOWED_LOGINS=admin@example.org`. In the UI, enter the Tailscale login
-   `admin@example.org` for the actor `admin`, and under *Einstellungen* set the TaskBrigade URL to
+   `admin@example.org` for the actor `admin`, and under *Settings* set the TaskBrigade URL to
    `https://taskbrigade.example.ts.net` (used for links in pull requests and notifications).
 4. Agents on other tailnet machines use `url = "https://taskbrigade.example.ts.net"` in `.taskbrigade.toml`
    ([CLI agents on a second machine](cli-agents.md)); agents on the app server itself may use
@@ -171,11 +171,11 @@ sudo systemctl daemon-reload && sudo systemctl enable --now taskmeister.service 
   elsewhere). Roles for agents: `worker`, `orchestrator` (may also create and assign tasks) and `reviewer` (reviews
   the tasks it is entered for as reviewer and works on tasks like a worker – see "Reviewers" below).
 - Every human – admins included – sees only the projects they own: project list, inbox, backlog, kanban, sprint
-  filters, search and the project choices (new task, quick capture "+", sprint editor). The profile switch „Alle
-  Projekte anzeigen“ (show all projects, *Profil* → *Anzeige*) is stored per human and off by default; switched on,
+  filters, search and the project choices (new task, quick capture "+", sprint editor). The profile switch “Show all
+  projects” (*Profile* → *Display*) is stored per human and off by default; switched on,
   all projects appear with the "Owner" filter (default "all owners", the last choice is remembered in the browser).
   API, CLI, MCP, agents and notifications are not affected.
-- A new person: create them under *Admin → Benutzer & Agenten* as a human with role `member` (password or Tailscale
+- A new person: create them under *Admin → Users & agents* as a human with role `member` (password or Tailscale
   login; add Tailscale logins to `UI_ALLOWED_LOGINS` in the server configuration as well). Optionally link a Gitea
   user so they can see the pull requests in the repository.
 - The profile switch and the owner filter are a convenience, not a confidentiality boundary: signed-in humans can
@@ -183,17 +183,17 @@ sudo systemctl daemon-reload && sudo systemctl enable --now taskmeister.service 
 
 ## Several people: agent owners and public agents
 
-- Every agent has an **owner** (a human) and/or is **public** (*Admin → Benutzer & Agenten*, columns and form fields
-  „Owner“ and „Öffentlich“ (public); admins only). New agents belong to the human who creates them (changeable in the
-  agent wizard *Admin → Neuer Agent* and the agent form) and are **not** public. The update (migration 0018) gives
+- Every agent has an **owner** (a human) and/or is **public** (*Admin → Users & agents*, columns and form fields
+  “Owner” and “Public”; admins only). New agents belong to the human who creates them (changeable in the
+  agent wizard *Admin → New agent* and the agent form) and are **not** public. The update (migration 0018) gives
   existing agents their creator as owner (the human who created their first join code), otherwise
   `BOOTSTRAP_ADMIN_ACTOR` or the first human admin, and makes them all public – nothing changes until an admin
   switches agents to private.
 - Choices for assignee and reviewer – task form, task detail, duplicate and follow-up, sprint editor and batch
   capture, agent filters in backlog and kanban, project default reviewer – show a human only their **own and public**
   agents (plus humans). An agent already assigned to a task stays visible there and is never cleared silently.
-- Admins: profile switch „Alle Agenten anzeigen“ (show all agents, *Profil* → *Anzeige*, off by default) shows all
-  agents in those choices. *Admin → Benutzer & Agenten* always lists all actors, with combinable filters Owner, Role
+- Admins: profile switch “Show all agents” (*Profile* → *Display*, off by default) shows all
+  agents in those choices. *Admin → Users & agents* always lists all actors, with combinable filters Owner, Role
   and Kind (`?owner=<name>|none&role=<role>&kind=<agent_kind>`, shareable as a link) and the number of matches.
 - **Enforced on the server** for web UI, API, CLI and MCP: a non-admin cannot assign another human's private agent
   as assignee or reviewer (`403 agent_not_visible`). Admins may assign any agent (the switch is only a display
@@ -206,7 +206,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now taskmeister.service 
 ## Reviewers: who approves a task
 
 By default the project owner and the admins review. A task can name a **reviewer** instead – a human or an agent with
-the role `reviewer` (*Admin → Benutzer & Agenten*, role `reviewer`; humans cannot have it):
+the role `reviewer` (*Admin → Users & agents*, role `reviewer`; humans cannot have it):
 
 - Field *Reviewer* in the task form, the task detail view (changeable until the task is approved), the sprint editor
   and the batch capture (4th field: `Title | Agent | Prio | Reviewer`); API `reviewer` in `POST`/`PATCH /tasks`,
@@ -227,25 +227,25 @@ the role `reviewer` (*Admin → Benutzer & Agenten*, role `reviewer`; humans can
   (`<KEY>/.worktrees/<NR>-review`, tmux window `<NR>-review`). The agent decides with `tbr review <NR> approve|reject|
   conflict` (MCP `review_task`) – the same path as a human approval: merge, brain-changes, changelog.d,
   notifications. `tbr review <NR> release --reason …` gives the job back undecided; an expired review lease returns it
-  to the reviewer's queue. Review jobs count towards *max. parallele Tasks*; with "one review at a time per agent" a
+  to the reviewer's queue. Review jobs count towards *Max. parallel tasks*; with "one review at a time per agent" a
   reviewer holds at most one review job per project.
 - Model of a review session: the task's tier (or concrete model, if the reviewer's allow list contains it) resolved
   with the reviewer's own model settings – there is no separate review model field.
-- Display: the thread notes „Abgenommen von <agent> (Reviewer-Agent)“ (approved by … (reviewer agent)), likewise for
+- Display: the thread notes “Approved by <agent> (reviewer agent)”, likewise for
   rejections and returned conflicts; the history shows `review_claimed`/`review_released`/`review_lease_expired`, the
   server log audits `review_*` with `reviewer_agent=true`. The inbox lists tasks a reviewer agent reviews under
-  „Review durch Agenten“ (review by agents) instead of "Needs your action"; Telegram sends no review request for them
-  but the event „Vom Reviewer-Agenten entschieden“ (reviewed by a reviewer agent) after the agent's decision.
+  “Review by agents” instead of "Needs your action"; Telegram sends no review request for them
+  but the event “Reviewed by a reviewer agent” after the agent's decision.
 - After updating the server, update reviewer agent machines too (`tbr self-update`); Hermes/OpenClaw reviewers need
   `tbr setup hermes|openclaw` once so the trigger recognises review jobs.
 
 ## Telegram notifications
 
 1. Create a bot with @BotFather (its own bot – a bot token can only be polled by one program).
-2. *Admin → Einstellungen* (settings): enter the token under "Telegram-Bot-Token", tick "Telegram-Bot eingeschaltet"
-   (bot enabled), save and check with „Telegram-Verbindung testen“ (test connection). Set the TaskBrigade URL there
+2. *Admin → Settings*: enter the token under "Telegram bot token (from @BotFather)", tick "Telegram bot enabled"
+   (notifications, linking in the profile), save and check with “Test Telegram connection”. Set the TaskBrigade URL there
    too, so messages carry links.
-3. Every human opens *Profil* (profile), creates a link code and sends `/start <code>` to the bot (the code is valid
+3. Every human opens *Profile*, creates a link code and sends `/start <code>` to the bot (the code is valid
    for 15 minutes and works once). The profile also selects events, quiet hours and mutes; admins can follow all
    projects.
 4. Bot commands (German name / English alias): `/inbox` (questions, reviews and aborted tasks of your projects,
@@ -254,9 +254,9 @@ the role `reviewer` (*Admin → Benutzer & Agenten*, role `reviewer`; humans can
    server), `/hilfe` / `/help`, `/stop` (unlink). `/mute`/`/unmute` still work. Messages and buttons from chats that
    are not linked are ignored.
 5. Acting from Telegram, always as the linked human with that person's rights (admin or project owner):
-   - Review messages carry the buttons „Abnehmen“ (approve – asks for confirmation, then merges) and
-     „Zurückweisen“ (reject – the next message becomes the review comment; `/abbrechen` stops). A merge, brain or
-     changelog conflict is explained in the chat and offers „Konflikt zurückgeben“ (return conflict); conflict
+   - Review messages carry the buttons “Approve” (asks for confirmation, then merges) and
+     “Reject” (the next message becomes the review comment; `/abbrechen` stops). A merge, brain or
+     changelog conflict is explained in the chat and offers “Return conflict”; conflict
      messages carry that button too.
    - Replying to a question message answers the question in the task thread, as in the inbox. Questions of
      `local_only` projects are never shown in Telegram, so a reply works only after you opened the question in the
@@ -273,21 +273,21 @@ the role `reviewer` (*Admin → Benutzer & Agenten*, role `reviewer`; humans can
    `openclaw-agent` mutes notifications on a request in chat – see
    [agent-frameworks.md](agent-frameworks.md#openclaw-as-orchestrator-in-telegram).
 
-The delivery log (without contents) is at the bottom of *Admin → Einstellungen* and in each profile.
+The delivery log (without contents) is at the bottom of *Admin → Settings* and in each profile.
 
 ## SFTP storage for agent results
 
 Agents can put results on a local SFTP server (e.g. a NAS in the LAN) into one central folder, each with its own
 SFTP user. TaskBrigade is the central source of the logins; the transfer runs on the agent machine.
 
-1. *Admin → Einstellungen* (settings): tick „SFTP-Ablage aktiv“ (enabled), enter host and port (default 22), the base
+1. *Admin → Settings*: tick “SFTP storage enabled (agents upload results with tbr sftp)”, enter host and port (default 22), the base
    folder (default `/agent exchange`) and the storage pattern (default `{base}/{project}/{task_nr}`; placeholders
-   `{base}`, `{project}`, `{task_nr}`; it must start with `{base}`). Save, then „SFTP-Verbindung testen“ (test
-   connection): the first time it shows the server's host key fingerprint – compare it with the server
-   (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) and click „Fingerabdruck übernehmen“ (accept). Agents refuse
+   `{base}`, `{project}`, `{task_nr}`; it must start with `{base}`). Save, then “Test SFTP connection”:
+   the first time it shows the server's host key fingerprint – compare it with the server
+   (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) and click “Accept fingerprint”. Agents refuse
    every server whose key does not match it; a changed server key is entered by hand in the setting.
-2. *Admin → Benutzer & Agenten → <agent> → SFTP-Ablage* (SFTP storage): SFTP user and password (stored encrypted
-   like Gitea tokens, only the last 4 characters are shown), „Zugang testen“ (test access) logs in, writes a test
+2. *Admin → Users & agents → <agent> → SFTP storage*: SFTP user and password (stored encrypted
+   like Gitea tokens, only the last 4 characters are shown), “Test access” logs in, writes a test
    file into the base folder and deletes it. Same via API: `PUT /api/v1/admin/actors/<agent>/sftp`
    `{"sftp_username","sftp_password"}`, `DELETE …/sftp`, `POST …/sftp/check`.
 3. Agents fetch their own login with `GET /api/v1/agents/me/sftp-credentials` – only over HTTPS (tailscale serve)
@@ -351,10 +351,10 @@ again after completing them. `tbr show` and the agent's `TASK.md` show the sprin
 offers the same: `list_sprints`, `show_sprint`, `create_sprint`, `add_sprint_tasks`, `release_sprint`,
 `close_sprint` and the `sprint` parameter of `create_task`/`update_task`.
 
-In the web UI, *Backlog → Neuer Sprint* (new sprint; shown to admins, orchestrators and project owners) opens the
+In the web UI, *Backlog → New sprint* (shown to admins, orchestrators and project owners) opens the
 sprint editor: header data on top, task headings on the left (Enter adds one, pasting several lines adds one per
 line, drag to reorder, × removes), details of the selected heading on the right, with a ready/missing hint per
-heading. *Speichern* (save) creates or updates the planned sprint and all its drafts in one transaction; *Speichern
-und Sprint freigeben* (save and release) then runs the normal release. A planned sprint opens in the same editor via
-*Im Editor bearbeiten* (edit in the editor) on its sprint page; tasks past draft are read-only there, and removing a
+heading. *Save* creates or updates the planned sprint and all its drafts in one transaction; *Save and release
+sprint* then runs the normal release. A planned sprint opens in the same editor via
+*Edit in the sprint editor* on its sprint page; tasks past draft are read-only there, and removing a
 saved draft cancels it.

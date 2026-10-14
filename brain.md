@@ -22,10 +22,14 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   `app/locales/de.json`); default language `en`. Agent-facing texts (TASK.md instructions, runner prompts, MCP
   instructions/tool descriptions/replies, `tm` help and messages) are English with a separate German catalog
   (`cli/i18n.py`, `cli/locales/de.json`). README, `docs/`, CHANGELOG, skills in `deploy/agents/` and code identifiers
-  are English. Docs name German UI labels verbatim with an English gloss, e.g. *Admin → Benutzer & Agenten*,
-  „Token rotieren“ (rotate token).
+  are English. Docs and `llm-install-prompt.md` name the English UI labels (the default language), taken from the
+  templates or the msgids in `app/locales/de.json`, e.g. *Admin → Users & agents*, “Rotate token”; they mention
+  `UI_LANGUAGE=de` once. Change a label in a template → update the docs (grep the old string).
 - Commit messages: short imperative summary; reference the task number if there is one.
 - Never commit secrets, real hostnames/IPs, personal names or internal project keys (see "Pitfalls").
+- Docker docs and the install prompt recommend the public image `ghcr.io/taskbrigade/taskbrigade:<version>` with
+  `TBR_PULL_POLICY=always`; the local build stays the alternative. Bump the example version in `.env.example` and
+  `docs/docker.md` with each release.
 
 ## Build / run / test
 
@@ -52,6 +56,7 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   Demo data comes from `deploy/release/screenshot_seed.py`, piped into `docker compose exec -T taskbrigade python -`;
   it prints `SEED {json}` with id-dependent page paths (sprint editor). Capture runs in the Playwright image with
   `--user <uid>:<gid>`, `HOME=/tmp` and the repo mounted read-only; images are 256-colour PNGs (40–85 KiB).
+- Screenshot script also captures phone pages (`MOBILE_SHOTS`, 390×844, `is_mobile`/`has_touch`, 2× pixels, files `*-mobile.png`) in a second browser context with the same demo data.
 
 ## Decisions (date – decision – reason)
 
@@ -837,6 +842,10 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   form). `.detail-grid` has `align-items: start` on desktop – the phone flex column needs `align-items: stretch`.
 - A disabled assignee select (running task, manager without `state_machine.can_override`) sends nothing; the edit form
   adds a hidden `assigned_to` with the current agent, otherwise `edit_task` reads "" as "unassign" and the save fails.
+- Tests must not touch real `/etc` paths: on a host where `/etc/taskbrigade` exists but is not readable for the user
+  (e.g. a production host), `Path.exists()` raises `PermissionError` under Python 3.12 instead of returning `False`. `env_file()` checks
+  the default and legacy files through `admin_config._exists`, which counts such a file as absent; tests point
+  `DEFAULT_ENV_FILE`/`LEGACY_ENV_FILE` at `tmp_path` (`tests/test_admin_config.py`).
 
 ## Glossary
 

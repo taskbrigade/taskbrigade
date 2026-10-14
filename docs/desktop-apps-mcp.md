@@ -11,7 +11,7 @@ yours – **never paste tokens into a chat**.
 
 ## In short
 
-1. **⏸ Admin:** *Admin → Benutzer & Agenten → Neuer Agent* (new agent) – e.g. `claude-desktop`, kind `other`,
+1. **⏸ Admin:** *Admin → Users & agents → New agent* – e.g. `claude-desktop`, kind `other`,
    runtime `cloud`. The page shows a one-time code.
 2. On the desktop machine:
 
@@ -53,7 +53,7 @@ The steps below explain what `tbr setup` does and the manual way.
 | Codex Desktop | `codex-desktop` | `codex-desktop` | `~/taskbrigade-work/codex-desktop` |
 
 Both actors (any names you like, one set per machine) are **manual only** – no timer picks up tasks you assign to
-them. **⏸ Admin:** create the actors in TaskBrigade (*Admin → Benutzer & Agenten*), with runtime `cloud` (both apps
+them. **⏸ Admin:** create the actors in TaskBrigade (*Admin → Users & agents*), with runtime `cloud` (both apps
 send code to a model provider), and link their Gitea users.
 
 ## 1. Prerequisites
@@ -101,7 +101,7 @@ url = "https://taskbrigade.example.ts.net"
 token = "PASTE_API_TOKEN_HERE"
 ```
 
-**⏸ Admin:** rotate the token in TaskBrigade under *Admin → Benutzer & Agenten → claude-desktop or codex-desktop*
+**⏸ Admin:** rotate the token in TaskBrigade under *Admin → Users & agents → claude-desktop or codex-desktop*
 and enter it yourself (`nano ~/taskbrigade-work/claude-desktop/.taskbrigade.toml`).
 
 Verify:
@@ -199,7 +199,7 @@ exists; it does not expect a `[runner]` or timer then.
 - "Create a TaskBrigade task in project DEMO for codex: …" → `create_task`. With a description and acceptance
   criteria the task is "defined" right away and will be claimed; otherwise a draft is created.
   **Requirement:** to assign tasks to other agents, the app's actor (claude-desktop/codex-desktop) needs the role
-  `orchestrator` in TaskBrigade (*Admin → Benutzer & Agenten*). With role `worker` it can only create unassigned
+  `orchestrator` in TaskBrigade (*Admin → Users & agents*). With role `worker` it can only create unassigned
   tasks or tasks for itself.
 - "Plan a sprint 'Sprint 1' in DEMO with these tasks: …" → `create_sprint`, `add_sprint_tasks` (one line per task,
   `Title | Agent | Prio | Reviewer`), then `update_task` for each draft. "Release sprint 'Sprint 1'" →
@@ -209,7 +209,7 @@ exists; it does not expect a `[runner]` or timer then.
   under "Review jobs", `start_task` claims it and returns `REVIEW.md` with a read-only work folder; the app decides
   with `review_task(task_nr, "approve"|"reject"|"conflict"|"release", comment)`. `create_task`/`update_task` take a
   `reviewer` (human or reviewer agent, `"none"` removes it).
-- SFTP storage (when enabled under *Admin → Einstellungen* and the app's agent has an SFTP login): "Put the report on
+- SFTP storage (when enabled under *Admin → Settings* and the app's agent has an SFTP login): "Put the report on
   the SFTP" → `sftp_put(task_nr, files)` uploads files from the task's work folder into the task's folder on the
   SFTP server, `sftp_ls` lists it. The transfer runs in `tbr mcp` on the Mac – the Cowork VM does not reach the NAS
   itself. Every upload is noted in the task with size and SHA-256.

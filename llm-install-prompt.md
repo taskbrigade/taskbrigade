@@ -12,6 +12,12 @@ repository and enter:
 Read llm-install-prompt.md from the TaskBrigade repository (https://github.com/taskbrigade/taskbrigade) and follow it.
 ```
 
+In an empty directory the agent has no file to read; give it the raw URL instead:
+
+```text
+Fetch https://raw.githubusercontent.com/taskbrigade/taskbrigade/main/llm-install-prompt.md and follow it.
+```
+
 Or paste everything below the line into the agent. Run it as a normal user with `sudo` rights, not as root. The agent
 asks before it changes anything; secrets stay on your machine and do not need to be typed into the chat.
 
@@ -40,9 +46,9 @@ questions and adapt the setup to their environment. The user decides; you recomm
    run the command that needs a secret themselves – in Claude Code by typing `! <command>` at the prompt, in Codex in a
    second terminal. `tbr-admin config set KEY` without a value asks for it without echoing. Never commit secrets.
 4. **Some steps are the user's.** Clicks in the web UIs of TaskBrigade and Gitea (forms, tokens, join codes) are done
-   by the user. Tell them exactly where to click – the UI is German; give the label verbatim with an English gloss,
-   as the guides do, e.g. *Admin → Benutzer & Agenten → Neuer Agent* (users & agents → new agent) – and wait until
-   they confirm.
+   by the user. Tell them exactly where to click and give the label exactly as the guides do, e.g. *Admin → Users & agents → New agent*. The UI is
+   English by default; if the user has switched it to German (`UI_LANGUAGE=de`, *Admin → Settings* or the EN/DE switch
+   in the top bar), the labels are the German translations in `app/locales/de.json`. Wait until they confirm.
 5. **Check every step** before you go on (the checks are listed below). If a check fails, read the error, look it up
    in the guide's troubleshooting table, fix the cause and say what it was. Do not work around a failing check.
 6. **Do not expose the server.** Do not publish port 8090 on the internet and do not open firewall ports without the
@@ -87,7 +93,8 @@ Summarise the plan in five to ten lines (path, ports, URLs, users, directories) 
 ## Phase 3 – Install the server
 
 Get the repository if this directory is not a checkout yet:
-`git clone https://github.com/taskbrigade/taskbrigade.git ~/taskbrigade`.
+`git clone https://github.com/taskbrigade/taskbrigade.git ~/taskbrigade`. GitHub `main` always equals the latest
+release; to pin a version clone the release tag instead (`git clone --branch v<version> …`, e.g. `v0.13.3`).
 
 **Native** – follow `docs/quickstart.md` steps 0–6:
 
@@ -97,8 +104,8 @@ Get the repository if this directory is not a checkout yet:
 | 2 Gitea (if new) – the user creates the service token and the Gitea admin token in the Gitea UI | `curl -fsS <gitea>/api/v1/version` returns 200 |
 | 3 `sudo … deploy/install.sh` with the environment variables for DB host/port/name/user and `GITEA_URL` (plus `TAILSCALE_SERVE=1` or `LAN_UI_NETWORK=…` if chosen) | `systemctl is-active taskbrigade`; `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/healthz` is 503 (setup mode) |
 | 4 Bootstrap password (`tbr-admin hash-password`, `tbr-admin config set BOOTSTRAP_ADMIN_PASSWORD_HASH --restart`) – the user runs both | login as `admin` works |
-| 5 *Admin → Datenbank* in the UI (user) | `/healthz` reports `"db":"ok"` |
-| 6 *Admin → Einstellungen*: Gitea URL, tokens, owner, TaskBrigade URL (user) | „Gitea-Verbindung testen“ names the token's user |
+| 5 *Admin → Database* in the UI (user) | `/healthz` reports `"db":"ok"` |
+| 6 *Admin → Settings*: Gitea URL, tokens, owner, TaskBrigade URL (user) | **Test Gitea connection** names the token's user |
 
 Remind the user to back up `/var/lib/taskbrigade/master.key` somewhere other than the database backup.
 
@@ -106,6 +113,9 @@ Remind the user to back up `/var/lib/taskbrigade/master.key` somewhere other tha
 from Docker's official Ubuntu instructions (<https://docs.docker.com/engine/install/ubuntu/>) if it is missing, and
 ask whether to add the user to the `docker` group. Generate the three passwords in `.env` with `openssl rand` – the
 user needs `TBR_INITIAL_ADMIN_PASSWORD` for the first login, so show them where it is instead of printing it.
+Recommend the public release image: set `TBR_IMAGE=ghcr.io/taskbrigade/taskbrigade:<version>` (the version of the
+checkout, see `pyproject.toml`) and `TBR_PULL_POLICY=always` in `.env`, so Compose pulls instead of building. Building
+locally from the checkout (leave both unset) is the alternative, e.g. when the user wants to change the code.
 Check: `docker compose ps` shows all services healthy, `docker compose logs gitea-init` ends with "TaskBrigade +
 Gitea are ready." (profile `gitea`), and `curl -fsS http://127.0.0.1:8090/healthz` succeeds.
 
@@ -113,7 +123,7 @@ Gitea are ready." (profile `gitea`), and `curl -fsS http://127.0.0.1:8090/health
 
 Follow the quickstart steps 7–8 (native) or the Docker quickstart step 3, and `docs/cli-agents.md` for Codex/OpenCode:
 
-1. The user creates the agent in the UI (*Admin → Benutzer & Agenten → Neuer Agent*): name and kind (`claude-code` /
+1. The user creates the agent in the UI (*Admin → Users & agents → New agent*): name and kind (`claude-code` /
    `claude_code`, `codex` / `codex`, `opencode` / `opencode`), role `worker`, runtime as agreed in Phase 2. The page
    shows a one-time join code (15 minutes, single use) and two commands.
 2. As the agent's login user: install and log in to the agent CLI if needed (Claude Code:

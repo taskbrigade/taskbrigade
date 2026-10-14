@@ -34,7 +34,7 @@ when the lease expires (default 120 minutes) – or on the next check, thanks to
 
 For each framework agent:
 
-1. **⏸ Admin:** *Admin → Benutzer & Agenten → Neuer Agent* (new agent) with kind `hermes` or `openclaw` and the
+1. **⏸ Admin:** *Admin → Users & agents → New agent* with kind `hermes` or `openclaw` and the
    runtime (`local` or `cloud`) of the model it uses. The page shows a one-time code and the command.
 2. As the framework's user on its machine:
 
@@ -161,7 +161,7 @@ approves or rejects: reviews stay with the buttons of the TaskBrigade bot and th
 
 Setup:
 
-1. **⏸ Admin:** give the TaskBrigade agent the role `orchestrator` (*Admin → Benutzer & Agenten*, edit the agent).
+1. **⏸ Admin:** give the TaskBrigade agent the role `orchestrator` (*Admin → Users & agents*, edit the agent).
    Without it, creating and assigning tasks and planning sprints fail with `403`. Releasing and closing sprints stays
    reserved for admins and the project owner, whatever the role – `openclaw-agent` then tells you to do it in the web UI.
 2. Install or refresh the skills for the OpenClaw agent that chats with you:
