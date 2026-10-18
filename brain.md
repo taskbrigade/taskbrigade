@@ -805,7 +805,11 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   pair keeps ≥ 4.5:1 – both checked by `tests/test_ui_kit.py`; add a new pair there. Breakpoints: phone < 640,
   tablet 640–1023, desktop ≥ 1024 (`ui-hide-phone`, `ui-only-phone`, …; table → cards: `ui-table-cards` + `data-label`
   on each `td`). IBM Plex (OFL) is self-hosted in `app/static/vendor/fonts/` (Fontsource 5.3.0, Latin subset) and
-  set globally through `--pico-font-family-sans-serif`/`-monospace`.
+  set globally through `--pico-font-family-sans-serif`/`-monospace`. Symbols the Latin subset lacks (arrows, ✓, ⚠, ▲,
+  ⋯ …) come from the self-hosted `TB Symbols` face (DejaVu Sans subset `dejavu-sans-symbols.woff2`, `unicode-range` in
+  `app.css`); a new symbol in a template must be added there (subset with `pyftsubset`), otherwise it is drawn from a
+  system font and the screenshot baselines differ between hosts (GitHub runner vs. Playwright image). Tab bar and
+  quick-capture icons are inline SVG (`icon()` in `_app_header.html`).
 - 2026-10-17 – The shared header is `templates/_app_header.html` with `static/header.css`: one row at >=1024 px, scrollable nav plus full-width capture at 640–1023 px, bottom tabs and capture/More sheets below 640 px. `shell.js` retains the generic disclosure/tab behavior and adds N-to-capture and explicit sheet close buttons. Avatar disclosures contain profile, language and logout. Existing feature/permission checks also apply in the phone More sheet. Header assets participate in the static version hash. The phone badge uses the Inbox's Needs your action categories (questions, human reviews, aborted tasks, email approvals and data releases), with the same owner/sprint scope; workflow actions remain in their separate Inbox group.
 - 2026-10-17 – Task dependencies from clients: `tbr update --depends-on` (repeatable, replaces the list, `none` clears, omitted = unchanged) and MCP `create_task`/`update_task(depends_on=…)` (list or comma-separated string, `"none"` clears on update) share `cli.client.parse_depends_on`. The server's `tasks._set_dependencies` now also refuses circles (`422`), since a circle makes tasks unclaimable forever.
 - 2026-10-17 – Inbox redesign (UI 3, `app/templates/inbox.html`): action cards (review/question) with type pill, key,

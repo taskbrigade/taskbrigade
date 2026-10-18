@@ -84,8 +84,8 @@
   /* Presence dots (non-text, shown with a label). */
   --ui-dot-online: #2E9A62; --ui-dot-idle: #D99A1E; --ui-dot-offline: #9AA3AE;
   /* Typography: self-hosted IBM Plex (static/vendor/fonts), system fallbacks if a file fails. */
-  --ui-font: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --ui-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --ui-font: "IBM Plex Sans", "TB Symbols", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ui-font-mono: "IBM Plex Mono", "TB Symbols", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --ui-fs-base: 14px; --ui-fs-sm: 13px; --ui-fs-xs: 12px;
   --ui-fs-title: 26px; --ui-fs-section: 16px;
   /* Radius and spacing scale. */
@@ -110,6 +110,12 @@
   src: url(/static/vendor/fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); }
 @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap;
   src: url(/static/vendor/fonts/ibm-plex-mono-latin-600-normal.woff2) format("woff2"); }
+/* Symbols IBM Plex Latin lacks (arrows, ✓, ⚠, ▲ …) – self-hosted so they look the same on every host, not taken
+   from whatever system font has them (DejaVu Sans subset, LICENSE-DejaVu.txt). */
+@font-face { font-family: "TB Symbols"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url(/static/vendor/fonts/dejavu-sans-symbols.woff2) format("woff2");
+  unicode-range: U+02CE, U+03B5, U+2190-2194, U+2197, U+21BB, U+2248, U+2265, U+22EF, U+2514, U+25AB, U+25B2, U+25B4,
+    U+25B6, U+25B8, U+25BC, U+25BE, U+25C0, U+25C2, U+25CB, U+25CF, U+25F7, U+2699, U+26A0, U+2713-2717, U+27F3, U+283F; }
 /* The palette is defined for the light theme only: base.html sets data-theme="light" (Pico dark mode off). */
 :root:not([data-theme=dark]), [data-theme=light] {
   --pico-background-color: var(--tb-bg);

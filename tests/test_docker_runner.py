@@ -142,13 +142,10 @@ def _serve(tmp_path, runner_uid):
     settings = docker.LauncherSettings(image="i", jobs_volume="v", runner_uid=runner_uid)
     stop = threading.Event()
     path = tmp_path / "launcher.sock"
-    thread = threading.Thread(target=docker.serve, args=(docker.Launcher(settings, FakeAPI()), path, stop),
-                              daemon=True)
-    thread.start()
-    for _i in range(100):
-        if path.exists():
-            break
-        threading.Event().wait(0.02)
+    # Bind in this thread: `listen` changes the process umask briefly, which must not race the test's own files.
+    server = docker.listen(docker.Launcher(settings, FakeAPI()), path)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(target=lambda: (stop.wait(), server.shutdown(), server.server_close()), daemon=True).start()
     return path, stop
 
 

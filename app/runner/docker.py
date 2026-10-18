@@ -373,7 +373,8 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
 
-def serve(launcher: Launcher, path: Path, stop: threading.Event | None = None) -> None:
+def listen(launcher: Launcher, path: Path) -> _Server:
+    """Binds the control socket; returns once it accepts connections."""
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         path.unlink()
@@ -387,6 +388,11 @@ def serve(launcher: Launcher, path: Path, stop: threading.Event | None = None) -
     server.launcher = launcher
     log.info("launcher listening on %s (image %s, volume %s)", path, launcher.settings.image,
              launcher.settings.jobs_volume)
+    return server
+
+
+def serve(launcher: Launcher, path: Path, stop: threading.Event | None = None) -> None:
+    server = listen(launcher, path)
     if stop is not None:
         threading.Thread(target=lambda: (stop.wait(), server.shutdown()), daemon=True).start()
     with server:
@@ -427,7 +433,10 @@ class DockerLauncher:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.settimeout(timeout)
                 sock.connect(str(self.socket_path))
-                sock.sendall(json.dumps(body).encode() + b"\n")
+                try:
+                    sock.sendall(json.dumps(body).encode() + b"\n")
+                except BrokenPipeError:
+                    pass  # The launcher may refuse (and close) before reading; its reply is still readable.
                 data = b""
                 while not data.endswith(b"\n"):
                     chunk = sock.recv(65536)

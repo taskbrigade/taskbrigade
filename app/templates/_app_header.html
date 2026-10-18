@@ -3,8 +3,17 @@
 {% macro current(active) %}{% if active %} aria-current="page"{% endif %}{% endmacro %}
 {% set path = request.url.path %}
 {% set here = path ~ ("?" ~ request.url.query if request.url.query else "") %}
-{% macro link(url, label, active, icon='', badge=false) %}
-<a href="{{ url }}"{{ current(active) }}>{% if icon %}<span class="tab-icon" aria-hidden="true">{{ icon }}</span>{% endif %}<span>{{ _(label) }}</span>{% if badge and inbox_badge %}<span class="nav-badge" aria-label="{{ _('Needs your action') }}">{{ inbox_badge }}</span>{% endif %}</a>
+{# Inline SVG icons: Unicode symbols are drawn from whatever system font has them and look different per host. #}
+{% macro icon(name) -%}
+<svg class="tab-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+{%- if name == "inbox" %}<path d="M4 11.5 12 4.5l8 7V20h-5.5v-5.5h-5V20H4z"/>
+{%- elif name == "backlog" %}<path d="M4 6.5h16M4 12h16M4 17.5h16"/>
+{%- elif name == "kanban" %}<rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M9.33 4v16M14.67 4v16"/>
+{%- elif name == "planning" %}<rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M9.33 4v16M14.67 4v16M4 9.33h16M4 14.67h16"/>
+{%- elif name == "plus" %}<path d="M12 5v14M5 12h14"/>{% endif %}</svg>
+{%- endmacro %}
+{% macro link(url, label, active, icon_name='', badge=false) %}
+<a href="{{ url }}"{{ current(active) }}>{% if icon_name %}{{ icon(icon_name) }}{% endif %}<span>{{ _(label) }}</span>{% if badge and inbox_badge %}<span class="nav-badge" aria-label="{{ _('Needs your action') }}">{{ inbox_badge }}</span>{% endif %}</a>
 {% endmacro %}
 {% macro extra_links() %}
   {% if db_ready %}
@@ -38,7 +47,7 @@
       <button type="submit" class="qc-submit" aria-label="{{ _('Create') }}">{{ _('Create') }}</button>
       <button type="button" class="sheet-close" data-close="quick-capture" aria-label="{{ _('Close') }}">×</button>
     </form>
-    <button type="button" class="qc-toggle" aria-expanded="false" aria-controls="quick-capture" data-toggle data-group="topbar" aria-label="{{ _('Quick capture') }}"><span aria-hidden="true">＋</span></button>
+    <button type="button" class="qc-toggle" aria-expanded="false" aria-controls="quick-capture" data-toggle data-group="topbar" aria-label="{{ _('Quick capture') }}">{{ icon("plus") }}</button>
     {% elif db_ready %}<a href="/tasks/new" class="qc-new" aria-label="{{ _('Create task') }}">＋</a>{% endif %}
     <nav id="main-nav" class="desktop-nav" aria-label="{{ _('Main navigation') }}">
       {% if db_ready %}
@@ -68,10 +77,10 @@
 </header>
 {% if user and db_ready %}
 <nav class="bottom-tabs" aria-label="{{ _('Mobile navigation') }}">
-  {{ link('/', 'Inbox', path == '/', '⌂', true) }}
-  {{ link('/backlog', 'Backlog', path.startswith('/backlog'), '≡') }}
-  {{ link('/kanban', 'Kanban', path.startswith('/kanban'), '▥') }}
-  {% if show_planning %}{{ link('/planning', 'Planning', path.startswith('/planning'), '▦') }}{% endif %}
+  {{ link('/', 'Inbox', path == '/', 'inbox', true) }}
+  {{ link('/backlog', 'Backlog', path.startswith('/backlog'), 'backlog') }}
+  {{ link('/kanban', 'Kanban', path.startswith('/kanban'), 'kanban') }}
+  {% if show_planning %}{{ link('/planning', 'Planning', path.startswith('/planning'), 'planning') }}{% endif %}
   <button type="button" aria-expanded="false" aria-controls="more-menu" data-toggle data-group="topbar"{% if path.startswith(('/projects', '/workflow', '/admin', '/data', '/profile')) %} class="active"{% endif %}><span class="tab-icon" aria-hidden="true">•••</span><span>{{ _('More') }}</span></button>
 </nav>
 <div id="more-menu" class="header-popup more-sheet collapsible" aria-label="{{ _('More') }}">

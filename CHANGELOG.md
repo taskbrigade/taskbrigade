@@ -2,6 +2,13 @@
 
 ## 0.14.0 – 2026-10-18
 
+- UI: tab bar and quick-capture icons are inline SVG, and symbols missing from IBM Plex (arrows, ✓, ⚠, ▲, ⋯ …) come
+  from a small self-hosted DejaVu Sans subset – pages no longer look different depending on the fonts installed on
+  the viewer's system.
+- Task detail: the sidebar shows the resolved model again (e.g. `haiku` for tier "simple") and notes when the agent
+  ignores it.
+- Runner: the Docker launcher client reads the launcher's refusal even when the launcher closes the socket before the
+  request is sent (was reported as "not reachable: Broken pipe").
 - Release: the public export also excludes `docs/ui-redesign/` (internal redesign mockups and review screenshots).
 - Fix DB integration tests after parallel migration merges: compare schema tables with ORM metadata and use the final output-budget migration revisions.
 - Web UI: foundation for the redesign – `--ui-*` design tokens (colours, status/zone/priority colours, type scale,

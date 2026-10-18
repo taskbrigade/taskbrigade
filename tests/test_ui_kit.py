@@ -72,7 +72,7 @@ def test_task_colours_match_the_redesign_spec():
 
 def test_ibm_plex_is_self_hosted_with_fallbacks():
     faces = re.findall(r"@font-face\s*{[^}]*}", APP_CSS)
-    assert len(faces) == 8
+    assert len(faces) == 9  # IBM Plex Sans ×5, Mono ×3, TB Symbols (DejaVu Sans subset)
     for face in faces:
         url = re.search(r"url\((/static/[^)]+)\)", face).group(1)
         assert (STATIC / url.removeprefix("/static/")).is_file(), url
@@ -81,6 +81,8 @@ def test_ibm_plex_is_self_hosted_with_fallbacks():
     assert TOKENS["--ui-font"].rstrip().endswith("sans-serif") and "system-ui" in TOKENS["--ui-font"]
     assert TOKENS["--ui-font-mono"].rstrip().endswith("monospace")
     assert (STATIC / "vendor" / "fonts" / "OFL.txt").read_text().startswith("Copyright")
+    assert "Bitstream" in (STATIC / "vendor" / "fonts" / "LICENSE-DejaVu.txt").read_text()
+    assert '"IBM Plex Sans", "TB Symbols"' in TOKENS["--ui-font"]
     base = (Path(templates.env.loader.searchpath[0]) / "base.html").read_text()
     assert base.index("/static/app.css") < base.index("/static/ui.css")
 

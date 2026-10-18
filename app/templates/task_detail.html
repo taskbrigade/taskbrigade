@@ -463,7 +463,7 @@
       </span></div>
       <div class="prop"><span class="prop-label">{{ _("Model tier") }}</span><span class="prop-value">
         {% if can_manage %}
-        <details class="prop-pop"><summary>{% if t.model_tier %}{{ tier_label(t.model_tier) }}{% elif t.model %}<code>{{ t.model }}</code>{% else %}{{ _("agent default") }}{% endif %}</summary>
+        <details class="prop-pop"><summary>{% if t.model_tier or t.model %}{% include "_tier.html" %}{% else %}{{ _("agent default") }}{% endif %}</summary>
           <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep() }}
             <label>{{ _("Model tier") }} <select name="model_tier">
               <option value="none">{{ _("– agent default –") }}</option>
@@ -472,6 +472,8 @@
             <button type="submit" class="small">{{ _("Save") }}</button>
           </form></details>
         {% elif t.model_tier or t.model %}{% include "_tier.html" %}{% else %}{{ _("agent default") }}{% endif %}
+        {% set me_ = t.model_effective %}{% if me_ and me_.model %} <code>{{ me_.model }}</code>{% endif %}
+        {% if me_ and not me_.applies and t.assigned_to and (t.model_tier or t.model) %}<small>({{ _("ignored by this agent") }})</small>{% endif %}
       </span></div>
     </div>
   </details>
