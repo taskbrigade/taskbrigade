@@ -35,7 +35,7 @@ when the lease expires (default 120 minutes) – or on the next check, thanks to
 For each framework agent:
 
 1. **⏸ Admin:** *Admin → Users & agents → New agent* with kind `hermes` or `openclaw` and the
-   runtime (`local` or `cloud`) of the model it uses. The page shows a one-time code and the command.
+   runtime and model location (`local` or `cloud`) of the model it uses; “local model” needs a confirmation. The page shows a one-time code and the command.
 2. As the framework's user on its machine:
 
    ```bash

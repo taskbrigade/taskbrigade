@@ -12,6 +12,7 @@ for review. Review and merge into `main` are done by a human only (an admin or t
 
 The `tbr` CLI (package `taskbrigade`, formerly `taskmeister`; old command name `tm`) does everything without curl; the matching command is listed with each call.
 Background on states, leases and permissions: [architecture.md](architecture.md).
+Workflow templates, run controls and previews: [Workflow API, CLI and MCP](workflows-api.md).
 
 ![Task detail with description, acceptance criteria, a question and its answer in the thread, and the pull request](screenshots/task-detail.png)
 
@@ -173,20 +174,24 @@ brain or changelog conflict leaves the task in review – then use `conflict`. T
 | Backlog | `GET /tasks?project=DEMO&status=defined&assigned_to=none` | `tbr list --assigned-to none` |
 | Create a task (orchestrator) | `POST /tasks` `{"project","title","assigned_to","prio","due_date","parent_task_nr","depends_on":[]}` | `tbr create --project DEMO --title "…" --assign codex --prio 2 --due 2026-10-31` |
 | Edit a task (orchestrator) | `PATCH /tasks/{nr}` with `If-Match: <row_version>` `{"due_date","assigned_to","reviewer","prio","title","description","acceptance_criteria"}` | `tbr update DEMO-0042 --assign codex --due 2026-11-01` |
+| Dependencies of a task (orchestrator) | `"depends_on": ["DEMO-0042"]` in `POST /tasks` or `PATCH /tasks/{nr}` (replaces the list, `[]` removes all); claimable once all are done | `tbr create … --depends-on DEMO-0042`, `tbr update <NR> --depends-on DEMO-0042 --depends-on DEMO-0043` (`none` removes all) |
 | Reviewer of a task | `"reviewer": "<name>"` in `POST /tasks` (missing = project default, `"none"` = nobody) or `PATCH /tasks/{nr}` (`null` removes it) | `tbr create … --reviewer review-agent`, `tbr update DEMO-0042 --reviewer none` |
+| Data class of a task | `"data_class": "cloud_ok"\|"local_only"\|"sealed"\|"inherit"` in `POST /tasks` or `PATCH /tasks/{nr}` (missing/`"inherit"` = the project's privacy; payload field `data_class_effective`) | `tbr create … --data-class sealed`, `tbr update DEMO-0042 --data-class inherit` |
 | Review decision (owner, admin, entered reviewer) | `POST /tasks/{nr}/review` `{"decision","comment"}` | `tbr review DEMO-0042 approve\|reject\|conflict --comment "…"` |
 | Tasks by reviewer | `GET /tasks?reviewer=me\|none\|agents\|<name>` | `tbr list --assigned-to all --reviewer agents` |
 | Sprints of a project | `GET /projects/{key}/sprints` | `tbr sprint list -p DEMO` |
 | Create a sprint (orchestrator) | `POST /projects/{key}/sprints` `{"name","goal","start_date","end_date"}` | `tbr sprint create -p DEMO --name "Sprint 1" --goal "…"` |
 | Tasks into a sprint (orchestrator) | `POST /projects/{key}/sprints/{id}/tasks` `{"tasks":[{"title","assigned_to","prio","reviewer"}]}`; `"sprint": <id>` in `POST`/`PATCH /tasks` | `tbr sprint add-tasks "Sprint 1" -p DEMO --file tasks.txt`, `tbr create … --sprint "Sprint 1"`, `tbr update DEMO-0042 --sprint none` |
+| Edit a sprint (orchestrator) | `PATCH /projects/{key}/sprints/{id}` `{"name","goal","start_date","end_date"}` (only given fields; `null` clears a date) | `tbr sprint update "Sprint 1" -p DEMO --goal "…" --end none` |
 | Release / close a sprint (owner, admin) | `POST /projects/{key}/sprints/{id}/release`, `…/close` `{"move_to"}` or `{"detach":true}` | `tbr sprint release "Sprint 1" -p DEMO`, `tbr sprint close "Sprint 1" -p DEMO --detach` |
+| Reopen a sprint (owner, admin) | `POST /projects/{key}/sprints/{id}/reopen` `{"restore_tasks":true}` | `tbr sprint reopen "Sprint 1" -p DEMO` (`--no-restore` leaves the moved-out tasks where they are) |
 | Cancel a task (orchestrator) | `POST /tasks/{nr}/transition` `{"to":"cancelled","comment":"…"}` | `tbr cancel DEMO-0042 --reason "…"` |
 | Back to "defined" | `POST /tasks/{nr}/transition` `{"to":"defined"}` | `tbr reset DEMO-0042` |
 | Duplicate as a new draft (orchestrator) | `POST /tasks/{nr}/duplicate` `{"assign","title"}` (both optional) | `tbr duplicate DEMO-0042 --assign codex` |
 | Projects / assignees (own, owner's and public agents) | `GET /projects`, `GET /actors` | `tbr projects`, `tbr agents` |
 | Telegram notifications (own; `user` as orchestrator) | `GET /notifications/settings?user=alex`, `POST /notifications/settings` `{"action":"pause"\|"resume"\|"reviews_off"\|"reviews_on","until":"2h","user":"alex"}` | `tbr notify pause 2h --user alex`, `tbr notify status` |
 | Read brain.md | `GET /projects/{key}/brain` | – |
-| Attach a file (creator, assignee, owner, orchestrator) | `POST /tasks/{nr}/attachments` (multipart, field `files`, max. 20 files, 10 MB each) | `tbr attach DEMO-0042 sketch.png` (after `tbr create`: `tbr attach <NR> <file>`); MCP: `attach_files(task_nr, paths)` – only from allowed folders –, `attach_text(task_nr, filename, content)`, `create_task(…, attachments=[…])` |
+| Attach a file (creator, assignee, owner, orchestrator) | `POST /tasks/{nr}/attachments` (multipart, field `files`, max. 20 files, 10 MB each). In a `local_only` project, `.xlsx`, `.xls`, `.xlsm`, `.csv`, `.tsv`, `.ods` and `.zip` are refused (`422 use_dataset_upload`) | `tbr attach DEMO-0042 sketch.png` (after `tbr create`: `tbr attach <NR> <file>`); MCP: `attach_files(task_nr, paths)` – only from allowed folders –, `attach_text(task_nr, filename, content)`, `create_task(…, attachments=[…])` |
 | Git credentials | `GET /agents/me/git-credentials` | `tbr git-credential get` |
 | SFTP storage: info (without password) | `GET /agents/me/sftp?task_nr=DEMO-0042` | `tbr sftp info DEMO-0042` |
 | SFTP storage: upload into the task's folder | transfer on the agent machine, then `POST /tasks/{nr}/sftp-uploads` `{"files":[{"path","size","sha256"}]}` | `tbr sftp put DEMO-0042 report.pdf out/ --to final` |

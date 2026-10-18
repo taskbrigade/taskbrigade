@@ -1,0 +1,41 @@
+/* Workflows overview: toolbar, template cards, row actions and responsive dialogs. */
+.wf-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); margin-bottom: var(--ui-space-4); }
+.wf-toolbar label.ui-search { flex: 1 1 240px; }
+.wf-toolbar select.ui-select { flex: 0 1 200px; }
+.wf-empty { margin-bottom: var(--ui-space-4); padding-block: var(--ui-space-6); }
+.wf-empty svg { color: var(--ui-primary); }
+.wf-empty .ui-empty-title { font-size: var(--ui-fs-title); }
+.wf-starters-title { margin: var(--ui-space-4) 0 var(--ui-space-3); }
+.wf-starters { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--ui-space-4); }
+.wf-starter { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ui-space-2); }
+.wf-starter-head { display: flex; justify-content: space-between; align-items: center; gap: var(--ui-space-2); width: 100%; }
+.wf-starter h3 { margin: 0; font-size: var(--ui-fs-base); font-weight: 600; color: var(--ui-text); }
+.wf-starter p { margin: 0; color: var(--ui-text-2); font-size: var(--ui-fs-sm); line-height: 1.5; flex: 1; }
+.wf-legend { margin-top: var(--ui-space-2); }
+table.wf-list :is(.wf-row-actions-heading, .wf-row-actions-cell) { text-align: right; }
+.wf-list .task-title { overflow-wrap: anywhere; }
+.wf-row-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.wf-row-actions form { margin: 0; }
+.wf-action-dialog, .wf-action-menu { position: fixed; inset: 0; margin: auto; width: min(480px, calc(100% - 32px)); min-width: 0; height: fit-content; min-height: 0; max-height: 85dvh; overflow-y: auto; padding: 24px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); color: var(--ui-text); text-align: left; backdrop-filter: none; }
+.wf-row-actions dialog:not([open]) { display: none; }
+.wf-row-actions dialog[open] { display: block; }
+.wf-row-actions dialog::backdrop { background: rgb(0 0 0 / 35%); }
+.wf-row-actions dialog h2 { font-size: 18px; margin: 0 0 16px; overflow-wrap: anywhere; }
+.wf-action-menu { width: min(300px, calc(100% - 32px)); }
+.wf-action-menu > button, .wf-action-menu form button { width: 100%; justify-content: flex-start; }
+.wf-action-menu .ui-btn.wf-menu-item { background: transparent; border-color: transparent; color: var(--ui-text); }
+.wf-action-menu .ui-btn.wf-menu-item:hover { background: var(--ui-primary-tint); }
+.wf-row-actions .ui-btn.wf-danger { color: #A13B2A; }
+.wf-dialog-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+@media (min-width: 640px) {
+  .wf-action-menu { inset: auto; margin: 0; }
+}
+@media (max-width: 639px) {
+  table.wf-list td.wf-row-actions-cell { display: block; width: 100%; order: 4; padding-top: 12px; border-top: 1px solid var(--ui-border); }
+  .wf-row-actions > .ui-btn, .wf-row-actions > form > .ui-btn { min-height: 44px; }
+  .wf-action-menu { inset: auto 0 0 !important; width: 100%; max-width: none; margin: 0; border-radius: 16px 16px 0 0; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+  .wf-action-menu .ui-btn { min-height: 44px; }
+  .ui-tabs.wf-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ui-tabs.wf-tabs > a { white-space: nowrap; }
+  .wf-starters { grid-template-columns: 1fr; }
+}

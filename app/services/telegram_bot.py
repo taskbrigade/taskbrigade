@@ -23,7 +23,7 @@ from app.errors import Unprocessable
 from app.i18n import default_language, use_language
 from app.i18n import gettext as _
 from app.logging_setup import audit
-from app.models import Actor, Project, TelegramLink, TelegramLinkCode
+from app.models import Actor, TelegramLink, TelegramLinkCode
 from app.services import notifications, settings_store, telegram, telegram_actions
 from app.services import tasks as task_svc
 from app.services.actors import utcnow
@@ -182,7 +182,6 @@ def _inbox(session: Session, actor: Actor) -> str:
     pref = notifications.prefs(session, actor.id)
     owner = None if actor.role == "admin" and pref.all_projects else actor.id
     data = task_svc.inbox(session, owner)
-    local = set(session.scalars(select(Project.project_key).where(Project.privacy == "local_only")))
     base = (settings_store.get(session, "app_url") or "").rstrip("/")
     sections = [("questions", _("Questions")), ("for_review", _("Reviews")), ("aborted", _("Aborted"))]
     out = []
@@ -192,7 +191,8 @@ def _inbox(session: Session, actor: Actor) -> str:
             continue
         out.append(f"{label} ({len(items)})")
         for t in items[:INBOX_LIMIT]:
-            line = f"• {t['task_nr']}" if t["project"] in local else f"• {t['task_nr']} {t['title']}"
+            line = (f"• {t['task_nr']}" if t["data_class_effective"] != "cloud_ok"
+                    else f"• {t['task_nr']} {t['title']}")
             out.append(line + (f"\n  {base}/tasks/{t['task_nr']}" if base else ""))
         if len(items) > INBOX_LIMIT:
             out.append(_("… and %(num)s more", num=len(items) - INBOX_LIMIT))

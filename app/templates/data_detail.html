@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ ds.dataset_key }} – TaskBrigade{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ ds.dataset_key }} · {{ ds.name }} {% with cls=ds.data_class %}{% include "_data_class.html" %}{% endwith %}</h2><a href="/data?project={{ project.project_key }}" class="secondary">{{ _("Back to the list") }}</a></div>
+{% if message %}<p class="banner ok">{{ message }}</p>{% endif %}
+{% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+<article>
+  <dl class="facts">
+    <dt>{{ _("Project") }}</dt><dd><a href="/projects/{{ project.project_key }}">{{ project.project_key }}</a> – {{ project.name }}</dd>
+    <dt>{{ _("Status") }}</dt><dd>{{ status_labels.get(ds.status, ds.status) }}</dd>
+    <dt>{{ _("Class") }}</dt><dd>{{ class_labels.get(ds.data_class, ds.data_class) }}</dd>
+    <dt>{{ _("Size") }}</dt><dd>{{ ds.size_bytes | filesize }}</dd>
+    <dt>{{ _("Original file") }}</dt><dd>{{ ds.original_filename or "–" }}{% if ds.media_type %} <small class="muted">({{ ds.media_type }})</small>{% endif %}</dd>
+    <dt>{{ _("SHA-256 (plaintext)") }}</dt><dd><code>{{ ds.sha256 or "–" }}</code></dd>
+    <dt>{{ _("Uploaded") }}</dt><dd>{{ ds.created_at | localtime }} · {{ names.get(ds.uploaded_by, "–") }} ({{ ds.upload_channel }})</dd>
+    {% if replaced %}<dt>{{ _("Replaces") }}</dt><dd><a href="/data/{{ replaced.dataset_key }}">{{ replaced.dataset_key }}</a></dd>{% endif %}
+    <dt>{{ _("Retention") }}</dt><dd>{% if ds.status == "deleted" %}{{ _("deleted %(date)s", date=ds.deleted_at | localtime("date")) }}{% if ds.deleted_by %} · {{ names.get(ds.deleted_by, "–") }}{% else %} · {{ _("retention job") }}{% endif %}
+      {% elif ds.retention_until %}{{ _("until %(date)s", date=ds.retention_until.isoformat()) }}{% if retention_left is not none and retention_left >= 0 %} ({{ ngettext("%(num)d day left", "%(num)d days left", retention_left) }}){% endif %}{% else %}–{% endif %}</dd>
+    <dt>{{ _("Min. group size") }}</dt><dd>{{ ds.min_group_size or _("default") }}</dd>
+  </dl>
+  {% if ds.status == "deleted" %}<p class="muted">{{ _("The dataset key was destroyed: the file and every backup copy of it can no longer be decrypted.") }}</p>{% endif %}
+  {% if ds.data_class == "local_only" %}<p class="muted"><small>{{ _("Local-model agents may read this dataset over the API; every read is written to the data audit.") }}</small></p>
+  {% else %}<p class="muted"><small>{{ _("This dataset is sealed: only the runner and humans with the data right may read it, never an LLM agent.") }}</small></p>{% endif %}
+</article>
+
+{% if privacy %}
+<article>
+  <h3>{{ _("Output query budget") }}</h3>
+  <p>{{ _("Released queries") }}: {{ privacy.released_count }} / {{ privacy.query_limit if privacy.query_limit is not none else _("unlimited") }} ·
+    {{ _("Epsilon spent") }}: {{ privacy.epsilon_spent }} / {{ privacy.epsilon_limit if privacy.epsilon_limit is not none else _("unlimited") }}</p>
+  <p>{{ _("Noise per release") }}: {% if privacy.noise %}ε = {{ privacy.epsilon }} · {{ _("Total L1 sensitivity") }} = {{ privacy.sensitivity }}{% else %}{{ _("off") }}{% endif %}</p>
+  {% if privacy.exhausted %}<p class="banner warn">{{ _("The dataset's output query budget is exhausted") }}</p>{% endif %}
+  {% if can_configure_policy %}
+  <details><summary>{{ _("Configure output policy") }}</summary>
+    <form method="post" action="/data/{{ ds.dataset_key }}/output-policy">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <p>{{ _("Blank limits mean unlimited; zero blocks releases. Blank epsilon and sensitivity disable noise. Usage never resets.") }}</p>
+      <label>{{ _("Query limit") }}<input type="number" name="query_limit" min="0" max="2147483647" step="1" value="{{ privacy.query_limit if privacy.query_limit is not none else '' }}"></label>
+      <label>{{ _("Epsilon limit") }}<input type="number" name="epsilon_limit" min="0" max="1000000000000" step="0.000001" value="{{ privacy.epsilon_limit if privacy.epsilon_limit is not none else '' }}"></label>
+      <label>{{ _("Epsilon per release") }}<input type="number" name="epsilon" min="0.000001" max="1000000000000" step="0.000001" value="{{ privacy.epsilon if privacy.epsilon is not none else '' }}"></label>
+      <label>{{ _("Total L1 sensitivity") }}<input type="number" name="sensitivity" min="0.000001" max="1000000000000" step="0.000001" value="{{ privacy.sensitivity if privacy.sensitivity is not none else '' }}"></label>
+      <p class="muted">{{ _("Sensitivity must bound the entire numeric output for adding or removing one person, after rounding and removing helper columns. The reviewed script must bound each person's contributions and use fixed public labels and output shape. Noise cannot protect arbitrary scripts or earlier exact releases.") }}</p>
+      <button type="submit">{{ _("Save output policy") }}</button>
+    </form>
+  </details>
+  {% endif %}
+</article>
+{% endif %}
+
+{% if runs %}
+<h3>{{ _("Runs") }}</h3>
+<div class="overflow-auto table-card"><table class="striped">
+  <thead><tr><th>{{ _("Result") }}</th><th>{{ _("Task") }}</th><th>{{ _("Script") }}</th><th>{{ _("Finished") }}</th><th>{{ _("Status") }}</th></tr></thead>
+  <tbody>{% for r in runs %}
+    <tr><td><a href="/data/results/{{ r.id }}">#{{ r.id }}</a></td><td><a href="/tasks/{{ r.task_nr }}">{{ r.task_nr }}</a></td>
+      <td><code>{{ r.script or "–" }}</code>{% if r.commit %} @<code>{{ r.commit }}</code>{% endif %}</td>
+      <td>{{ r.finished_at | localtime if r.finished_at else "–" }}</td><td><span class="badge gate-status gate-{{ r.status }}">{{ r.label }}</span></td></tr>
+  {% endfor %}</tbody>
+</table></div>
+<p class="muted"><small>{{ ngettext("%(num)d result of this dataset was released so far.", "%(num)d results of this dataset were released so far.", runs | selectattr("status", "equalto", "released") | list | length) }}</small></p>
+{% endif %}
+
+{% if profile %}
+<article>
+  <h3>{{ _("Schema profile") }} #{{ profile.id }} · {{ profile_status[profile.status] }}</h3>
+  {% if code_task %}<p><a href="/tasks/{{ code_task.task_nr }}">{{ code_task.task_nr }} · {{ code_task.title }}</a></p>{% endif %}
+  <p>{{ _("Column and sheet names may contain confidential information. Review them and set aliases before release.") }}</p>
+  <form method="post" action="/data/{{ ds.dataset_key }}/profile">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="profile_id" value="{{ profile.id }}">
+    {% for sheet in profile_schema.sheets %}
+    {% set si = loop.index0 %}
+    <label>{{ _("Sheet name") }}: {{ sheet.name }}
+      {% if profile.status == "generated" %}<input name="alias_s{{ si }}" value="{{ sheet.name }}" maxlength="200" required>{% endif %}
+    </label>
+    <div class="overflow-auto"><table>
+      <thead><tr><th>{{ _("Column") }}</th><th>{{ _("Type") }}</th><th>{{ _("Profile statistics") }}</th><th>{{ _("Alias") }}</th></tr></thead>
+      <tbody>{% for col in sheet.columns %}<tr>
+        <td>{% if col.get('pii') or col.get('role') == 'identifier' %}⚠ {% endif %}{{ col.name }}</td>
+        <td>{{ col.type }}</td><td><code>{{ col | tojson }}</code></td>
+        <td>{% if profile.status == "generated" %}<input name="alias_s{{ si }}c{{ loop.index0 }}" value="{{ col.name }}" maxlength="200" required>{% else %}{{ col.name }}{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    {% endfor %}
+    <details><summary>{{ _("Synthetic sample (20 rows per sheet)") }}</summary><pre>{{ profile.sample_csv }}</pre></details>
+    <p>{{ _("Schema fingerprint") }}: <code>{{ profile.schema_fingerprint }}</code></p>
+    {% if profile.status == "generated" and ds.status != "deleted" %}
+      {% if profile_self_release_blocked %}<p class="banner warn">{{ _("A second human must release a sealed profile; the uploader cannot release it.") }}</p>{% endif %}
+      <button name="decision" value="reject" class="secondary">{{ _("Reject profile") }}</button>
+      <button name="decision" value="release" {% if profile_self_release_blocked %}disabled{% endif %}>{{ _("Release profile and propose code task") }}</button>
+    {% endif %}
+  </form>
+</article>
+{% endif %}
+
+{% if can_delete %}
+<details>
+  <summary>{{ _("Delete dataset") }}</summary>
+  <form method="post" action="/data/{{ ds.dataset_key }}/delete">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <p>{{ _("Deleting destroys the dataset key (crypto-shredding) and removes the file. This cannot be undone. The audit entries stay.") }}</p>
+    <label>{{ _("Type %(key)s to confirm", key=ds.dataset_key) }}<input name="confirm" required autocomplete="off"></label>
+    <button type="submit" class="secondary">{{ _("Delete for good") }}</button>
+  </form>
+</details>
+{% endif %}
+{% if can_download %}
+<details>
+  <summary>{{ _("Emergency download (raw data)") }}</summary>
+  <form method="post" action="/data/{{ ds.dataset_key }}/download">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <p>{{ _("Raw data normally never leaves the data store. The download is written to the data audit with your reason.") }}</p>
+    <label>{{ _("Reason") }}<input name="reason" required maxlength="300"></label>
+    <button type="submit" class="secondary">{{ _("Download decrypted file") }}</button>
+  </form>
+</details>
+{% endif %}
+
+<h3>{{ _("Audit") }}</h3>
+<div class="overflow-auto">
+<table class="striped">
+  <thead><tr><th>#</th><th>{{ _("Time") }}</th><th>{{ _("Action") }}</th><th>{{ _("By") }}</th><th>{{ _("Via") }}</th><th>{{ _("Details") }}</th></tr></thead>
+  <tbody>
+  {% for e in entries %}
+    <tr>
+      <td>{{ e.id }}</td>
+      <td>{{ e.at | localtime }}</td>
+      <td><code>{{ e.action }}</code></td>
+      <td>{{ actor_names.get(e.actor_id, _("system")) if e.actor_id else _("system") }}</td>
+      <td>{{ e.via }}</td>
+      <td><small>{% for k, v in details[e.id].items() if k != "dataset" %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</small></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="muted">–</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted"><small>{{ _("Audit entries are append-only and hash-chained; check the chain with `tbr-admin data audit verify`.") }}</small></p>
+{% endblock %}

@@ -4,8 +4,10 @@
 
 TaskBrigade and MariaDB as containers, optionally with a Gitea server (profile `gitea`). This is an alternative to
 the native installation ([quickstart](quickstart.md), `deploy/install.sh`), which stays supported and unchanged.
-Agents (`tbr`, the runner, `tbr mcp`) do not run in a container; install them on the agent machines as described in
-[CLI agents](cli-agents.md) and [desktop apps via MCP](desktop-apps-mcp.md).
+Agents (`tbr`, the agent runner, `tbr mcp`) do not run in a container; install them on the agent machines as
+described in [CLI agents](cli-agents.md) and [desktop apps via MCP](desktop-apps-mcp.md). The data-zone runner
+(no language model, runs reviewed scripts on confidential datasets) is the exception: it comes as the compose
+profile `data` ([Data zones](#data-zones-profiles-data-and-data-sftp)).
 
 The UI labels below are the English ones (the default). With `UI_LANGUAGE=de` in `.env`, *Admin → Settings* or the
 EN/DE switch in the top bar the UI is German; the translations are in `app/locales/de.json`.
@@ -147,7 +149,7 @@ No further values are needed in `.env`. The profile adds three services:
 | `gitea-admin` | One-shot: creates the Gitea admin `giteaadmin` (`TBR_GITEA_ADMIN_USER`) with the Gitea CLI. Password: `TBR_GITEA_ADMIN_PASSWORD`, default `TBR_INITIAL_ADMIN_PASSWORD`. |
 | `gitea-init` | One-shot (`python -m app.gitea_init`): creates the Gitea user `taskbrigade` and its token, stores token, owner and both Gitea addresses in TaskBrigade (*Admin → Settings*), plus a token of the Gitea admin (`taskbrigade-admin`, scopes `write:admin`, `read:user`) as “Gitea admin token” so *New agent* creates Gitea users for agents, and – unless `TBR_GITEA_DEMO=0` – sets up the demo. |
 
-The demo consists of the agent `demo-agent` (with its own Gitea user and token, runtime `local`), the project
+The demo consists of the agent `demo-agent` (with its own Gitea user and token, runtime `local`, model location `local`), the project
 `DEMO` owned by `admin` with the repository `taskbrigade/demo`, and the task `DEMO-0001` assigned to
 `demo-agent`. Every step checks what exists, so `gitea-init` runs again on each `up` without creating duplicates;
 an invalid service token is replaced. The demo agent's TaskBrigade API token is printed only on the run that
@@ -187,6 +189,192 @@ Without the profile nothing changes: set `GITEA_URL` (and the token under *Admin
 set `GITEA_PUBLIC_URL` as well. After using the profile, its values are stored in the database and override `.env`;
 change them under *Admin → Settings* (or use *reset* there) when you switch to another Gitea.
 
+## Data zones (profiles `data` and `data-sftp`)
+
+The data zones ([overview](data-zones.md), [data store](data-store.md), native set-up in
+[operations.md](operations.md#data-zones-installation-and-migration)) let cloud agents write analysis scripts for
+confidential spreadsheets while the data stays on this host: a runner without a language model runs the reviewed
+script in a sandbox without network, and only checked aggregates leave it through the output gate. In Docker the
+runner, its sandbox jobs and the optional SFTP inbox are containers of two compose profiles; the app container is
+the same as without them.
+
+**Requirements:** a Linux Docker host with Docker Engine ≥ 26 (volume sub-path mounts, Engine API 1.45) and
+cgroup v2. Docker Desktop works for trying it out, but its VM is the isolation boundary there. The runner image
+(`Dockerfile` target `runner`, about 800 MB with pandas, pyarrow, openpyxl, numpy) is built locally like the app
+image.
+
+### Switch on
+
+Add to `.env` and start:
+
+```bash
+TBR_DATA_ZONES=1
+COMPOSE_PROFILES=data            # with the SFTP inbox: TBR_DATA_SFTP=1 and COMPOSE_PROFILES=data,data-sftp
+```
+
+```bash
+docker compose up -d             # deploy/docker/update.sh adds the profiles from TBR_DATA_ZONES/TBR_DATA_SFTP itself
+docker compose logs data-init    # "layout ok" and, the first time, "data store key created"
+```
+
+`data-init` (root, one-shot, runs on every `up`) is the counterpart of `TBR_DATA_ZONES=1 deploy/install.sh`: it
+creates the folders in the data volumes with their owners and modes and the data key (KEK) once, never overwriting
+it. Without `TBR_DATA_ZONES=1` it refuses, and runner and launcher do not start. Then:
+
+1. *Admin → Settings*: tick "Data store enabled" (uploads, profiles, output gate).
+2. *Admin → New agent* with kind **runner**. The setup page shows a join code; redeem it in the runner container:
+
+   ```bash
+   docker compose exec runner tbr-admin runner join tmj_…   # writes runner.toml + token into the state volume
+   docker compose exec runner tbr-admin runner check        # token, key, quarantine, jobs volume, launcher
+   docker compose exec runner tbr-admin runner selftest     # isolation probes in real job containers (--all: time limit)
+   docker compose logs -f runner runner-launcher            # claims, job ids, exit codes – never data
+   ```
+
+   The runner container waits for this configuration and starts its loop within 10 seconds. The join code is
+   accepted over the runner's internal network (below), not only over loopback.
+
+Everything else – run tasks, the script contract, the output gate, the limits in *Admin → Settings → Data runner* –
+works as described in [operations.md](operations.md#data-zone-runner) and [data-store.md](data-store.md). The limits
+apply to every new job container directly; there is no drop-in to write (`tbr-admin runner limits --write` is only
+for the systemd sandbox).
+
+### Services and volumes
+
+| Service | Runs as | Network | Sees |
+| --- | --- | --- | --- |
+| `data-init` (one-shot) | root | none | data volumes, key volume, runner state, SFTP spool |
+| `runner-launcher` | root without capabilities, group `tbr-runner` | none | the Docker socket and its own control socket – nothing else |
+| `runner` | `tbr-runner` (10002), groups `tbr-data`, `tbr-job` | internal `taskbrigade-runner` (API only) | store read-only, quarantine, key read-only, jobs volume, control socket |
+| job containers (`tbr-job-<job>`) | `tbr-job` (10003) | **none** | only `in`/`script` (read-only), `out`, `log` of this job |
+| `sftp` (profile `data-sftp`) | root (sshd) with a few capabilities | own bridge, port `TBR_SFTP_PUBLISH` | chroot folders, spool read-only, host keys |
+
+| Volume | Content |
+| --- | --- |
+| `taskbrigade-data` | Encrypted store, upload spool and quarantine (`TBR_DATA_DIR=/srv/taskbrigade-data`). Ciphertext only. |
+| `taskbrigade-data-key` | The KEK (`/etc/taskbrigade-data/data.key`, `root:tbr-data 0640`). Back it up **separately** (below). |
+| `taskbrigade-runner-state` | `runner.toml` and the runner's API token. |
+| `taskbrigade-jobs` | tmpfs (RAM): job directories, plaintext input only while a job runs. Size `TBR_JOBS_TMPFS_SIZE` (default `2g`). |
+| `taskbrigade-launcher` | tmpfs: the launcher's control socket (`root:tbr-runner 0660`). |
+| `taskbrigade-sftp`, `taskbrigade-sftp-spool`, `taskbrigade-sftp-hostkeys` | SFTP chroots, the account spool written by the app, the SSH host keys. |
+
+The app container mounts `taskbrigade-data`, the key (read-only) and the two SFTP volumes always; without the
+profiles they stay empty and unused. It is a member of `tbr-data` (gid 10004) so it can read what the runner writes
+into the quarantine and import SFTP deliveries. The ids 10001–10004 are fixed in the images; the shared volumes rely
+on them.
+
+### Container runner design
+
+The concept left open how the runner isolates jobs in a Docker installation (§9 item 6: "a container runner with
+`network_mode: none` per job"). The native sandbox has two trust steps: polkit lets `tbr-runner` start nothing but
+`taskbrigade-job@<job>.service`, and the unit template – not the runner – decides what a job may see. The Docker
+variant keeps that split:
+
+- **The runner never gets the Docker socket.** Access to it is root on the host; a runner bug or a malicious input
+  file in the runner's parsers would be enough to escape. Instead the **launcher** (`app/runner/docker.py`, service
+  `runner-launcher`) holds it. It has no network, a read-only root, no capabilities, and listens only on a unix
+  socket in a tmpfs volume shared with the runner alone (mode 0660, group `tbr-runner`, and it checks the peer uid
+  with `SO_PEERCRED`). It accepts exactly `run <job id>`, `stop <job id>` and `ping`; the job id must match
+  `[a-z0-9][a-z0-9-]{0,62}`. Image, mounts, user, network and limits come from its own template, so the runner can
+  name a job, never a path, a network or a privilege.
+- **One container per job** (`tbr-job-<job>`), also for the profiler and the gate probe: `network_mode: none`,
+  read-only root file system, `cap_drop: ALL`, `no-new-privileges`, Docker's default seccomp and AppArmor profiles,
+  user `tbr-job`, `PidsLimit` 64, memory = memory + swap (no swap), CPU quota, `fsize` 256 MiB, `nofile` 256, no core
+  dumps, a private 64 MiB `/tmp`, no log driver (stdout/stderr are redirected into `/job/log` by the job's own shell
+  and encrypted like natively). Only the four sub-paths of this job are mounted from the jobs volume (`in` and
+  `script` read-only); `/app`, `/home`, `/root` and the state paths of the image are covered by empty tmpfs mounts
+  without access. After the job a second short container as `tbr-job` runs `chmod -R g+rwX` on `out/` and `log/` –
+  the unit's `ExecStopPost` – so a job cannot lock the runner out of its files.
+- **The runner** keeps the native role and code (`app/runner/service.py`): it claims tasks, holds the KEK, decrypts
+  the input into the job directory and encrypts the outputs into the quarantine. Its container is read-only, has no
+  capabilities and sits alone with the app on the `internal` network `taskbrigade-runner`: it reaches the API, but
+  no internet, no MariaDB and no Gitea (the server fetches scripts itself). The app lets that network use the API
+  with tokens and redeem join codes (`TBR_RUNNER_NETWORKS`, default the network's subnet `172.31.252.0/24`, change
+  with `TBR_RUNNER_SUBNET`); it is **not** trusted like loopback (no `Tailscale-User-Login`, no git or SFTP
+  credentials).
+
+Alternatives that were rejected: the Docker socket in the runner (root on the host, see above); a socket proxy that
+filters API endpoints (it cannot restrict the body of `containers/create` – a bind mount of `/` or `Privileged`
+passes); a nested sandbox (bubblewrap/nsjail) inside the runner container (needs user namespaces or capabilities
+that Docker's default profiles deny); rootless Podman, sysbox or gVisor (an extra runtime on every Docker host –
+worth it later as a hardening option, the launcher template would stay the same).
+
+How the systemd sandbox maps to the job containers, and where it differs:
+
+| `taskbrigade-job@.service` | Job container | Note |
+| --- | --- | --- |
+| `PrivateNetwork`, `IPAddressDeny=any` | `network_mode: none` | Only loopback, nothing listens there. |
+| `RestrictAddressFamilies=AF_UNIX` | default seccomp profile | **Differs:** `AF_INET`/netlink sockets can be created but reach only the job's own empty network namespace; `AF_PACKET` needs `CAP_NET_RAW` (dropped). The self-test checks that loopback is the only interface. |
+| `ProtectSystem=strict`, `TemporaryFileSystem=/job`, binds | read-only root, sub-path mounts of this job | |
+| `InaccessiblePaths`, `ProtectHome` | store/key/state not mounted; image paths covered by `mode=000` tmpfs | |
+| `User=tbr-job`, `NoNewPrivileges`, `CapabilityBoundingSet=` | `User`, `no-new-privileges`, `cap_drop: ALL` | |
+| `SystemCallFilter=@system-service ~@privileged` | Docker's default seccomp profile | Comparable, maintained by Docker. |
+| `MemoryMax`, `MemorySwapMax=0`, `CPUQuota`, `TasksMax=64` | `Memory`/`MemorySwap`, `NanoCpus`, `PidsLimit` | Per job from *Admin → Settings*, bounded by `TBR_JOB_MAX_MEMORY_MB`/`TBR_JOB_MAX_CPU_PERCENT`. |
+| `TimeoutStartSec` | the launcher kills the container | Result `timeout`. |
+| `LimitFSIZE`, `LimitNOFILE`, `LimitCORE` | `ulimits` | |
+| `StandardOutput=append:` files | no log driver, shell redirect into `/job/log` | Nothing in `docker logs`. |
+| `ExecStopPost` status file | `wait` + `inspect` by the launcher | Exit code, `oom-kill`, `timeout`; exit codes above 128 count as a signal. No memory peak. |
+| `RuntimeDirectory` (tmpfs) | tmpfs volume `taskbrigade-jobs` | Its size counts against the host's RAM. |
+
+### SFTP inbox (profile `data-sftp`)
+
+The Docker counterpart of the native inbox ([data-store.md](data-store.md#sftp-inbox-native)): OpenSSH
+`internal-sftp` with the same drop-in (`deploy/ssh/60-taskbrigade-sftp.conf`: chroot per deliverer, no shell, no
+forwarding, keys only). Switch it on with `TBR_DATA_SFTP=1` and `COMPOSE_PROFILES=data,data-sftp`; it listens on
+`TBR_SFTP_PUBLISH` (default `127.0.0.1:2223`; for deliverers in the LAN e.g. `0.0.0.0:2223`).
+
+```bash
+docker compose cp export.pub taskbrigade:/tmp/export.pub
+docker compose exec taskbrigade tbr-admin data sftp-user add demo-export --project DEMO --key /tmp/export.pub
+docker compose exec sftp ssh-keygen -lf /etc/ssh/keys/ssh_host_ed25519_key.pub   # fingerprint for the deliverers
+sftp -P 2223 demo-export@<docker host>    # put export.csv upload/export.csv.part, then rename to …csv.done
+```
+
+The app container has no root and no sshd, so `tbr-admin data sftp-user …` writes the desired accounts
+(`TBR_SFTP_PROVISION=spool`) into the spool volume; the SFTP container applies it within seconds – user with the
+fixed uid 20000 + account id, chroot `root:root 0755`, `upload/`, `authorized_keys` (empty while an account is
+disabled). `remove --purge` deletes the folder there. The import runs in the app every 30 seconds
+(`TBR_DATA_IMPORT=app`, natively the systemd path unit), with the same rules: a file is finished with a
+`.done`/`.ready` suffix or after 60 seconds without change; it is encrypted into the store, the plaintext removed.
+
+`upload/` is `<user>:tbr-data 2770` here instead of the native `0730`: the import has to list the folder, and the
+set-group-id bit gives every delivery the group `tbr-data`, so the app can read it. Other deliverers are not in
+that group and only ever see their own chroot.
+
+### Isolation test
+
+`deploy/docker/data-zones-test.sh` builds the images and starts both profiles in a throwaway project `tbr-dztest`
+(own volumes, subnets `172.31.251.0/24` and `172.31.253.0/24`, ports 18091/12223 – never together with the smoke
+test or the screenshot script), then checks:
+
+- the layout of `data-init` and the KEK mode;
+- every probe of `tbr-admin runner selftest` through the launcher: network (no connection, no DNS, loopback only),
+  reads outside the job (KEK, store, quarantine, app state, Docker and launcher sockets, `/app`, `/home`), writes
+  outside `out/`, the job's own view (only its four directories, no other job's input), planted symlinks, task,
+  file-size, memory and time limits;
+- runner jobs end to end with a stub API (`deploy/sandbox-test/e2e_job.py`): decrypt → job container → encrypted
+  quarantine, profiler on CSV and XLSX, exit code 3, the KEK unreadable from a job, the static pre-check;
+- the runner reaches the API but not the internet, MariaDB or Gitea; it has no Docker socket; other users cannot
+  reach the launcher socket; no job container is left over;
+- `runner join` over the runner network and `runner check`;
+- an SFTP delivery (chroot shows only `.ssh` and `upload`, no shell) that is imported, profiled by the runner in a job
+  container and stored as a profile, with the plaintext removed.
+
+Exit code 0 only if every check passes; `TBR_DZTEST_KEEP=1` keeps the stack for a look.
+
+### Backups and switching off
+
+`deploy/docker/backup.sh` does not archive the data volumes yet. Keep the KEK apart from the database backups –
+without it neither the database nor the store reveals data, with it a leaked store opens:
+
+```bash
+docker run --rm -v taskbrigade-data-key:/k:ro --entrypoint cat taskbrigade-runner:local /k/data.key > data.key
+```
+
+Switch off: remove `data` (and `data-sftp`) from `COMPOSE_PROFILES`, then
+`docker compose stop runner runner-launcher sftp`. The volumes and the key stay; switching on again continues where
+it stopped.
+
 ## What happens on start
 
 `python -m app.container` (the image entrypoint):
@@ -214,6 +402,7 @@ current schema. Logs: `docker compose logs -f taskbrigade` (JSON lines).
 | `taskbrigade-db` | MariaDB data directory. |
 | `taskbrigade-state` | `master.key` (encrypts Gitea tokens and secret settings) and `secret.key` (session signing). |
 | `taskbrigade-gitea` | Profile `gitea` only: Gitea data (repositories, SQLite database, `app.ini`). |
+| `taskbrigade-data`, `taskbrigade-data-key`, … | Data zones only (profiles `data`/`data-sftp`): see [Data zones](#services-and-volumes). |
 
 `docker compose down` and `up` keep the volumes; `docker compose down -v` deletes them. With the profile, pass
 `--profile gitea` to `down` as well, otherwise the Gitea container keeps running. Back up the database and the state
@@ -452,10 +641,14 @@ installation edits its env file with `sudo tbr-admin config set KEY VALUE` inste
 | `required variable TBR_DB_PASSWORD is missing` | `.env` is missing or not next to `compose.yaml`. |
 | `taskbrigade` restarts, log `startup_failed` … `not reachable` | MariaDB did not come up: `docker compose logs mariadb`. After changing `TBR_DB_PASSWORD` on an existing volume the user keeps the old password – change it in MariaDB too or start with a new volume. |
 | `Pool overlaps with other one on this address space` | The subnet `172.31.250.0/24` is taken: set `TBR_DOCKER_SUBNET`, `TBR_DOCKER_GATEWAY` and `TRUSTED_PEER_NETWORKS` together. |
+| `Pool overlaps …` for `taskbrigade-runner` | The runner network's `172.31.252.0/24` is taken: set `TBR_RUNNER_SUBNET` (the app derives `TBR_RUNNER_NETWORKS` from it). |
+| `runner` logs `launcher … not reachable` | `docker compose logs runner-launcher`: it needs the Docker socket (`TBR_DOCKER_SOCKET`, default `/var/run/docker.sock`) and Docker Engine ≥ 26. |
+| Runner job ends with `invalid mount config` / `subpath` | Docker Engine older than 26, or the jobs volume was renamed: the launcher addresses it as `TBR_JOBS_VOLUME` (`taskbrigade-jobs`). |
+| `data-init` exits 1 | `TBR_DATA_ZONES=1` is missing in `.env` (`docker compose logs data-init`). |
 | UI or `tbr` gets 403 | The peer is not trusted. `docker compose logs taskbrigade` shows the address; OrbStack and other runtimes may use a different one than the gateway – add exactly that address to `TRUSTED_PEER_NETWORKS`. |
 | `port is already allocated` | Port 8090, 3000 or 2222 is in use: `TBR_PUBLISH=127.0.0.1:8091`, or for the profile `TBR_GITEA_PUBLISH=127.0.0.1:3005` with `GITEA_PUBLIC_URL=http://localhost:3005`, `TBR_GITEA_SSH_PUBLISH=127.0.0.1:2223`. |
 | `gitea-init` exits with an error | `docker compose logs gitea-init`; it needs `TBR_INITIAL_ADMIN_PASSWORD` (or `TBR_GITEA_ADMIN_PASSWORD`) and runs again on the next `docker compose --profile gitea up -d`. |
-| *Test Gitea connection* fails | The container does not reach `GITEA_URL` (profile: `http://gitea:3000`). With your own Gitea test with the `urllib` command under [variants](#with-or-without-the-gitea-profile); `localhost` is the container itself. |
+| *Test connection* (Gitea group) fails | The container does not reach `GITEA_URL` (profile: `http://gitea:3000`). With your own Gitea test with the `urllib` command under [variants](#with-or-without-the-gitea-profile); `localhost` is the container itself. |
 | Clone fails on the agent, `tbr git-credential` returns nothing | The agent reaches Gitea under a different scheme, host or port than `GITEA_PUBLIC_URL` (or `GITEA_URL` if that is empty) – they must match exactly. |
 | Gitea links or clone URLs point to the wrong host | Gitea's `ROOT_URL` comes from `GITEA_PUBLIC_URL` in `.env`: set it and run `docker compose --profile gitea up -d` again ([details](#internal-and-public-gitea-address)). |
 | Login fails after a restore | Logins, API tokens and Gitea tokens come from the backup – use the passwords of the backed-up installation. |
@@ -534,7 +727,7 @@ Create the project `HELLO` as in quickstart step 4. Tick each line:
 - [ ] **Restore on a fresh installation:** `docker compose --profile gitea down -v` (deletes all data!;
       `docker volume ls` shows no `taskbrigade-*` volume), then
       `deploy/docker/restore.sh backups/taskbrigade-docker-….tar`: project `HELLO` and the done task are back,
-      *Test Gitea connection* succeeds and `docker compose logs gitea-init` says *Nothing to do* (the service token
+      *Test connection* in the Gitea group succeeds and `docker compose logs gitea-init` says *Nothing to do* (the service token
       decrypts, so `master.key` was restored), the `hello` repository with the merged commit is back in Gitea, and
       `tbr whoami` still works with the old API token.
 - [ ] **Update:** `deploy/docker/update.sh` takes a backup and ends with all services healthy.

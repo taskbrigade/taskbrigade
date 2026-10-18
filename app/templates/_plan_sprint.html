@@ -1,0 +1,47 @@
+{# Planning accordion: one full-width card per sprint (`planning_ui._sprint_rows`). The header row carries the
+   expand/collapse button, name, status pill, progress and "+ Task"; the body shows the goal, the task rows and the
+   sprint actions. Closed sprints are dimmed. Expand state per user lives in localStorage (static/planning.js). #}
+{% set x = r.sprint %}
+<section class="plan-sprint sprint-{{ x.status }}{% if x.status == 'closed' %} is-closed{% endif %}"
+         data-sprint="{{ x.id }}" data-status="{{ x.status }}" id="sprint-{{ x.id }}">
+  <div class="plan-sprint-head">
+    <button type="button" class="plan-toggle" aria-expanded="{{ 'true' if x.status in ('planned', 'released') else 'false' }}"
+            aria-controls="sprint-body-{{ x.id }}" aria-label="{{ _('Toggle %(name)s', name=x.name) }}"
+            data-plan-toggle="{{ x.id }}"><svg class="plan-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"/></svg></button>
+    <h2 class="plan-name"{% if x.goal %} title="{{ x.goal }}"{% endif %}><a href="/projects/{{ project.key }}/sprints/{{ x.id }}">{{ x.name }}</a></h2>
+    <span class="badge sprint-{{ x.status }}">{{ sprint_status_label(x.status) }}</span>
+    <div class="plan-sprint-meta">
+      <span class="plan-bar" role="img" aria-label="{{ _('%(done)d of %(total)d tasks done', done=r.done, total=r.total) }}">
+        <span class="plan-bar-fill" style="width: {{ (100 * r.done // r.total) if r.total else 0 }}%"></span>
+      </span>
+      <span class="plan-done">{{ _("%(done)d / %(total)d done", done=r.done, total=r.total) }}</span>
+      <button type="button" class="small plan-add-btn" data-open="dlg-task-{{ x.id }}"
+              aria-label="{{ _('Add task to %(name)s', name=x.name) }}">{{ _("+ Task") }}</button>
+    </div>
+  </div>
+  <div class="plan-sprint-body" id="sprint-body-{{ x.id }}">
+    {% if x.goal %}<p class="plan-goal">{{ x.goal }}</p>{% endif %}
+    <ul class="plan-rows" data-sprint="{{ x.id }}" data-sortable="{{ '1' if x.status == 'planned' else '0' }}"
+        data-drop="{{ '0' if x.status == 'closed' else '1' }}">
+      {% for t in r.cards %}{% include "_plan_row.html" %}{% else %}
+      <li class="plan-empty">{{ _("No tasks yet – drag tasks here from the backlog or add a task") }}</li>
+      {% endfor %}
+    </ul>
+    <div class="plan-sprint-actions">
+      <button type="button" class="small secondary" data-open="dlg-edit-{{ x.id }}">{{ _("Edit sprint") }}</button>
+      {# Release is offered for a planned sprint and for a released sprint that still has drafts (drafts completed
+         since the last release are published by releasing again, see sprints.release). #}
+      {% if x.status == "planned" or r.drafts %}
+        {% if can_manage %}<button type="button" class="small" data-open="dlg-release-{{ x.id }}">{{ _("Release sprint") }}</button>
+        {% else %}<button type="button" class="small" disabled title="{{ _('Only owner/admins can release') }}">{{ _("Release sprint") }}</button>{% endif %}
+      {% endif %}
+      {% if x.status == "released" %}
+        {% if can_manage %}<button type="button" class="small secondary" data-open="dlg-close-{{ x.id }}">{{ _("Close sprint") }}</button>
+        {% else %}<button type="button" class="small secondary" disabled title="{{ _('Only owner/admins can close') }}">{{ _("Close sprint") }}</button>{% endif %}
+      {% endif %}
+      {% if x.status == "closed" and can_manage %}
+      <button type="button" class="small secondary" data-open="dlg-reopen-{{ x.id }}">{{ _("Reopen sprint") }}</button>
+      {% endif %}
+    </div>
+  </div>
+</section>

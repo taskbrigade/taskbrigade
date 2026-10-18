@@ -37,6 +37,7 @@ class FakeGitea:
         self.conflict: dict | None = None
         self.pr_files: list[str] | None = None  # PR file list (otherwise derived from `conflict`).
         self.files_fail = False
+        self.commit_files: dict[str, dict[str, str | bytes]] = {}  # Files readable at a commit SHA (`?ref=<sha>`).
         self.calls = respx_mock.calls
         m = respx_mock
         R = r"/repos/(?P<owner>[^/]+)/(?P<repo>[^/]+)"
@@ -123,9 +124,14 @@ class FakeGitea:
     def _raw(self, request, owner, repo, path):
         r = self._r(owner, repo)
         ref = request.url.params.get("ref")
+        def response(content):
+            return httpx.Response(200, content=content) if isinstance(content, bytes) else httpx.Response(200, text=content)
+
         if r and ref and path in r.branch_files.get(ref, {}):
-            return httpx.Response(200, text=r.branch_files[ref][path])
-        return httpx.Response(200, text=r.files[path]) if r and path in r.files else httpx.Response(404, text="")
+            return response(r.branch_files[ref][path])
+        if r and ref and ref in self.commit_files and path in self.commit_files[ref]:
+            return response(self.commit_files[ref][path])
+        return response(r.files[path]) if r and path in r.files else httpx.Response(404, text="")
 
     def _get_prot(self, request, owner, repo):
         return httpx.Response(200, json=self._r(owner, repo).protections)
@@ -169,8 +175,10 @@ class FakeGitea:
         if self.merge_fails:
             return httpx.Response(409, json={"message": "merge conflict"})
         pr = r.pulls[int(num)]
+        if pr["merged"]:
+            return httpx.Response(405, json={"message": "already merged"})
         body = json.loads(request.content)
-        pr.update(state="closed", merged=True, merge_style=body["Do"])
+        pr.update(state="closed", merged=True, merge_style=body["Do"], merge_commit_sha="c" * 40)
         r.files.update(r.branch_files.get(pr["head"], {}))  # Squash: branch contents land on main.
         if body.get("delete_branch_after_merge"):
             r.branches.discard(pr["head"])

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ run.template.name }} #{{ run.run_seq }} – TaskBrigade{% endblock %}
+{% block content %}
+{# Run detail (research/konzept-workflows.md §8.5): header with controls, parameters, budget, the chain and every attempt
+   with task, timing, outputs and errors. Masked values (data class not readable) show as ***. #}
+<div class="headline"><h2><a href="{{ base }}">{{ run.template.name }}</a> #{{ run.run_seq }} <small class="muted">· v{{ run.version.version }}</small>
+  <span class="badge wf-run-{{ run.status }}">{{ run_status_label(run.status) }}</span></h2>
+  <a href="{{ base }}/runs" role="button" class="small secondary">{{ _("Run history") }}</a></div>
+{% include "_workflow_tabs.html" %}
+{% if request.query_params.msg %}<p class="banner ok" role="status">{{ request.query_params.msg }}</p>{% endif %}
+{% if request.query_params.err %}<p class="banner error" role="alert">{{ request.query_params.err }}</p>{% endif %}
+{% if run.status == "paused" %}<p class="banner warn">{{ _("Paused") }}{% if run.pause_reason %}: <code>{{ run.pause_reason }}</code>{% endif %}{% if info.error_detail and info.error_detail != "***" %} – {{ info.error_detail }}{% endif %}</p>{% endif %}
+
+{% if "workflow_waiting_too_long" in info.warnings %}<p class="banner warn">{{ _("This workflow has been waiting for a decision for a long time. Review or cancel it when appropriate.") }}</p>{% endif %}
+
+<section class="form-card" aria-label="{{ _('Run') }}">
+  <dl class="facts">
+    <div><dt>{{ _("Trigger") }}</dt><dd>{{ wf_trigger_label(run.trigger_kind) }}{% if run.scheduled_for %} · {{ run.scheduled_for | localtime }}{% endif %}</dd></div>
+    <div><dt>{{ _("Started") }}</dt><dd>{{ (run.started_at or run.created_at) | localtime }}{% if run.started_by %} · {{ names.get(run.started_by, "–") }}{% endif %}</dd></div>
+    <div><dt>{{ _("Owner") }}</dt><dd>{{ names.get(run.template.owner_id, "–") }}</dd></div>
+    {% if run.finished_at %}<div><dt>{{ _("Finished") }}</dt><dd>{{ run.finished_at | localtime }}</dd></div>{% endif %}
+    <div><dt>{{ _("Parameters") }}</dt><dd>{% if info.params == "***" %}<span class="muted">***</span>{% elif info.params %}{% for k, v in info.params.items() %}<code>{{ k }} = {{ v }}</code>{% if not loop.last %} · {% endif %}{% endfor %}{% else %}–{% endif %}</dd></div>
+    <div><dt>{{ _("Budget") }}</dt><dd>{% if info.usage_reported %}{{ _("%(used)s / %(limit)s ct", used=info.used_cents, limit=info.budget_cents if info.budget_cents is not none else "–") }} · {{ _("tokens %(used)s / %(limit)s", used=info.used_tokens, limit=info.budget_tokens if info.budget_tokens is not none else "–") }}{% else %}{{ _("usage unknown / %(limit)s ct", limit=info.budget_cents if info.budget_cents is not none else "–") }} · {{ _("tokens unknown / %(limit)s", limit=info.budget_tokens if info.budget_tokens is not none else "–") }}{% endif %}</dd></div>
+  </dl>
+  {% if can_control and run.status not in ("succeeded", "failed", "cancelled") %}
+  <div class="wf-controls">
+    {% if run.status == "paused" %}
+    {% if run.pause_reason in ("task_aborted", "timeout", "script_repair_limit", "gate_rejected", "gate_checks_failed") %}
+    <form method="post" action="/workflow-runs/{{ run.id }}/repair" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="small secondary">{{ _("Create repair task") }}</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/workflow-runs/{{ run.id }}/resume" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <label>{{ _("Resume from") }} <select name="from_step"><option value="">{{ _("current step") }}</option>{% for key in steps %}<option value="{{ key }}">{{ key }}</option>{% endfor %}</select></label>
+      <label><input type="checkbox" name="skip" value="true"> {{ _("skip the step (optional steps only)") }}</label>
+      {% if run.pause_reason == "budget_exceeded" %}<label>{{ _("Budget ct") }} <input type="number" name="budget_cents" min="0" placeholder="{{ _('raise to resume') }}"></label><label>{{ _("Budget tokens") }} <input type="number" name="budget_tokens" min="0" placeholder="{{ _('raise to resume') }}"></label>{% endif %}
+      <button type="submit" class="small">{{ _("Resume") }}</button>
+    </form>
+    {% else %}
+    <form method="post" action="/workflow-runs/{{ run.id }}/pause" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input name="reason" maxlength="500" placeholder="{{ _('Reason (optional)') }}" aria-label="{{ _('Reason (optional)') }}">
+      <button type="submit" class="small secondary">{{ _("Pause") }}</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/workflow-runs/{{ run.id }}/cancel" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="small secondary" onclick="return confirm(this.dataset.confirm)" data-confirm="{{ _('Cancel this run and all its open tasks?') }}">{{ _("Cancel run") }}</button>
+    </form>
+  </div>
+  {% endif %}
+</section>
+
+<section class="form-card" aria-labelledby="wf-chain-h">
+  <h3 id="wf-chain-h">{{ _("Chain") }}</h3>
+  {% include "_workflow_chain.html" %}
+</section>
+
+<section class="form-card" aria-labelledby="wf-attempts-h">
+  <h3 id="wf-attempts-h">{{ _("Steps and attempts") }}</h3>
+  {% for a in attempts %}
+  <article class="wf-attempt" data-status="{{ a.status }}">
+    <header><strong>{{ _("Step %(num)d", num=a.position) }} · {{ a.key }}</strong> <span class="badge wf-type">{{ wf_type_label(a.type) }}</span>
+      · {{ _("attempt %(num)d", num=a.attempt) }} · <span class="wf-cell wf-{{ a.status }}" aria-hidden="true">{{ {"succeeded": "✓", "waiting": "◷", "active": "●", "failed": "✗", "skipped": "–", "cancelled": "▫", "pending": "○"}.get(a.status, "?") }}</span> {{ step_status_label(a.status) }}
+      {% with cls=a.data_class, compact=True %}{% include "_data_class.html" %}{% endwith %}</header>
+    {% if a.task_nr or a.row.activated_at or a.outputs or a.error_code %}
+    <dl class="facts">
+      {% if a.task_nr %}<div><dt>{{ _("Task") }}</dt><dd><a href="/tasks/{{ a.task_nr }}">{{ a.task_nr }}</a>{% if a.task_kind and a.task_kind != "work" %} ({{ a.task_kind }}){% endif %} · {{ status_label(a.task_status) }}</dd></div>{% endif %}
+      {% if a.row.activated_at %}<div><dt>{{ _("Time") }}</dt><dd>{{ a.row.activated_at | localtime("daytime") }}{% if a.row.finished_at %} – {{ a.row.finished_at | localtime("daytime") }}{% endif %}</dd></div>{% endif %}
+      {% if a.outputs and a.outputs != "***" %}<div><dt>{{ _("Outputs") }}</dt><dd>{% set decl = a.outputs.get("output") if a.outputs is mapping else none %}
+        {% if decl %}{% for k, v in decl.items() %}<code>{{ k }}</code> → <code>{{ v | tojson if v is not string else v }}</code>{% if not loop.last %} · {% endif %}{% endfor %}{% endif %}
+        {% for k in ("task_nr", "status", "pr", "merge_commit") if a.outputs.get(k) %} <small class="muted">{{ k }} {{ a.outputs[k] }}</small>{% endfor %}</dd></div>
+      {% elif a.outputs == "***" %}<div><dt>{{ _("Outputs") }}</dt><dd class="muted">***</dd></div>{% endif %}
+      {% if a.row.deadline_at %}<div><dt>{{ _("Working-time deadline") }}</dt><dd>{{ a.row.deadline_at | localtime }}</dd></div>{% endif %}
+      {% if a.row.next_retry_at %}<div><dt>{{ _("Next retry") }}</dt><dd>{{ a.row.next_retry_at | localtime }}</dd></div>{% endif %}
+      {% if a.error_code %}<div><dt>{{ _("Error") }}</dt><dd><code class="missing">{{ a.error_code }}</code>{% if a.error_detail and a.error_detail != "***" %} {{ a.error_detail }}{% endif %}</dd></div>{% endif %}
+    </dl>
+    {% endif %}
+  </article>
+  {% else %}<p class="muted">{{ _("No steps started yet.") }}</p>
+  {% endfor %}
+</section>
+{% endblock %}

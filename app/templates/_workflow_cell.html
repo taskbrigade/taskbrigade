@@ -1,0 +1,9 @@
+{#- One run step as a pipeline cell: symbol and colour by status, linked to its task. `c`: cell from
+    workflows.ui._cells/chain, or none for a step the run does not have. -#}
+{%- if c -%}
+{%- set c_label = step_status_label(c.status) ~ (" · " ~ c.task_nr if c.task_nr else "") ~ (" · " ~ _("repaired") if c.repaired else "") -%}
+{%- if c.task_nr %}<a href="/tasks/{{ c.task_nr }}" class="wf-cell wf-{{ c.status }}" title="{{ c.key }}: {{ c_label }}">{% else %}<span class="wf-cell wf-{{ c.status }}" title="{{ c.key }}: {{ c_label }}">{% endif -%}
+<span aria-hidden="true">{{ c.symbol }}{% if c.repaired %}↻{% endif %}</span><span class="visually-hidden">{{ c.key }}: {{ c_label }}</span>
+{%- if c.task_nr %}</a>{% else %}</span>{% endif -%}
+{% if c.waiting_too_long %}<small class="missing">{{ _("Waiting for a decision for a long time") }}</small>{% endif %}
+{%- else -%}<span class="wf-cell wf-none" aria-hidden="true"></span>{%- endif -%}

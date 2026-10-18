@@ -1,0 +1,82 @@
+/* Backlog artboard; shared components and --ui-* tokens come from the UI kit. */
+.backlog-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.backlog-filters .ui-search { flex: 1 1 220px; min-width: 0; }
+.backlog-filters > .filter-more > select { min-width: 0; width: auto; flex: none; height: 40px;
+  margin: 0; padding: 0 28px 0 10px; border-color: var(--ui-input-border); border-radius: var(--ui-radius);
+  font: inherit; background-color: var(--ui-surface); }
+.backlog-status-row { flex: 1 0 100%; min-width: 0; width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 0; }
+.backlog-status-chips { gap: 6px; max-width: 100%; }
+.backlog-status-chips .ui-chip { height: 30px; }
+.backlog-status-row > a { white-space: nowrap; }
+.backlog-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; margin-bottom: 16px;
+  background: var(--ui-primary-tint); border: 1px solid #C5D6E8; border-radius: var(--ui-radius-card); color: var(--ui-primary-hover); }
+.backlog-bulk[hidden], #backlog-dialog [hidden] { display: none; }
+.backlog-bulk [data-clear-selection] { margin-left: auto; }
+.backlog-table-wrap { overflow-x: auto; }
+table.backlog { min-width: 840px; }
+table.backlog .backlog-assignee .ui-actor { max-width: 11rem; }  /* Auto table layout: cap the chip, names truncate */
+table.backlog :is(th, td) { padding: 10px 8px; }
+table.backlog [type=checkbox] { width: 18px; height: 18px; margin: 0; accent-color: var(--ui-primary); }
+table.backlog [type=checkbox]:is(:checked, :indeterminate) { background-color: var(--ui-primary); border-color: var(--ui-primary); }
+table.backlog th { font-size: 12px; }
+table.backlog th a { color: inherit; text-decoration: none; }
+table.backlog .task-title { width: 100%; min-width: 200px; overflow-wrap: anywhere;
+  font-size: 14px; font-weight: 500; line-height: 1.35; color: var(--ui-text); }
+table.backlog .task-title > a { text-decoration: none; }  /* Font: .ui-task-title (ui.css) */
+.backlog-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px;
+  color: var(--ui-text-2); font-size: 12px; font-weight: 400; line-height: 1.35; }
+.backlog-meta :is(.tier, .wf-badge) { font-size: 12px; }
+table.backlog .backlog-changed { color: var(--ui-text-2); white-space: nowrap; font-size: 13px; }
+.backlog-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
+  margin-top: 16px; font-size: 13px; color: var(--ui-text-2); }
+.backlog-footer label, .backlog-footer nav { display: flex; align-items: center; gap: 8px; margin: 0; }
+.backlog-footer select { height: 32px; }
+.backlog-filter-close { display: none !important; }
+.backlog-page .sort-ctl { display: none; }
+#bulk-results:not(:empty) { padding: 12px; margin-bottom: 16px; border: 1px solid var(--ui-input-border); border-radius: var(--ui-radius); }
+#bulk-results ul { margin-bottom: 0; }
+#backlog-dialog article { width: min(520px, 100%); }
+#backlog-dialog h2 { font-size: var(--ui-fs-section); }
+#bulk-error { color: var(--ui-danger); }
+@media (min-width: 640px) {
+  .backlog-filters > .filter-more.collapsible { display: contents !important; }
+  .backlog-filters > .filter-toggle { display: none; }
+}
+@media (min-width: 640px) and (max-width: 1199px) {
+  .backlog-filters { flex-wrap: wrap; }
+}
+@media (max-width: 639px) {
+  .backlog-page { padding-bottom: 180px; }
+  .backlog-filters { flex-wrap: wrap; }
+  .backlog-filters .ui-search { min-width: 0; flex-basis: 160px; }
+  .backlog-filters .ui-search input { min-height: 0; }
+  .backlog-filters > .filter-toggle { display: inline-flex; }
+  .js .backlog-filters > .filter-more.collapsible.is-open { display: flex; flex-direction: column; position: fixed;
+    inset: auto 0 0; max-height: 85dvh; overflow-y: auto; padding: 20px 16px max(20px, env(safe-area-inset-bottom));
+    background: var(--ui-surface); box-shadow: 0 -8px 40px #0003; z-index: 100; border-radius: 16px 16px 0 0; }
+  .backlog-filters > .filter-more > select { max-width: none; width: 100%; flex: none; }
+  .backlog-filters .backlog-filter-close { display: inline-flex !important; align-self: flex-end; }
+  .backlog-status-row { display: block; }
+  .backlog-status-chips[role=group] { flex-wrap: nowrap; overflow-x: auto; padding: 3px 2px 8px; }
+  .backlog-bulk { position: fixed; bottom: calc(68px + env(safe-area-inset-bottom)); left: 8px; right: 8px; margin: 0;
+    z-index: 40; padding: 10px; box-shadow: var(--ui-shadow-sm); }
+  .backlog-bulk strong { flex-basis: 100%; }
+  .backlog-page .sort-ctl { display: flex; }
+  .backlog-table-wrap { overflow: visible; background: transparent; border: 0; }
+  table.backlog, table.backlog tbody { display: block; min-width: 0; }
+  table.backlog thead { display: none; }
+  table.backlog tr { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto; gap: 8px;
+    padding: 12px; margin-bottom: 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-card);
+    background: var(--ui-surface); }
+  table.backlog :is(td, td:first-child, td:last-child) { display: block; padding: 0; min-width: 0; border: 0; }
+  table.backlog tr[aria-selected=true] { background: var(--ui-primary-tint); }
+  table.backlog tr[aria-selected=true] td { background: transparent; }
+  table.backlog .task-nr { grid-column: 2; grid-row: 1; }
+  table.backlog .backlog-prio { grid-column: 3; grid-row: 1; }
+  table.backlog .backlog-status { grid-column: 4; grid-row: 1; }
+  table.backlog .task-title { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+  table.backlog .backlog-assignee { grid-column: 1 / 3; grid-row: 3; }
+  table.backlog .backlog-changed { grid-column: 3 / -1; grid-row: 3; text-align: right; }
+  table.backlog .empty { grid-column: 1 / -1; }
+  .backlog-footer { align-items: flex-start; }
+}

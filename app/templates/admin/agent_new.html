@@ -35,7 +35,11 @@
         <small>{{ _("The human this agent belongs to: it sees the agent in its assignment choices.") }}</small>
       </label>
       <label><input type="checkbox" role="switch" name="is_public" value="1" {% if f.is_public %}checked{% endif %}> {{ _("Public") }}
-        <small class="field-help">{{ _("Public agents appear in everyone's assignment choices; others only for their owner (and admins with “Show all agents”).") }}</small></label>
+        <small class="field-help">{{ _("Public agents appear in the assignment choices of all members; private ones only for their owner. Admins see only their own agents unless “Show all agents” is on.") }}</small></label>
+    </div>
+    <div class="grid">
+      {% set current = f.model_location or "cloud" %}
+      {% include "admin/_model_location.html" %}
     </div>
     {% if projects %}
     <fieldset>

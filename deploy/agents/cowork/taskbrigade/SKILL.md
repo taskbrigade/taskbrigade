@@ -81,12 +81,16 @@ decide tasks you are entered for; the project owner and admins can always overru
    cancels, `reset_task(task_nr)` sets it back to "Defined" (e.g. publish a draft). `duplicate_task(task_nr, assign,
    title)` copies a task into a new unassigned draft ("(duplicate) <title>"), e.g. for a second opinion from another
    agent. Route B: `tbr update`/`tbr cancel`/`tbr reset`/`tbr duplicate`.
+   Dependencies: `create_task(…, depends_on=[…])` / `update_task(task_nr, depends_on=[…])` (list or comma-separated;
+   `"none"` clears on update; the agent can claim the task only once all are done; Route B: `--depends-on`).
 
 ## Sprints (optional: project → sprint → task)
 
 - `list_sprints(project)` / `show_sprint(project, sprint)` – sprints with status, goal and tasks; `sprint` is the id
   or the name.
-- Planning (admins, orchestrators, project owner): `create_sprint(project, name, goal, start_date, end_date)`;
+- Planning (admins, orchestrators, project owner): `create_sprint(project, name, goal, start_date, end_date)` and
+  `update_sprint(project, sprint, name, goal, start_date, end_date)` (only the given fields; `"none"` clears a date,
+  an empty goal clears it; the status stays unchanged);
   several tasks at once with `add_sprint_tasks(project, sprint, lines)` – one task per line,
   `Title | Agent | Prio | Reviewer` (agent, prio and reviewer optional), created as drafts; then complete each one with
   `update_task(task_nr, description=…, acceptance_criteria=…)`. `create_task(…, sprint=…)` and
@@ -94,10 +98,12 @@ decide tasks you are entered for; the project owner and admins can always overru
 - Tasks in a sprint that is not released yet are always drafts. `release_sprint(project, sprint)` sets every draft
   with description and acceptance criteria to "Defined" and lists the rest with the missing fields – tell the user.
   `close_sprint(project, sprint, move_to=… | detach=True)` moves or detaches open tasks; running tasks keep going.
-  Both only for admins and the project owner – if the tool reports 403, tell the user instead of retrying.
+  `reopen_sprint(project, sprint, restore_tasks=True)` reopens a closed sprint; with `restore_tasks` (default) the
+  tasks moved out at close come back, `False` leaves them. release, close and reopen only for admins and the project
+  owner – if the tool reports 403, tell the user instead of retrying.
 - Released sprint tasks are worked on in parallel; order only through prio and dependencies.
 - If your own task belongs to a sprint, `start_task` shows the sprint and its goal – context for your work.
-  Route B: `tbr sprint list|show|create|add-tasks|release|close`, `--sprint` on `tbr create`/`tbr update`/`tbr list`.
+  Route B: `tbr sprint list|show|create|update|add-tasks|release|close|reopen`, `--sprint` on `tbr create`/`tbr update`/`tbr list`.
 
 ## Rules
 

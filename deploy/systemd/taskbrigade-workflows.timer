@@ -1,0 +1,10 @@
+[Unit]
+Description=TaskBrigade workflow scheduler (every minute)
+
+[Timer]
+OnCalendar=*-*-* *:*:05
+AccuracySec=1s
+# No Persistent=true: the tick reads missed slots itself from the database (misfire policy).
+
+[Install]
+WantedBy=timers.target

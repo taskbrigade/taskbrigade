@@ -114,8 +114,12 @@ def test_mcp_protocol_over_stdio(tmp_path):
     assert set(tools) == {"list_tasks", "start_task", "show_task", "show_changes", "submit_task", "ask",
                           "abort_task", "release_task", "comment", "list_projects", "list_agents", "create_task",
                           "update_task", "cancel_task", "reset_task", "duplicate_task", "list_sprints", "show_sprint", "create_sprint",
-                          "add_sprint_tasks", "release_sprint", "close_sprint", "notify", "sftp_put", "sftp_ls",
-                          "review_task", "report_waiting", "attach_files", "attach_text"}
+                          "add_sprint_tasks", "release_sprint", "close_sprint", "update_sprint", "reopen_sprint",
+                          "notify", "sftp_put", "sftp_ls", "send_email", "list_emails", "list_mail_recipients",
+                              "review_task", "report_waiting", "attach_files", "attach_text",
+                              "list_workflows", "show_workflow", "start_workflow_run", "list_workflow_runs",
+                              "show_workflow_run", "pause_workflow_run", "resume_workflow_run", "cancel_workflow_run",
+                              "draft_workflow"}
     assert "attachments" in tools["create_task"].input_schema["properties"]
     assert set(tools["attach_files"].input_schema["required"]) == {"task_nr", "paths"}
     assert set(tools["attach_text"].input_schema["required"]) == {"task_nr", "filename", "content"}
@@ -124,6 +128,9 @@ def test_mcp_protocol_over_stdio(tmp_path):
     assert "sprint" in tools["update_task"].input_schema["properties"]
     assert set(tools["add_sprint_tasks"].input_schema["required"]) == {"project", "sprint", "lines"}
     assert set(tools["close_sprint"].input_schema["required"]) == {"project", "sprint"}
+    assert set(tools["update_sprint"].input_schema["required"]) == {"project", "sprint"}
+    assert set(tools["reopen_sprint"].input_schema["required"]) == {"project", "sprint"}
+    assert "update_sprint" in (init.instructions or "") and "reopen_sprint" in (init.instructions or "")
     assert "due_date" in tools["create_task"].input_schema["properties"]
     assert set(tools["update_task"].input_schema["required"]) == {"task_nr"}
     assert set(tools["cancel_task"].input_schema["required"]) == {"task_nr", "reason"}
@@ -176,6 +183,23 @@ def test_orchestrator_tools():
     assert "due 2026-11-01" in out
     assert "Nothing to change" in app.update_task("KET-0060")
 
+    # Dependencies: list or comma-separated string; update replaces, "none" clears, omitted leaves them alone.
+    app.create_task("ket", "Seite", "D", "A", "codex", depends_on=["ket-0001", "KET-0002"])
+    assert fc.calls[-1][2]["json"]["depends_on"] == ["KET-0001", "KET-0002"]
+    app.create_task("ket", "Seite", "D", "A", "codex")
+    assert "depends_on" not in fc.calls[-1][2]["json"]
+    app.update_task("KET-0060", depends_on="ket-0001, KET-0002")
+    assert fc.calls[-1][2]["json"] == {"depends_on": ["KET-0001", "KET-0002"]}
+    app.update_task("KET-0060", depends_on=["KET-0003"])
+    assert fc.calls[-1][2]["json"] == {"depends_on": ["KET-0003"]}
+    out = app.update_task("KET-0060", depends_on="none")
+    assert fc.calls[-1][2]["json"] == {"depends_on": []} and "Dependencies: none" in out
+    app.update_task("KET-0060", prio=2)
+    assert "depends_on" not in fc.calls[-1][2]["json"]
+    assert "cannot be combined" in app.update_task("KET-0060", depends_on=["none", "KET-0001"])
+    assert "cannot be combined" in app.create_task("ket", "x", depends_on="none,KET-0001")
+    assert "depends_on" in INSTRUCTIONS and "claim the task only once" in INSTRUCTIONS
+
     assert "cancelled" in app.cancel_task("KET-0060", "doppelt")
     assert fc.calls[-1][2]["json"] == {"to": "cancelled", "comment": "doppelt"}
     assert "required" in app.cancel_task("KET-0060", " ")
@@ -183,5 +207,27 @@ def test_orchestrator_tools():
 
     worker = TaskBrigadeMCP(OrchestratorMcpClient(deny=True), None)
     for out in (worker.update_task("KET-0060", prio=2), worker.cancel_task("KET-0060", "x"),
-                worker.reset_task("KET-0060")):
+                worker.reset_task("KET-0060"), worker.update_task("KET-0060", depends_on=["KET-0001"])):
         assert "403" in out and "No permission" in out
+    assert "403" in worker.create_task("ket", "x", depends_on=["KET-0001"])
+
+
+def test_dependency_errors_and_status_reply():
+    class Errors(OrchestratorMcpClient):
+        def request(self, method, path, **kw):
+            nr = (kw.get("json") or {}).get("depends_on", [""])[0]
+            if nr == "KET-9999":
+                raise ApiError(404, "not_found", "Task KET-9999 not found")
+            if nr == "KET-0060":
+                raise ApiError(422, "unprocessable", "KET-0060 cannot depend on itself")
+            resp = super().request(method, path, **kw)
+            resp._data = {**resp.json(), "dependencies": [{"task_nr": "KET-0001", "status": "done", "title": "x"}]}
+            return resp
+
+    app = TaskBrigadeMCP(Errors(), None)
+    out = app.update_task("KET-0060", depends_on=["KET-9999"])
+    assert "not found" in out and "Traceback" not in out
+    assert "cannot depend on itself" in app.update_task("KET-0060", depends_on="KET-0060")
+    assert "not found" in app.create_task("ket", "x", depends_on=["KET-9999"])
+    assert "Depends on: KET-0001 (done)" in app.update_task("KET-0060", depends_on=["KET-0001"])
+    assert "Depends on: KET-0001 (done)" in app.create_task("ket", "x", "D", "A", "codex", depends_on=["KET-0001"])

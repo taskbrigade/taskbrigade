@@ -1,5 +1,11 @@
 """Conscious waiting for long background runs: `tbr heartbeat --waiting`, server state, runner stall detection."""
 
+import os
+import shutil
+import signal
+import subprocess
+import time
+
 import pytest
 from sqlalchemy import text
 
@@ -260,3 +266,79 @@ def test_waiting_shown_on_kanban_card():
     html = render_board([waiting, card("KET-0002", "in_progress")], "de")
     assert html.count("Wartet auf Hintergrundlauf: model test (bis ") == 1
     assert "Waiting for a background run: model test (until " in render_board([waiting], "en")
+
+
+def test_no_parking_while_the_agent_session_still_runs_a_job(tmp_path, monkeypatch):
+    procs = {101: "node mcp-server.js"}  # Present at the baseline: part of the agent, never blocks parking.
+    monkeypatch.setattr(runner, "descendant_processes", lambda pid: dict(procs))
+    sup, fc, clock, comments = _stall_setup(tmp_path, monkeypatch, waiting={"reason": "model test", "until": "x"},
+                                            park_idle_seconds=120, start_check_seconds=0)
+    sup.agent_pid = 4242
+    clock.t += 60
+    assert sup.check() is None and sup.baseline == {101}
+    procs[202] = "python modelltest.py --usecases 01c"  # Started in the CLI's own background shell.
+    for _step in range(5):  # Idle and waiting, but ending the session would kill the job: keep it, comment once.
+        clock.t += 60
+        assert sup.check() is None
+    assert len(comments()) == 1
+    body = comments()[0][2]["body"]
+    assert body.startswith("Not parked") and "202 python modelltest.py" in body and "mcp-server" not in body
+    assert "setsid nohup" in body
+    del procs[202]  # The job ended (or was moved out of the session): now the idle session is parked.
+    clock.t += 60
+    msg, kind = sup.check()
+    assert "(parked)" in msg and kind is None and len(comments()) == 1
+
+
+def test_parking_without_jobs_or_without_ps(tmp_path, monkeypatch):
+    for found in ({}, None):  # No processes below the agent; `ps` not available → parked as before.
+        monkeypatch.setattr(runner, "descendant_processes", lambda pid, found=found: found)
+        sup, fc, clock, comments = _stall_setup(tmp_path, monkeypatch, waiting={"reason": "r", "until": "x"},
+                                                park_idle_seconds=120, start_check_seconds=0)
+        sup.agent_pid = 4242
+        for _step in range(2):
+            clock.t += 60
+            assert sup.check() is None
+        clock.t += 60
+        assert "(parked)" in sup.check()[0] and comments() == []
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    with open(f"/proc/{pid}/stat") as f:  # A zombie (not reaped yet) counts as ended.
+        return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc") or not shutil.which("setsid"), reason="needs Linux /proc and setsid")
+def test_detached_job_survives_the_session_an_attached_one_does_not(tmp_path):
+    """Like an agent's shell tool: a short-lived shell starts the job and exits. `setsid nohup … &` re-parents the job
+    away from the agent (so it does not block parking) and it survives the end of the session's process group; a
+    plain `&` job stays below the agent and dies with it."""
+    detached, attached = tmp_path / "detached.pid", tmp_path / "attached.pid"
+    agent = subprocess.Popen(
+        ["sh", "-c", (f"sh -c 'setsid nohup sh -c \"echo \\$\\$ > {detached}; exec sleep 60\" > {tmp_path}/job.log "
+                      f"2>&1 < /dev/null &'; sh -c 'echo $$ > {attached}; exec sleep 60' & exec sleep 60")],
+        start_new_session=True)
+    deadline = time.monotonic() + 10
+    while not (detached.exists() and attached.exists() and detached.read_text().strip()
+               and attached.read_text().strip()) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    job, child = int(detached.read_text()), int(attached.read_text())
+    try:
+        below = runner.descendant_processes(agent.pid)
+        assert child in below and job not in below
+        os.killpg(agent.pid, signal.SIGHUP)  # The session ends (tmux kill-window hangs up the pane).
+        agent.wait(timeout=10)
+        deadline = time.monotonic() + 5
+        while _pid_alive(child) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not _pid_alive(child) and _pid_alive(job)
+    finally:
+        for pid in (job, child):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass

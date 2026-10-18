@@ -20,7 +20,14 @@
 #        [TZ_DISPLAY=Europe/Berlin] \
 #        [TAILSCALE_SERVE=1] \
 #        [TBR_INSTALL_UV=1] \
+#        [TBR_DATA_ZONES=1] \
+#        [TBR_DATA_SFTP=1] \
 #        deploy/install.sh
+#
+# TBR_DATA_ZONES=1 installs the opt-in data-zone routines (concept §9): system users/groups, the encrypted data
+# store with its folders, the sandbox job user, the runner virtualenv and the polkit rule. Without it nothing
+# changes on the system for the data zones; only the database migrations add the new tables and columns.
+# TBR_DATA_SFTP=1 additionally prepares the native SFTP inbox paths (sshd drop-in follows in a later step).
 #
 # TBR_BASE is the install prefix (the checkout lives in $TBR_BASE/app).
 # LAN_UI_NETWORK also exposes the UI over plain HTTP on that LAN; the API stays blocked.
@@ -155,6 +162,64 @@ if [[ -n $LAN_UI_NETWORK ]]; then
 fi
 as_tm env TBR_STATE_DIR="$STATE" "$APP/.venv/bin/tbr-admin" init-key
 
+if tbr_data_zones_enabled; then
+  echo "==> 4b. Data zones (TBR_DATA_ZONES=1)"
+  tm_require_data_zone_host
+  DATA_DIR="$(tbr_data_dir_path)"
+  KEY_FILE="$(tbr_data_key_path)"
+  DATA_GROUP="$(tbr_data_group)"
+  # Users/groups per concept §9. tbr-runner owns the runner state; tbr-job is the sandbox user without access
+  # to the store or the KEK. taskbrigade and tbr-runner join tbr-data (read the KEK and the store).
+  tm_system_group "$DATA_GROUP"
+  tm_system_user tbr-runner
+  tm_system_user tbr-job
+  tm_add_to_group taskbrigade "$DATA_GROUP"
+  tm_add_to_group tbr-runner "$DATA_GROUP"
+  tm_add_to_group tbr-runner tbr-job
+  # Folder layout with permissions (concept §9). The service needs read/write through the group.
+  tm_ensure_dir "$DATA_DIR" "taskbrigade:$DATA_GROUP" 0750
+  tm_ensure_dir "$DATA_DIR/store" "taskbrigade:$DATA_GROUP" 0750
+  tm_ensure_dir "$DATA_DIR/incoming" "taskbrigade:$DATA_GROUP" 0750
+  tm_ensure_dir "$DATA_DIR/quarantine" "tbr-runner:$DATA_GROUP" 0750
+  tm_ensure_dir /var/lib/taskbrigade-runner tbr-runner:tbr-runner 0700
+  if [[ ! -f "$KEY_FILE" ]]; then
+    echo "    creating the data store key (KEK) at $KEY_FILE"
+    tmp_key="$(mktemp)"
+    "$PY" -c 'import base64, secrets, sys; open(sys.argv[1], "wb").write(base64.b64encode(secrets.token_bytes(32)) + b"\n")' "$tmp_key"
+    install -o root -g "$DATA_GROUP" -m 0640 "$tmp_key" "$KEY_FILE"
+    rm -f "$tmp_key"
+  else
+    echo "    keeping existing data store key $KEY_FILE"
+  fi
+  chown root:"$DATA_GROUP" "$KEY_FILE"
+  chmod 0640 "$KEY_FILE"
+  # Pinned analysis packages for the runner (scripts cannot install packages: the sandbox has no network).
+  RUNNER_VENV="${TBR_RUNNER_VENV:-$BASE/runner-venv}"
+  if [[ ! -x "$RUNNER_VENV/bin/python" ]]; then
+    echo "    creating the runner virtualenv at $RUNNER_VENV"
+    "$UV" venv --python "$PY" "$RUNNER_VENV"
+  fi
+  "$UV" pip install --python "$RUNNER_VENV/bin/python" --quiet -r "$APP/deploy/runner-requirements.txt" \
+    || echo "    warning: installing the runner packages failed; rerun deploy/update.sh later"
+  chown -R root:root "$RUNNER_VENV"
+  chmod -R go-w "$RUNNER_VENV" || true
+  # Polkit rule: tbr-runner may start/stop only taskbrigade-job@* units.
+  RULE_SRC="$APP/deploy/polkit/60-taskbrigade-runner.rules"
+  if [[ -f "$RULE_SRC" ]]; then
+    install -d -o root -g root -m 0755 /etc/polkit-1/rules.d
+    install -o root -g root -m 0644 "$RULE_SRC" /etc/polkit-1/rules.d/60-taskbrigade-runner.rules
+  fi
+  if [[ "${TBR_DATA_SFTP:-}" == "1" ]]; then
+    tm_install_sftp_inbox
+    tm_env_set "$ETC/taskbrigade.env" TBR_DATA_SFTP 1
+  fi
+  tm_env_set "$ETC/taskbrigade.env" TBR_DATA_DIR "$DATA_DIR"
+  tm_env_set "$ETC/taskbrigade.env" TBR_DATA_KEY_FILE "$KEY_FILE"
+  tm_env_set "$ETC/taskbrigade.env" TBR_DATA_ZONES "1"
+  echo "    data zones ready. Enable the runner once a runner agent exists: tbr-admin runner join <code>"
+  echo "    Back up the data store key separately from the database and the store: $KEY_FILE"
+fi
+
 echo "==> 5. Database and Gitea"
 echo "    No database password is written here. After startup: Admin → Database → test, save, upgrade schema."
 gitea_url="${GITEA_URL:-$(tm_env_get "$ETC/taskbrigade.env" GITEA_URL)}"
@@ -162,12 +227,38 @@ tm_check_gitea "$gitea_url" warn
 
 echo "==> 6. systemd"
 # Units ship with /opt/taskbrigade; a different TBR_BASE is substituted here.
-for unit in taskbrigade.service taskbrigade-backup.service taskbrigade-backup.timer; do
+for unit in taskbrigade.service taskbrigade-backup.service taskbrigade-backup.timer \
+           taskbrigade-workflows.service taskbrigade-workflows.timer; do
   sed "s|/opt/taskbrigade|$BASE|g" "$APP/deploy/systemd/$unit" > "/etc/systemd/system/$unit"
   chmod 0644 "/etc/systemd/system/$unit"
 done
+if tbr_data_zones_enabled; then
+  # The app writes the store below TBR_DATA_DIR and reads the KEK through the data group (concept §9).
+  DATA_DIR="$(tbr_data_dir_path)"
+  DATA_GROUP="$(tbr_data_group)"
+  install -d -o root -g root -m 0755 /etc/systemd/system/taskbrigade.service.d
+  cat > /etc/systemd/system/taskbrigade.service.d/50-data-zones.conf <<EOF
+[Service]
+SupplementaryGroups=$DATA_GROUP
+ReadWritePaths=$DATA_DIR
+EOF
+  chmod 0644 /etc/systemd/system/taskbrigade.service.d/50-data-zones.conf
+  # Runner service and sandbox template; limits are the defaults until Admin → Settings changes them
+  # (`tbr-admin runner limits --write`, also run by update.sh). The runner starts with `tbr-admin runner join`.
+  tbr_install_runner_units "$APP" "$BASE" "$DATA_DIR" "${TBR_RUNNER_VENV:-$BASE/runner-venv}" \
+    "$("$APP/.venv/bin/tbr-admin" runner limits --defaults)"
+fi
 systemctl daemon-reload
 systemctl enable taskbrigade.service taskbrigade-backup.timer
+# The workflow scheduler timer only runs when the trigger is the native timer (the default).
+WORKFLOW_TICK="${TBR_WORKFLOW_TICK:-$(tm_env_get "$ETC/taskbrigade.env" TBR_WORKFLOW_TICK)}"
+WORKFLOW_TICK="${WORKFLOW_TICK:-timer}"
+if [[ "$WORKFLOW_TICK" == "timer" ]]; then
+  systemctl enable taskbrigade-workflows.timer
+  systemctl start taskbrigade-workflows.timer
+else
+  systemctl disable --now taskbrigade-workflows.timer 2>/dev/null || true
+fi
 systemctl restart taskbrigade.service
 systemctl start taskbrigade-backup.timer
 

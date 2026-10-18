@@ -1,0 +1,12 @@
+# Pinned analysis packages of the data-zone runner virtualenv (TBR_RUNNER_VENV, default /opt/taskbrigade/runner-venv).
+# Sandbox jobs have no network, so scripts can only use what is listed here; TASK.md of code tasks names the list.
+# Installed by deploy/install.sh and deploy/update.sh with TBR_DATA_ZONES=1 (uv pip install -r). Full pin set
+# including dependencies, resolved for Python 3.12 (docs/operations.md → Data-zone runner).
+defusedxml==0.7.1
+et-xmlfile==2.0.0
+numpy==2.5.4
+openpyxl==3.1.5
+pandas==3.0.6
+pyarrow==26.0.0
+python-dateutil==2.9.0.post0
+six==1.17.0

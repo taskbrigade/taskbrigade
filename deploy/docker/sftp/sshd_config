@@ -1,0 +1,24 @@
+# sshd of the TaskBrigade SFTP container (compose profile data-sftp). Only deliverers in the group tbr-sftp may log
+# in; the Match block of the native drop-in (sshd_config.d/60-taskbrigade-sftp.conf) chroots them and forces
+# internal-sftp. Host keys live in the volume taskbrigade-sftp-hostkeys, so a recreated container keeps them.
+Port 22
+HostKey /etc/ssh/keys/ssh_host_ed25519_key
+HostKey /etc/ssh/keys/ssh_host_rsa_key
+PermitRootLogin no
+AllowGroups tbr-sftp
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AuthenticationMethods publickey
+# The chroot (= home) holds .ssh/authorized_keys, root:root 0644, written by sftp_sync.py.
+AuthorizedKeysFile .ssh/authorized_keys
+UsePAM no
+StrictModes yes
+AllowTcpForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+PermitTTY no
+LogLevel INFO
+Subsystem sftp internal-sftp
+Include /etc/ssh/sshd_config.d/*.conf

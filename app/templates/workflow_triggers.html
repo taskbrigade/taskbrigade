@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Event triggers") }}{% endblock %}
+{% block content %}
+{{ ui.page_header(_("Event triggers")) }}
+{% include "_workflow_tabs.html" %}
+<div class="table-card">
+<table class="cards">
+  <thead><tr><th>{{ _("Workflow") }}</th><th>{{ _("Kind") }}</th><th>{{ _("Enabled") }}</th></tr></thead>
+  <tbody>
+  {% for template, row in entries %}
+    <tr>
+      <td><a href="/workflows/{{ template.project.project_key }}/{{ template.workflow_key }}/triggers?trigger_id={{ row.id }}">{{ template.project.project_key }}/{{ template.workflow_key }}</a></td>
+      <td>{{ row.kind }}</td>
+      <td>{{ _("Enabled") if row.enabled else _("Disabled") }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="muted empty">{{ _("No event triggers yet.") }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<ul>{% for template in templates %}<li><a href="/workflows/{{ template.project.project_key }}/{{ template.workflow_key }}/triggers">{{ template.name }} · {{ _("Manage triggers") }}</a></li>{% endfor %}</ul>
+{% endblock %}

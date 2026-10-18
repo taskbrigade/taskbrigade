@@ -309,7 +309,48 @@ def parse_due(value: str | None) -> str | None:
         raise ValueError(_("Due date '%(value)s' is invalid – format YYYY-MM-DD", value=value)) from e
 
 
+def parse_depends_on(value: "list[str] | str | None") -> list[str]:
+    """Task numbers a task depends on, from a list or a comma-separated string (upper case, no duplicates).
+    "none"/"-" alone (or an empty value) → [] (removes all dependencies); mixed with numbers → ValueError."""
+    items = [value] if isinstance(value, str) else list(value or [])
+    nrs = [p.strip().upper() for item in items for p in str(item).replace(";", ",").split(",") if p.strip()]
+    none = [n for n in nrs if n.lower() in ("none", "-")]
+    if none and len(none) != len(nrs):
+        raise ValueError(_("depends_on: 'none' cannot be combined with task numbers"))
+    return [] if none else list(dict.fromkeys(nrs))
+
+
 WAIT_MAX_MINUTES = 24 * 60
+
+
+def parse_usage(value: str | None) -> dict | None:
+    """Parse `--usage input=123,output=456,cost_cents=12,model=foo` into the API usage body (None when empty).
+
+    `input`/`output` become `input_tokens`/`output_tokens`; `model` is free text."""
+    if not value or not value.strip():
+        return None
+    data: dict = {}
+    for part in value.split(","):
+        key, sep, val = part.strip().partition("=")
+        key = key.strip()
+        if not sep or not key:
+            raise ValueError(_("Usage '%(value)s' is invalid – format input=123,output=456,cost_cents=12,model=foo",
+                               value=value))
+        if key == "model":
+            data["model"] = val.strip() or None
+            continue
+        if key in ("input", "output"):
+            key = {"input": "input_tokens", "output": "output_tokens"}[key]
+        elif key not in ("cost_cents",):
+            raise ValueError(_("Usage '%(value)s' is invalid – format input=123,output=456,cost_cents=12,model=foo",
+                               value=value))
+        try:
+            data[key] = int(val.strip())
+        except ValueError as e:
+            raise ValueError(_("Usage '%(value)s': %(key)s must be an integer", value=value, key=key)) from e
+    if not any(k in data for k in ("input_tokens", "output_tokens", "cost_cents")):
+        raise ValueError(_("Usage needs at least one of input=, output= or cost_cents="))
+    return data
 
 
 def parse_duration(value: str | None) -> int | None:
@@ -333,7 +374,7 @@ def parse_duration(value: str | None) -> int | None:
 
 
 def heartbeat_task(client: "Client", task_nr: str, waiting: str | None = None, duration: str | None = None,
-                   watch_file: str | None = None, done_waiting: bool = False) -> dict:
+                   watch_file: str | None = None, done_waiting: bool = False, usage: dict | None = None) -> dict:
     """POST /tasks/{nr}/heartbeat; with `waiting` the task shows "waiting for a background run" (no stall report).
     A relative `watch_file` is made absolute here: the runner watching it runs on this machine, not in its cwd."""
     body: dict = {}
@@ -350,6 +391,8 @@ def heartbeat_task(client: "Client", task_nr: str, waiting: str | None = None, d
         if waiting:
             raise ValueError(_("--waiting and --done-waiting exclude each other"))
         body["done_waiting"] = True
+    if usage is not None:
+        body["usage"] = usage
     return client.request("POST", f"/tasks/{task_nr.upper()}/heartbeat", json=body or None).json()
 
 
@@ -423,6 +466,49 @@ def parse_tier(value: str | None) -> str | None:
         raise ValueError(_("Unknown model tier '%(value)s' – allowed: simple, standard, complex (or none)",
                            value=value))
     return TIERS[key]
+
+
+DATA_CLASSES = ("cloud_ok", "local_only", "sealed")
+
+
+def parse_data_class(value: str | None) -> str | None:
+    """`--data-class`/MCP `data_class`: cloud_ok, local_only or sealed; "inherit"/"none"/"-" → "inherit" (the task
+    takes the project's privacy again); empty → None (unchanged); unknown → ValueError."""
+    key = (value or "").strip().lower().replace("-", "_")
+    if not key:
+        return None
+    if key in ("inherit", "none", "_"):
+        return "inherit"
+    if key not in DATA_CLASSES:
+        raise ValueError(_("Unknown data class '%(value)s' – allowed: cloud_ok, local_only, sealed (or inherit)",
+                           value=value))
+    return key
+
+
+def data_class_line(t: dict) -> str | None:
+    """`- Data class: …` for TASK.md/show: the effective class and whether the task sets it or inherits it."""
+    eff = t.get("data_class_effective")
+    if not eff:
+        return None
+    if t.get("data_class"):
+        return _("- Data class: %(cls)s (set on the task)", cls=eff)
+    return _("- Data class: %(cls)s (inherited from the project)", cls=eff)
+
+
+def data_refs_lines(t: dict) -> list[str]:
+    """TASK.md/show section "Data references" (task_data_refs, DZ 9): what the task refers to – never content."""
+    refs = t.get("data_refs") or []
+    if not refs:
+        return []
+    lines = ["", _("## Data references"), ""]
+    for r in refs:
+        if r["type"] == "dataset":
+            lines.append(_("- %(purpose)s: dataset %(label)s – raw data, only the runner reads it", purpose=r["purpose"],
+                           label=r["label"]))
+        else:
+            lines.append(_("- %(purpose)s: %(label)s (%(status)s)", purpose=r["purpose"], label=r["label"],
+                           status=r["status"]))
+    return lines
 
 
 def model_value(value: str | None) -> str | None:
@@ -518,7 +604,8 @@ def sprint_line(s: dict) -> str:
 
 
 def release_report(result: dict) -> str:
-    """Text for a sprint release: released tasks and drafts that stay drafts with their missing fields."""
+    """Text for a sprint release: released tasks, drafts that stay drafts with their missing fields and released
+    tasks waiting for a late dependency."""
     lines = [_("Sprint '%(sprint)s' released: %(num)s task(s) set to defined", sprint=result["sprint"]["name"],
                num=len(result["released"]))]
     lines += [f"  + {t['task_nr']} {t['title']}" for t in result["released"]]
@@ -526,7 +613,18 @@ def release_report(result: dict) -> str:
         lines.append(_("%(num)s draft(s) stay drafts – complete them and release again:", num=len(result["blocked"])))
         lines += [_("  - %(nr)s %(title)s (missing: %(missing)s)", nr=t["task_nr"], title=t["title"],
                     missing=", ".join(t["missing"])) for t in result["blocked"]]
+    if result.get("waiting"):  # Older servers do not send it.
+        lines.append(_("Warning: %(num)s released task(s) wait for a task that is not done and not planned before "
+                       "this sprint:", num=len(result["waiting"])))
+        lines += [_("  ! %(nr)s %(title)s waits for %(deps)s", nr=t["task_nr"], title=t["title"],
+                    deps=", ".join(_dep_where(d) for d in t["waits_for"])) for t in result["waiting"]]
     return "\n".join(lines)
+
+
+def _dep_where(dep: dict) -> str:
+    if dep.get("sprint") is None:
+        return _("%(nr)s (no sprint)", nr=dep["task_nr"])
+    return f"{dep['task_nr']} ({dep['sprint_name']}, {dep['sprint_status']})"
 
 
 def close_report(result: dict, target_name: str | None = None) -> str:
@@ -538,6 +636,21 @@ def close_report(result: dict, target_name: str | None = None) -> str:
         return _("Sprint '%(sprint)s' closed: %(num)s open task(s) detached from the sprint (%(nrs)s)", sprint=name,
                  num=len(result["detached"]), nrs=", ".join(result["detached"]))
     return _("Sprint '%(sprint)s' closed.", sprint=name)
+
+
+def reopen_report(result: dict) -> str:
+    """Text for a sprint reopen: restored tasks and the ones that were skipped."""
+    name = result["sprint"]["name"]
+    lines = [_("Sprint '%(sprint)s' reopened – status is '%(status)s' again.", sprint=name,
+               status=result["sprint"]["status"])]
+    if result.get("restored"):
+        lines.append(_("%(num)s task(s) moved back into the sprint:", num=len(result["restored"])))
+        lines += [f"  + {nr}" for nr in result["restored"]]
+    if result.get("skipped"):
+        lines.append(_("%(num)s task(s) stay where they are (moved again later or finished):",
+                       num=len(result["skipped"])))
+        lines += [f"  - {nr}" for nr in result["skipped"]]
+    return "\n".join(lines)
 
 
 # --- Notifications (tbr notify …, MCP notify) ----------------------------------------------------
@@ -577,4 +690,62 @@ def notify_report(data: dict) -> str:
         lines.append("  " + _("Not linked with Telegram – nothing is sent until the profile links a chat."))
     elif not data.get("bot_enabled"):
         lines.append("  " + _("The Telegram bot is switched off on the server – nothing is sent."))
+    return "\n".join(lines)
+
+
+# --- Result mails (`tbr mail`, MCP send_email/list_emails/list_mail_recipients) ------------------------------------
+
+MAIL_STATUS = {"pending_approval": N_("waiting for a human's approval"), "queued": N_("queued for sending"),
+               "sent": N_("sent"), "failed": N_("failed"), "rejected": N_("rejected")}
+
+
+def send_email(client: "Client", task_nr: str, to: list[str], subject: str, body: str, cc: list[str] | None = None,
+               attachments: list[str] | None = None, on_approve: bool = False) -> dict:
+    """File a send request; the server checks recipients, data class, size and limits and sends it later."""
+    payload = {"to": [a for a in to if a.strip()], "cc": [a for a in cc or [] if a.strip()], "subject": subject,
+               "body": body, "attachments": [a for a in attachments or [] if a.strip()], "on_approve": on_approve}
+    return client.request("POST", f"/tasks/{task_nr.strip().upper()}/emails", json=payload).json()
+
+
+def email_line(m: dict) -> str:
+    """One request: `#id status – subject → recipients`, plus error or Message-ID."""
+    line = _("#%(id)s %(status)s – %(subject)s → %(to)s", id=m.get("id"),
+             status=_(MAIL_STATUS.get(m.get("status"), m.get("status") or "?")), subject=m.get("subject"),
+             to=", ".join((m.get("to") or []) + (m.get("cc") or [])))
+    if m.get("status") == "pending_approval" and m.get("on_approve"):
+        line += " " + _("(sent when the task is approved)")
+    if m.get("smtp_error"):
+        line += "\n    " + _("Error: %(error)s", error=m["smtp_error"])
+    if m.get("message_id"):
+        line += "\n    " + _("Message-ID: %(id)s", id=m["message_id"])
+    for a in m.get("attachments") or []:
+        line += "\n    " + _("Attachment %(name)s (%(size)s bytes, SHA-256 %(sha)s)", name=a.get("name"),
+                             size=a.get("size"), sha=a.get("sha256"))
+    return line
+
+
+def email_report(m: dict) -> str:
+    """Answer to a send request: status and whether a human must approve it."""
+    head = (_("Email request saved – a human must approve it before it is sent.") if m.get("status") ==
+            "pending_approval" else _("Email request saved and queued – the server sends it shortly."))
+    return head + "\n" + email_line(m)
+
+
+def emails_report(data: dict) -> str:
+    items = data.get("items") or []
+    if not items:
+        return _("No email requests for %(nr)s.", nr=data.get("task_nr"))
+    return "\n".join([_("Email requests of %(nr)s:", nr=data.get("task_nr")), *[f"  {email_line(m)}" for m in items]])
+
+
+def recipients_report(data: dict) -> str:
+    lines = [_("Allowed email recipients of %(project)s:", project=data.get("project"))]
+    for r in data.get("recipients") or []:
+        mode = _("needs approval") if r.get("approval") else _("without approval")
+        lines.append(f"  {r['address']}" + (f" ({r['label']})" if r.get("label") else "") + f" – {mode}")
+    if not data.get("recipients"):
+        lines.append("  " + _("(none on the list)"))
+    lines.append(_("Humans with a TaskBrigade account and a confirmed address may be sent to without approval."))
+    if data.get("data_class") != "cloud_ok":
+        lines.append(_("Note: results of local-only tasks cannot be sent by email yet."))
     return "\n".join(lines)

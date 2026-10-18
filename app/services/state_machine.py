@@ -31,7 +31,7 @@ class Rule:
     sources: frozenset[str]
     target: str
     who: str  # assignee | admin | reviewer (admin or the task's reviewer) | manager (admin/orchestrator) |
-    #          manager_or_creator | human_admin | assignee_or_human_admin | system
+    #          manager_or_creator | human_admin | assignee_or_human_admin | system | gate (output gate service)
 
 
 RULES: dict[str, Rule] = {r.action: r for r in [
@@ -54,6 +54,12 @@ RULES: dict[str, Rule] = {r.action: r for r in [
     # Drafts reach agents only after publication as 'defined'.
     Rule("publish", frozenset({"draft"}), "defined", "manager_or_creator"),
     Rule("to_draft", frozenset({"defined"}), "draft", "manager"),
+    # Output gate (`app/services/output_gate.py`, research/konzept-datenzonen.md §6): only that service decides runner
+    # results – it checks the rights and four-eyes rule and passes the result object, which no request can supply.
+    Rule("gate_release", frozenset({"for_review"}), "done", "gate"),
+    Rule("gate_reject", frozenset({"for_review"}), "changes_requested", "gate"),
+    Rule("gate_keep", frozenset({"for_review", "changes_requested"}), "done", "gate"),
+    Rule("gate_return", frozenset({"for_review"}), "changes_requested", "gate"),
 ]}
 
 # Available through generic status changes (UI/Kanban); claim/submit need agent data.
@@ -94,6 +100,8 @@ def check_allowed(rule: Rule, task: Task, actor: Actor | None, owner_id: int | N
                       and actor.id == owner_id)
     if task.status not in rule.sources:
         raise InvalidTransition(_("%(action)s: not possible from status '%(status)s' (allowed: %(sources)s)", action=rule.action, status=task.status, sources=", ".join(sorted(rule.sources))))
+    if rule.who == "gate":
+        return  # `output_gate` checked the decider; the action needs the internal result object (`_gate_result`).
     if rule.who == "system":
         if actor is not None:
             raise Forbidden(_("Only the system may perform %(action)s", action=rule.action))
@@ -208,7 +216,50 @@ def _cancel(session, task, actor, payload):
     task.lease_expires_at = None
 
 
+def _runner_submit(session, task, actor, payload):
+    """Runner jobs end without branch or PR: the result waits in quarantine (`runner_jobs.record_result`)."""
+    from app.models import RunResult
+
+    result = payload.get("_run_result")
+    if not isinstance(result, RunResult):  # Set internally only – never from an API body.
+        raise Unprocessable(_("Runner tasks are submitted by the runner with a job result"), code="runner_submit")
+    task.result_summary = (payload.get("summary") or "").strip() or None
+    task.submitted_at, task.lease_expires_at = utcnow(), None
+    add_comment(session, task, actor, "system", task.result_summary or _("Runner job finished."))
+    if result.status == "pending_approval":  # Event without contents and without review buttons (zone R)
+        return lambda: _notify(session, task, "data_release")
+    return None
+
+
+def _gate_result(task, payload):
+    from app.models import RunResult
+
+    result = payload.get("_gate")
+    if not isinstance(result, RunResult) or result.task_id != task.id:  # Set internally only – never from a body.
+        raise Conflict(_("Runner results are released in the output gate, not by approving the task"),
+                       code="output_gate_required")
+    return result
+
+
+def _gate_done(session, task, actor, payload):
+    _gate_result(task, payload)
+    task.done_at, task.lease_expires_at = utcnow(), None
+    add_comment(session, task, payload["_author"], "system", payload["body"])
+
+
+def _gate_back(session, task, actor, payload):
+    """Rejected or failed: the run task waits for a repaired script. The commit is cleared, so the runner does not
+    run the same script again; setting new run fields (`tbr update`/API `run`) makes it claimable."""
+    _gate_result(task, payload)
+    task.run_commit_sha, task.lease_expires_at = None, None
+    add_comment(session, task, payload["_author"], "system", payload["body"])
+    event = payload.get("_event")  # `gate_failed` when the checks sent it back; a human decision tells nobody
+    return (lambda: _notify(session, task, event)) if event else None
+
+
 def _submit(session, task, actor, payload):
+    if task.task_kind in ("run", "profile"):
+        return _runner_submit(session, task, actor, payload)
     branch = _require_text(payload, "branch_name", "branch_name")
     sha = _require_text(payload, "commit_sha", "commit_sha").lower()
     summary = _require_text(payload, "summary", "summary")
@@ -220,6 +271,8 @@ def _submit(session, task, actor, payload):
         raise Unprocessable(_( 'Project has no Gitea repository' ), code="no_repo")
     if branch == project.default_branch:
         raise Unprocessable(_("Submitting directly to '%(branch)s' is not allowed", branch=branch), code="invalid_branch")
+    from app.services.workflows.contracts import prepare_submit_outputs, store_submit_outputs
+    declared_outputs = prepare_submit_outputs(session, task, payload.get("outputs"), commit=sha)
     client = settings_store.gitea_client(session)
     o, r = project.gitea_owner, project.gitea_repo
     link = task_link(session, task)
@@ -241,6 +294,7 @@ def _submit(session, task, actor, payload):
     task.branch_name, task.result_commit_sha, task.result_summary = branch, sha, summary
     task.open_points = json.dumps(points, ensure_ascii=False) if points else None
     task.submitted_at, task.lease_expires_at = utcnow(), None
+    store_submit_outputs(session, task, declared_outputs, open_points=points, status="for_review")
     from app.services import reviews
 
     reviews.on_submit(session, task, actor)
@@ -274,6 +328,18 @@ def _points_md(points: list[str]) -> str:
 
 
 def _approve(session, task, actor, payload):
+    if task.task_kind == "profile" and _profile_decision(session, task, actor, payload, "released"):
+        task.done_at = utcnow()
+        return
+    if task.task_kind in ("run", "profile"):
+        # Approving a runner result releases data from zone R – only the output gate may do that (DZ 8).
+        raise Conflict(_("Runner results are released in the output gate, not by approving the task"),
+                       code="output_gate_required")
+    if task.task_kind == "approval":
+        if (payload.get("body") or "").strip():
+            add_comment(session, task, actor, "review", payload["body"].strip())
+        task.done_at = utcnow()
+        return
     project = _project(session, task)
     if not (task.pr_number and project.gitea_repo):
         raise Conflict(_( 'No pull request available to merge' ), code="no_pull_request")
@@ -294,9 +360,11 @@ def _approve(session, task, actor, payload):
         who = session.get(Actor, task.assigned_to).name if task.assigned_to else _( 'the agent' )
         raise Conflict(_("brain-changes for %(task_nr)s no longer apply to %(path)s on %(branch)s: %(issues)s – no merge performed; task remains in review. Use ‘Return conflict’ to send instructions to %(assignee)s.", task_nr=task.task_nr, path=project.brain_path, branch=project.default_branch, issues="; ".join(brain_issues), assignee=who), code="brain_conflict")
     try:
-        settings_store.gitea_client(session).merge_pull(
+        task.merge_commit_sha = settings_store.gitea_client(session).merge_pull(
             project.gitea_owner, project.gitea_repo, task.pr_number, style,
             title=f"[{task.task_nr}] {task.title} (#{task.pr_number})")
+        from app.services.workflows.contracts import finalize_approved_outputs
+        finalize_approved_outputs(session, task)
     except GiteaError as e:
         files = merge_conflicts(session, task)
         _notify(session, task, "conflict", _("Merge conflict with %(branch)s", branch=project.default_branch)
@@ -339,6 +407,10 @@ def task_comment_body(session: Session, task: Task) -> str | None:
 
 
 def _reject(session, task, actor, payload):
+    if task.task_kind == "run" or (
+            task.task_kind == "profile" and not _profile_decision(session, task, actor, payload, "rejected")):
+        raise Conflict(_("Runner results are rejected in the output gate, not in the task review"),
+                       code="output_gate_required")
     add_comment(session, task, actor, "review", _require_text(payload, "body", _( 'Review comment' )))
 
 
@@ -491,6 +563,9 @@ def brain_conflict_instructions(task_nr: str, brain_path: str, base: str, issues
 
 
 def _reject_conflict(session, task, actor, payload):
+    if task.task_kind in ("run", "profile"):
+        raise Conflict(_("Runner results are rejected in the output gate, not in the task review"),
+                       code="output_gate_required")
     project = _project(session, task)
     base = project.default_branch
     files = merge_conflicts(session, task)
@@ -537,6 +612,12 @@ def require_definition(task: Task) -> None:
     """Publish as 'defined' only with a description and acceptance criteria so agents know the goal."""
     labels = {"description": _( 'Description' ), "acceptance_criteria": _( 'Acceptance criteria' )}
     missing = [labels[f] for f in missing_definition(task)]
+    from app.services import runner_jobs
+
+    if runner_jobs.missing_run_fields(task):
+        raise Unprocessable(_("%(task_nr)s: a run task needs the script commit, the script path and the input dataset "
+                              "before it is set to ‘Defined’.", task_nr=task.task_nr or "Task"),
+                            code="run_fields_incomplete")
     if missing:
         raise Unprocessable(_("%(task_nr)s: %(fields)s missing – add them before setting the task to ‘Defined’.",
                               task_nr=task.task_nr or "Task", fields=_(" and ").join(missing)),
@@ -557,7 +638,18 @@ def _to_draft(session, task, actor, payload):
 EFFECTS = {"claim": _claim, "ask": _ask, "answer": _answer, "release": _release, "lease_expired": _lease_expired,
            "cancel": _cancel, "submit": _submit, "approve": _approve, "reject": _reject,
            "reject_conflict": _reject_conflict, "abort": _abort,
-           "reopen": _reopen, "publish": _publish, "to_draft": _to_draft}
+           "reopen": _reopen, "publish": _publish, "to_draft": _to_draft,
+           "gate_release": _gate_done, "gate_keep": _gate_done, "gate_reject": _gate_back, "gate_return": _gate_back}
+
+
+def _profile_decision(session, task, actor, payload, status):
+    from app.models import Dataset, DatasetProfile
+    from app.services import datasets
+    row = (payload or {}).get("_dataset_profile")
+    if not isinstance(row, DatasetProfile) or row.task_id != task.id or row.status != status:
+        return False
+    ds = session.get(Dataset, row.dataset_id)
+    return datasets.can_upload(session, _project(session, task), actor) and ds.project_id == task.project_id
 
 
 def transition(session: Session, task: Task, action: str, actor: Actor | None, payload: dict | None = None) -> Task:
@@ -568,7 +660,21 @@ def transition(session: Session, task: Task, action: str, actor: Actor | None, p
     from app.services import reviews
 
     check_allowed(rule, task, actor, _project(session, task).owner_id,
-                  rule.who == "reviewer" and reviews.may_review(session, task, actor))
+                  rule.who == "reviewer" and (reviews.may_review(session, task, actor) or (
+                      task.task_kind == "profile" and action in ("approve", "reject") and _profile_decision(
+                          session, task, actor, payload, "released" if action == "approve" else "rejected"))))
+    from app.services.workflows import engine as workflows
+
+    workflows.lock_for_task(session, task)
+    if action == "submit" and (payload or {}).get("usage"):
+        from app.services import usage
+
+        run, before = usage.record(session, actor, task, payload["usage"])
+        usage.enforce(session, run, before)
+    if action == "claim":
+        workflows.require_claimable(session, task)
+    if action == "approve":
+        workflows.check_decision(session, task, actor)
     from_status = task.status
     after = EFFECTS[action](session, task, actor, payload or {})
     if rule.who == "reviewer":
@@ -581,7 +687,15 @@ def transition(session: Session, task: Task, action: str, actor: Actor | None, p
     add_event(session, task, actor, "lease_expired" if action == "lease_expired" else "status_change",
               from_status, rule.target, None if action in ("claim", "lease_expired") else action)
     session.flush()
-    if callable(after):
+    workflows.on_task_transition(session, task, action, actor, payload)
+    from app.services import data_refs
+
+    data_refs.on_transition(session, task, action, actor, payload)  # Follow-up drafts of a chain across zones
+    if action == "approve" or task.status == "cancelled":
+        from app.services import result_mail
+
+        result_mail.on_task_status(session, task, actor, action)  # `on_approve` mails; cancel rejects pending ones
+    if callable(after) and not (action == "submit" and task.status == "done"):
         after()
     if rule.target in END_STATUSES:
         notifications.sprint_done_check(session, task)
@@ -606,6 +720,11 @@ def transition_to(session: Session, task: Task, to_status: str, actor: Actor, co
     if task.status == "draft" and to_status == "defined":
         require_definition(task)  # Also applies to overrides.
     from_status = task.status
+    from app.services.workflows import engine as workflows
+
+    workflows.lock_for_task(session, task)
+    if to_status == "done":
+        workflows.check_decision(session, task, actor)
     if comment and comment.strip():
         add_comment(session, task, actor, "comment", comment.strip())
     if from_status == "for_review":
@@ -621,9 +740,42 @@ def transition_to(session: Session, task: Task, to_status: str, actor: Actor, co
     task.row_version += 1
     add_event(session, task, actor, "status_change", from_status, to_status, "manual override")
     session.flush()
+    workflows.on_task_transition(session, task, "override", actor, {"body": comment})
+    if to_status == "cancelled":
+        from app.services import result_mail
+
+        result_mail.on_task_status(session, task, actor, "override")
     if to_status in END_STATUSES:
         notifications.sprint_done_check(session, task)
     return task
+
+
+def workflow_status(session: Session, task: Task, status: str, note: str, actor: Actor | None = None) -> None:
+    """Internal workflow transition, under the run lock; never exposed as a public action.
+
+    Runs may reopen a completed agent task for rework, and cancel their own tasks regardless of the human's
+    task-manager role. Keep these exceptions here so leases, comments and status history stay consistent.
+    """
+    local_profile_done = status == "done" and task.task_kind == "profile" and task.status == "for_review"
+    if not task.workflow_run_step_id or (status not in ("changes_requested", "cancelled", "defined")
+                                         and not local_profile_done):
+        raise InvalidTransition(_("Invalid internal workflow transition"))
+    previous = task.status
+    if local_profile_done:
+        task.done_at = utcnow()
+    if status == "changes_requested" and previous == "done":
+        # Rework after a workflow approval is new work after a merged PR. Keeping pr_number would make
+        # _submit comment on the already merged PR, and approve could recover that old merge SHA.
+        task.pr_number = task.pr_url = None
+        task.result_commit_sha = task.merge_commit_sha = task.result_summary = task.open_points = None
+        task.submitted_at = task.done_at = None
+    task.status, task.lease_expires_at = status, None
+    task.review_claimed_at = task.review_lease_expires_at = None
+    task.clear_waiting()
+    task.row_version += 1
+    add_event(session, task, actor, "status_change", previous, status, "workflow")
+    add_comment(session, task, actor or session.get(Actor, task.created_by), "system", note)
+    session.flush()
 
 
 REASSIGN_RESETS = frozenset({"in_progress", "questions", "aborted", "for_review", "changes_requested"})
@@ -636,6 +788,9 @@ def reassign_resets_status(task: Task) -> bool:
 def reset_for_reassignment(session: Session, task: Task, actor: Actor, new_assignee: str | None) -> None:
     """Reassign an active/aborted task through a human admin: reset to 'defined' and end the old
     agent's lease; preserve the branch, PR, and thread for the new agent."""
+    from app.services.workflows import engine as workflows
+
+    workflows.lock_for_task(session, task)
     from_status = task.status
     task.status = "defined"
     task.lease_expires_at = None
@@ -643,3 +798,4 @@ def reset_for_reassignment(session: Session, task: Task, actor: Actor, new_assig
     task.review_claimed_at = task.review_lease_expires_at = None
     add_event(session, task, actor, "status_change", from_status, "defined",
               _("reassigned to %(assignee)s", assignee=new_assignee or _("nobody")))
+    workflows.on_task_transition(session, task, "reassign", actor)

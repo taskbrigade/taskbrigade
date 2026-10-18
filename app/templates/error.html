@@ -1,8 +1,14 @@
 {% extends "base.html" %}
+{% block title %}{{ _("Error") }} – TaskBrigade{% endblock %}
 {% block content %}
-<article>
-  <header><strong>{{ _("Error") }}</strong></header>
-  <p class="banner error">{{ message }}</p>
-  <a href="javascript:history.back()">{{ _("Back") }}</a>
-</article>
+<div class="ui-page ui-auth">
+  <section class="ui-card ui-auth-card" aria-labelledby="error-title">
+    <h1 class="ui-page-title" id="error-title">{{ _("Error") }}</h1>
+    <p class="banner error" role="alert">{{ message }}</p>
+    <div class="ui-row">
+      <a class="ui-btn ui-btn-secondary" href="javascript:history.back()">{{ _("Back") }}</a>
+      <a class="ui-btn" href="/">{{ _("Inbox") }}</a>
+    </div>
+  </section>
+</div>
 {% endblock %}

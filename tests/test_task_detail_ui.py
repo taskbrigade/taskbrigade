@@ -19,19 +19,19 @@ def test_editor_order_and_read_only_project_and_status(env, ui):  # noqa: F811
     mkproject(env)
     nr = mktask(env, status="draft")["task_nr"]
     html = ui.get(f"/tasks/{nr}").text
-    assert 'class="tinted"' in html and "Task bearbeiten" in html and 'aria-label="Brotkrumennavigation"' in html
+    assert 'class="app-main"' in html and "Task bearbeiten" in html and 'aria-label="Brotkrumennavigation"' in html
     form = _edit_form(html)
     # Project and status first (shown, not editable), then title, description, criteria, then planning.
     marks = ['readonly class="static-field"', 'name="title"', 'name="description"', 'name="acceptance_criteria"',
              "Planung & Zuständigkeit", 'name="prio"', 'name="assigned_to"', 'name="due_date"', 'name="reviewer"',
-             "Modell & Ausführung", "Verknüpfungen", "Änderungen verwerfen", "Änderungen speichern"]
+             "Modell & Ausführung", "Verknüpfungen", "Abbrechen", "Änderungen speichern"]
     positions = [form.index(m) for m in marks]
     assert positions == sorted(positions), list(zip(marks, positions))
     assert 'name="project"' not in form and 'name="status"' not in form  # No new way to move or re-status a task.
     assert form.count('readonly class="static-field"') == 2 and "Projekt KET" in form and "Entwurf" in form
     # Markdown fields with "Edit / Preview" tabs (same partial as the new-task form).
     assert 'id="md-description-preview-tab"' in form and 'id="md-acceptance_criteria-preview-tab"' in form
-    # "Discard changes" only reloads the stored task; cancelling the task stays a separate, confirmed action.
+    # "Cancel" only reloads the stored task; cancelling the task stays a separate, confirmed action.
     assert f'<a href="/tasks/{nr}" role="button" class="secondary outline" data-discard>' in form
     assert 'value="cancel"' not in form and 'value="cancel"' in html
     # Draft: parent and dependencies are editable, with the structure marker.
@@ -46,7 +46,7 @@ def test_comment_and_edit_are_separate_forms(env, ui):  # noqa: F811
     assert f'action="/tasks/{nr}/comment"' not in form and 'name="body"' not in form
     discussion = html.split('id="discussion-heading"', 1)[1]
     assert f'action="/tasks/{nr}/comment"' in discussion.split("</form>", 1)[0]
-    assert "Historie" in discussion and "Eintr" in discussion  # Folded history below the thread.
+    assert "Historie" in discussion and "Eintr" in discussion  # History tab follows the thread.
     # Released task: links are read-only (structure marker missing → server keeps them).
     assert 'name="structure"' not in form and "nur im Entwurf ändern" in form
 
@@ -110,12 +110,31 @@ def test_running_task_keeps_assignee_for_managers_without_reassign_right(env, ui
     assert (t["title"], t["assigned_to"], t["status"]) == ("Umbenannt", "claude-code", "in_progress")
 
 
+def test_read_view_counts_criteria_and_edit_save_bumps_version(env, ui):  # noqa: F811
+    mkproject(env)
+    nr = mktask(env, status="draft", description="See **this**.",
+                acceptance_criteria="- [x] one\n- [ ] two\n- [x] <script>alert(1)</script> **fett**")["task_nr"]
+    html = ui.get(f"/tasks/{nr}").text
+    assert 'id="edit" class="collapsible">' in html  # Read view first; Edit opens the form.
+    assert "<strong>this</strong>" in html and "2 / 3 erfüllt" in html
+    criteria = html.split('class="criteria-list"', 1)[1].split("</ul>", 1)[0]
+    assert "<script>" not in criteria and "alert(1)" in criteria and "<strong>fett</strong>" in criteria
+    rv = int(re.search(r'name="row_version" value="(\d+)"', html)[1])
+    r = post(ui, f"/tasks/{nr}/edit", row_version=str(rv), title="Gespeichert", prio="4",
+             description="See **this**.", acceptance_criteria="- [x] one", due_date="")
+    assert "Gespeichert" in r.text, r.text[:1500]
+    t = env["c"].get(f"/api/v1/tasks/{nr}", headers=env["admin"]).json()
+    assert (t["title"], t["prio"], t["row_version"]) == ("Gespeichert", 4, rv + 1)
+    assert "1 / 1 erfüllt" in r.text
+
+
 def test_detail_in_english(env, ui):  # noqa: F811
     mkproject(env)
     nr = mktask(env, status="draft", description="")["task_nr"]
     ui.cookies.set("tm_lang", "en")
     html = ui.get(f"/tasks/{nr}").text
-    for text in ("Edit task", "Planning & assignment", "Model & execution", "Task links", "Discard changes",
+    for text in ("Edit task", "Planning & assignment", "Model & execution", "Task links", "Cancel",
                  "Save changes", "Not ready for release yet", "Add a description", "Discussion", "History",
-                 "Project & links", "More actions", "Duplicate", "Create follow-up task"):
+                 "Project & links", "More actions", "Duplicate", "Create follow-up task", "Properties",
+                 "Activity", "Attachments"):
         assert text in html, text

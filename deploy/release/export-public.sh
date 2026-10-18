@@ -15,7 +15,10 @@ EOF
 # Globs relative to the repository root; no whitespace inside a glob (matched names may contain it).
 EXCLUDED_PATHS=(
   research
+  Marketing
+  Produktvideo
   docs/naming
+  docs/ui-redesign
   media
   'mediaassets/ChatGPT-Bild*.png'
   tasks
@@ -106,10 +109,10 @@ import sys
 root = pathlib.Path(sys.argv[1])
 patterns_file = sys.argv[2]
 # Documented example ranges: loopback, the example LAN 192.168.1.0/24, 10.0.0.0/24, the Docker default
-# bridge and the pinned Compose/smoke-test subnets. Netmasks such as 255.255.255.0 are not addresses.
+# bridge and the pinned Compose/smoke-test subnets (incl. their runner networks). Netmasks such as 255.255.255.0 are not addresses.
 known_networks = [ipaddress.ip_network(n) for n in (
     "0.0.0.0/32", "127.0.0.0/8", "192.168.1.0/24", "10.0.0.0/24", "172.17.0.0/16",
-    "172.31.250.0/24", "172.31.251.0/24", "255.0.0.0/8",
+    "172.31.250.0/24", "172.31.251.0/24", "172.31.252.0/24", "172.31.253.0/24", "255.0.0.0/8",
 )]
 # Example hosts; `settings.local` is the Claude Code file name `.claude/settings.local.json`.
 known_host_suffixes = (".example.internal", ".example.ts.net")

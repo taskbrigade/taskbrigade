@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Diff") }} – {{ template.name }} – TaskBrigade{% endblock %}
+{% block content %}
+{% set label_old = ("v" ~ old.version ~ (" (" ~ _("draft") ~ ")" if old.state == "draft" else "")) if old else _("nothing") %}
+{% set label_new = "v" ~ new.version ~ (" (" ~ _("draft") ~ ")" if new.state == "draft" else "") %}
+<div class="headline"><h2>{{ template.name }}: {{ label_old }} → {{ label_new }}</h2><a href="{{ base }}" role="button" class="small secondary">{{ _("Back") }}</a></div>
+{% include "_workflow_tabs.html" %}
+<form method="get" action="{{ base }}/diff" class="filters" onchange="this.submit()">
+  <label>{{ _("From") }} <select name="base">{% for c in choices %}<option value="{{ c }}"{% if old and (c == 'draft' and old.state == 'draft' or c == old.version | string and old.state != 'draft') %} selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+  <label>{{ _("To") }} <select name="target">{% for c in choices %}<option value="{{ c }}"{% if c == 'draft' and new.state == 'draft' or c == new.version | string and new.state != 'draft' %} selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+  <noscript><button type="submit" class="small secondary">{{ _("Compare") }}</button></noscript>
+</form>
+{% if rows %}
+<pre class="wf-diff" aria-label="{{ _('Changes') }}">{% for r in rows %}<span class="wf-diff-{{ r.kind }}">{% if r.kind == "add" %}<span aria-hidden="true">+ </span><span class="visually-hidden">{{ _("added:") }} </span>{% elif r.kind == "del" %}<span aria-hidden="true">− </span><span class="visually-hidden">{{ _("removed:") }} </span>{% elif r.kind == "ctx" %}  {% endif %}{{ r.text }}</span>{% endfor %}</pre>
+{% else %}<p class="muted">{{ _("No differences.") }}</p>{% endif %}
+{% endblock %}

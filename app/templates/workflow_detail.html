@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ template.name }} – {{ _("Workflows") }} – TaskBrigade{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ template.name }} <small class="muted"><code>{{ template.project.project_key }}/{{ template.workflow_key }}</code></small></h2>
+  <span class="headline-actions">
+    <a href="{{ base }}/runs" role="button" class="small secondary">{{ _("Run history") }}</a>
+    <a href="{{ base }}/triggers" role="button" class="small secondary">{{ _("Event triggers") }}</a>
+    {% if info %}<a href="{{ base }}/export{{ '?version=' ~ selected.version if selected and selected.state != 'draft' else '' }}" role="button" class="small secondary">{{ _("Export YAML") }}</a>{% endif %}
+    {% if can_edit %}<a href="{{ base }}/edit" role="button" class="small">{{ _("Edit draft") if draft else _("Edit") }}</a>{% endif %}
+  </span></div>
+{% include "_workflow_tabs.html" %}
+{% if request.query_params.msg %}<p class="banner ok" role="status">{{ request.query_params.msg }}</p>{% endif %}
+{% if request.query_params.err %}<p class="banner error" role="alert">{{ request.query_params.err }}</p>{% endif %}
+{% if template.description and info and info.description != "***" %}<div class="md">{{ template.description | markdown }}</div>{% endif %}
+
+<div class="detail-grid">
+<div class="detail-main">
+  {% if info %}
+  <section class="form-card" aria-labelledby="wf-def">
+    <h3 id="wf-def">{% if selected.state == "draft" %}{{ _("Draft v%(version)s", version=selected.version) }}{% else %}{{ _("Version %(version)s", version=selected.version) }}{% endif %}
+      {% if selected.id == template.current_version_id %} <span class="badge st-done">{{ _("current") }}</span>{% endif %}</h3>
+    {% if info.params %}
+    <h4>{{ _("Parameters") }}</h4>
+    <ul class="plain">{% for p in info.params %}<li><code>{{ p.name }}</code> · {{ p.type }}{% if p.required %} · {{ _("required") }}{% endif %}{% if p.default %} · {{ _("default") }} <code>{{ p.default }}</code>{% endif %}{% if p.label and p.label != "***" %} – {{ p.label }}{% endif %}</li>{% endfor %}</ul>
+    {% endif %}
+    <h4>{{ _("Steps") }}</h4>
+    <ol class="wf-steps-read">
+      {% for st in info.steps %}
+      <li><strong>{{ st.key }}</strong> <span class="badge wf-type">{{ wf_type_label(st.type) }}</span>
+        {% with cls=st.data_class or template.project.privacy, compact=True, inherited=not st.data_class %}{% include "_data_class.html" %}{% endwith %}
+        {% if st.role %}<small>{{ _("role %(role)s", role=st.role) }}</small>{% endif %}
+        {% if st.type in ("agent", "script", "approval") %}<small class="muted">· {{ _("review: %(mode)s", mode=wf_review_label(st.review)) }}</small>{% endif %}
+        {% if st.masked %}<div class="muted"><small>{{ _("Content hidden: data class not readable for you.") }}</small></div>
+        {% else %}<div>{{ st.title }}</div>{% endif %}
+        {% if st.type == "script" and can_edit and not st.masked %}
+        <form method="post" action="{{ base }}/scripts/{{ st.key }}/recreate">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button type="submit" class="small secondary">{{ _("Recreate script") }}</button>
+        </form>
+        {% endif %}
+      </li>
+      {% else %}<li class="muted">{{ _("No steps yet.") }}</li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% else %}
+  <p class="banner warn">{{ _("This workflow has no published version yet.") }}{% if can_edit %} <a href="{{ base }}/edit">{{ _("Open the editor") }}</a>{% endif %}</p>
+  {% endif %}
+
+  {% if can_start %}
+  <section class="form-card" aria-labelledby="wf-start">
+    <h3 id="wf-start">{{ _("Start a run") }}</h3>
+    <form method="post" action="{{ base }}/start">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      {% for p in start_params %}
+      <label>{{ p.label if p.label and p.label != "***" else p.name }} <small class="muted"><code>{{ p.name }}</code> · {{ p.type }}</small>
+        {% if p.type == "bool" %}<select name="param_{{ p.name }}"><option value="">{{ _("default") }}</option><option value="true">{{ _("yes") }}</option><option value="false">{{ _("no") }}</option></select>
+        {% elif p.type == "enum" and p["values"] and p["values"] != "***" %}<select name="param_{{ p.name }}"><option value="">{{ _("default") }}</option>{% for v in p["values"] %}<option>{{ v }}</option>{% endfor %}</select>
+        {% else %}<input name="param_{{ p.name }}" {% if p.type == "date" %}type="date"{% elif p.type == "month" %}type="month"{% elif p.type == "int" %}type="number"{% endif %} placeholder="{{ p.default if p.default and p.default != '***' else '' }}"{% if p.required and not p.default %} required{% endif %}>{% endif %}
+      </label>
+      {% endfor %}
+      <button type="submit">{{ _("Start run") }}</button>
+      <small class="muted">{{ _("Empty fields use the default. Tasks of the run appear on the Kanban board only with the filter “With workflow tasks”.") }}</small>
+    </form>
+  </section>
+  {% endif %}
+</div>
+<aside class="detail-side">
+  <section class="form-card" aria-labelledby="wf-versions">
+    <h3 id="wf-versions">{{ _("Versions") }}</h3>
+    <ul class="plain wf-versions">
+      {% for v in versions if v.version.state != "draft" or can_edit %}
+      <li><a href="{{ base }}?version={{ 'draft' if v.version.state == 'draft' else v.version.version }}">v{{ v.version.version }}</a>
+        {% if v.version.state == "draft" %}<span class="badge st-draft">{{ _("draft") }}</span>{% elif v.current %}<span class="badge st-done">{{ _("current") }}</span>{% endif %}
+        <small class="muted">{% if v.version.published_at %}{{ v.version.published_at | localtime("short") }}{% if v.publisher %} · {{ v.publisher }}{% endif %}{% endif %}{% if v.runs %} · {{ ngettext("%(num)d run", "%(num)d runs", v.runs) }}{% endif %}</small>
+        {% if v.version.change_note %}<div><small>{{ v.version.change_note }}</small></div>{% endif %}
+        {% if not loop.last %}<a class="small" href="{{ base }}/diff?target={{ 'draft' if v.version.state == 'draft' else v.version.version }}">{{ _("Diff") }}</a>{% endif %}
+      </li>
+      {% else %}<li class="muted">{{ _("No versions yet.") }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="form-card" aria-labelledby="wf-recent">
+    <h3 id="wf-recent">{{ _("Last runs") }}</h3>
+    <ul class="plain">{% for run in recent %}<li><a href="/workflow-runs/{{ run.id }}">#{{ run.run_seq }}</a> <span class="badge wf-run-{{ run.status }}">{{ run_status_label(run.status) }}</span> <small class="muted">v{{ run.version.version }} · {{ (run.started_at or run.created_at) | localtime("short") }}</small></li>
+      {% else %}<li class="muted">{{ _("no runs yet") }}</li>{% endfor %}</ul>
+    <a href="{{ base }}/runs" class="small">{{ _("Run history") }}</a>
+  </section>
+</aside>
+</div>
+{% endblock %}

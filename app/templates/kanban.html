@@ -1,14 +1,37 @@
 {% extends "base.html" %}
-{% block title %}Kanban – TaskBrigade{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Kanban") }} – TaskBrigade{% endblock %}
 {% block head %}<script src="/static/vendor/Sortable.min.js" defer></script><script src="/static/kanban.js?v={{ static_v }}" defer></script>{% endblock %}
 {% block content %}
-{# Layout by width (app.css): from 1024 px all columns side by side; 600–1023 px (e.g. a phone in landscape) the
-   board alone scrolls sideways with ~240 px columns; below 600 px one column with the "Status column" picker.
-   The picker only changes the view, never a task's status; its choice stays in the URL (`col`). #}
-<div class="headline"><h2>{{ _("Kanban") }}</h2><a href="/tasks/new" role="button" class="small">{{ _("New task") }}</a></div>
-<form class="filters" method="get" action="/kanban" onchange="this.submit()">
+{% macro col_label(col) %}{{ _(col.label) if col.label else status_label(col.drop) }}{% endmacro %}
+{% macro col_count(col) %}{% if col.key == "done" %}{{ done_total }}{% if done_total != done_all %} {{ _("of %(num)d", num=done_all) }}{% endif %}{% else %}{{ col.cards | length }}{% endif %}{% endmacro %}
+{# Board: always all 7 columns, equal width, min width 1260 px with horizontal scroll on smaller screens; the grey
+   column backgrounds stretch to the tallest column. Phones (< 640 px) scroll with snap, one column ≈ 85 % of the
+   viewport, and the sticky status tabs jump to a column. "Swimlanes by agent" renders one such board per assignee. #}
+{% macro render_board(cols, swimlane) %}
+<div class="kanban kanban-board{% if swimlane is defined %} kanban-swimlane{% endif %}" style="--cols: {{ cols | length }}"
+     data-admin="{{ '1' if can_drag else '0' }}"{% if swimlane is defined %} data-swimlane="{{ swimlane }}"{% endif %}
+     aria-label="{{ _('Kanban') }}">
+  {% for col in cols %}
+  <section class="kanban-col" data-column="{{ col.key }}"{% if swimlane is not defined and col.key == active_col %} data-current{% endif %}>
+    <header class="kanban-col-head">
+      <span class="badge st-{{ col.statuses[-1] }}">{{ col_label(col) }}</span>
+      <span class="count"{% if col.key == "done" %} title="{{ _('Done tasks in this period / all done tasks matching the filters') }}"{% endif %}>{{ col_count(col) }}</span>
+    </header>
+    <div class="kanban-list" data-status="{{ col.drop }}" data-label="{{ status_label(col.drop) }}">
+      {% for t in col.cards %}{% include "_card.html" %}{% else %}<p class="kanban-empty muted"><small>{{ _("No tasks") }}</small></p>{% endfor %}
+    </div>
+    {% if col.key == "draft" %}<a class="kanban-add" href="{{ draft_add_url }}">{{ _("+ Add task") }}</a>{% endif %}
+    {% if col.key == "done" and done_all %}<a class="kanban-show-all" href="{{ done_backlog_url }}">{{ _("Show all %(num)d in Backlog", num=done_all) }}</a>{% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% endmacro %}
+{% call ui.page_header(_("Kanban")) %}<a href="/tasks/new" role="button" class="small">{{ _("+ New task") }}</a>{% endcall %}
+<form class="filters kanban-filters" method="get" action="/kanban" onchange="this.submit()">
+  <input type="search" name="q" value="{{ q or '' }}" placeholder="{{ _('Filter cards …') }}" aria-label="{{ _('Search') }}">
   <button type="button" class="secondary filter-toggle" aria-expanded="false" aria-controls="kanban-more" data-toggle>{{ _("Filters") }}{% if active_filters %} <span class="count">{{ active_filters }}</span>{% endif %}</button>
-  {% if active_filters %}<a href="/kanban?col={{ active_col }}" class="small filter-reset">{{ _("Reset filters") }}</a>{% endif %}
+  {% if active_filters %}<a href="/kanban?col={{ active_col }}&amp;workflow=hide" class="small filter-reset">{{ _("Reset filters") }}</a>{% endif %}
   <div id="kanban-more" class="filter-more collapsible">
   {% include "_owner_filter.html" %}
   <select name="project" aria-label="{{ _('Project') }}">
@@ -21,29 +44,35 @@
     <option value="none" {% if agent == "none" %}selected{% endif %}>{{ _("not assigned") }}</option>
     {% for a in agents %}<option {% if agent == a %}selected{% endif %}>{{ a }}</option>{% endfor %}
   </select>
+  {% include "_workflow_filter.html" %}
   <select name="done" aria-label="{{ _('Done') }}" title="{{ _('Show done tasks from this period (remembered)') }}">
     {% for key, label in done_ranges.items() %}<option value="{{ key }}" {% if done_range == key %}selected{% endif %}>{{ _("Done: %(range)s", range=_(label)) }}</option>{% endfor %}
   </select>
   </div>
+  <div class="ui-seg" role="group" aria-label="{{ _('Board view') }}">
+    <button type="button" data-kanban-view="board" aria-pressed="{{ 'true' if view == 'board' else 'false' }}">{{ _("Board") }}</button>
+    <button type="button" data-kanban-view="swimlanes" aria-pressed="{{ 'true' if view == 'swimlanes' else 'false' }}">{{ _("Swimlanes by agent") }}</button>
+  </div>
   <input type="hidden" name="col" value="{{ active_col }}">
+  <input type="hidden" name="view" value="{{ view }}">
 </form>
 {% include "_owner_hint.html" %}
 <p id="kanban-msg" role="status" aria-live="polite" tabindex="-1"></p>
-<div class="kanban-picker">
-  <label for="kanban-col-picker">{{ _("Status column") }}</label>
-  <select id="kanban-col-picker">
-    {% for col in columns %}<option value="{{ col.key }}" data-label="{{ _(col.label) if col.label else status_label(col.drop) }}" {% if col.key == active_col %}selected{% endif %}>{{ _(col.label) if col.label else status_label(col.drop) }} ({{ done_total if col.key == "done" else col.cards | length }})</option>{% endfor %}
-  </select>
-</div>
-<div class="kanban" style="--cols: {{ columns | length }}" data-admin="{{ '1' if can_drag else '0' }}" aria-label="{{ _('Kanban') }}">
-  {% for col in columns %}
-  <section class="kanban-col" data-column="{{ col.key }}"{% if col.key == active_col %} data-current{% endif %}>
-    <h4><span class="badge st-{{ col.statuses[-1] }}">{{ _(col.label) if col.label else status_label(col.drop) }}</span> {% if col.key == "done" %}<small title="{{ _('Done tasks in this period / all done tasks matching the filters') }}">({{ done_total }}{% if done_total != done_all %} {{ _("of %(num)d", num=done_all) }}{% endif %})</small>{% else %}<small>({{ col.cards | length }})</small>{% endif %}</h4>
-    {% if col.key == "done" and done_total > col.cards | length %}<p class="kanban-hint"><small>{{ _("The newest %(num)d –", num=col.cards | length) }} <a href="{{ done_backlog_url }}">{{ _("older ones in the backlog with status filter Done") }}</a></small></p>{% endif %}
-    <div class="kanban-list" data-status="{{ col.drop }}" data-label="{{ status_label(col.drop) }}">
-      {% for t in col.cards %}{% include "_card.html" %}{% else %}<p class="kanban-empty muted"><small>{{ _("No tasks") }}</small></p>{% endfor %}
+{# Phone: sticky status tabs with counts jump to a column (static/kanban.js). Board view only. #}
+{% if not swimlanes %}<nav class="kanban-tabs" aria-label="{{ _('Status columns') }}">
+  {% for col in columns %}<button type="button" data-column="{{ col.key }}"{% if col.key == active_col %} aria-current="true"{% endif %}><span class="badge st-{{ col.statuses[-1] }}">{{ col_label(col) }}</span><span class="count">{{ done_total if col.key == "done" else col.cards | length }}</span></button>{% endfor %}
+</nav>{% endif %}
+<div class="kanban-scroll">
+  {% if swimlanes %}
+    {% for lane in swimlanes %}
+    <div class="kanban-swimlane-row">
+      <div class="kanban-swimlane-label">{% if lane.name %}<span class="agent">{{ lane.name }}</span>{% else %}<span class="agent none">{{ _("not assigned") }}</span>{% endif %}</div>
+      {{ render_board(lane.columns, lane.name or "none") }}
     </div>
-  </section>
-  {% endfor %}
+    {% endfor %}
+  {% else %}
+    {{ render_board(columns) }}
+  {% endif %}
 </div>
+{% include "_workflow_hidden_hint.html" %}
 {% endblock %}

@@ -9,5 +9,6 @@
 !cli/
 !migrations/
 !deploy/agents/
+!deploy/runner-requirements.txt
 **/__pycache__
 **/*.pyc

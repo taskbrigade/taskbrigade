@@ -37,7 +37,7 @@ The steps below explain what `tbr setup` does and the manual way.
 - Tools: `list_tasks`, `start_task`, `show_task`, `show_changes`, `submit_task`, `ask`, `abort_task`,
   `release_task`, `comment` – and for creating and managing tasks `list_projects`, `list_agents`, `create_task`,
   `update_task`, `cancel_task`, `reset_task`, `duplicate_task`, and for sprints `list_sprints`, `show_sprint`, `create_sprint`,
-  `add_sprint_tasks`, `release_sprint`, `close_sprint` (plus the `sprint` parameter of `create_task`/`update_task`),
+  `update_sprint`, `add_sprint_tasks`, `release_sprint`, `close_sprint`, `reopen_sprint` (plus the `sprint` parameter of `create_task`/`update_task`),
   and for attachments `attach_files`, `attach_text` (plus the `attachments` parameter of `create_task`).
   The server ships the workflow rules as MCP instructions.
 - While a task is running, the MCP server extends the lease automatically (up to 8 hours).
@@ -205,10 +205,16 @@ exists; it does not expect a `[runner]` or timer then.
   `Title | Agent | Prio | Reviewer`), then `update_task` for each draft. "Release sprint 'Sprint 1'" →
   `release_sprint` – only for admins and the project owner; the app reports which drafts are still missing a description or criteria.
   "Close the sprint and move the open tasks to 'Sprint 2'" → `close_sprint(move_to=…)` or `detach=True`.
+  "Change the sprint goal" / "clear the end date" → `update_sprint` (only the given fields; `"none"` clears a date,
+  an empty goal clears it; the status stays unchanged). "Reopen the sprint" → `reopen_sprint` (admins and the
+  project owner; `restore_tasks=False` leaves the tasks that were moved out where they are).
 - Reviews (the app's agent has the role `reviewer` and is entered as a task's reviewer): `list_tasks` lists the task
   under "Review jobs", `start_task` claims it and returns `REVIEW.md` with a read-only work folder; the app decides
   with `review_task(task_nr, "approve"|"reject"|"conflict"|"release", comment)`. `create_task`/`update_task` take a
   `reviewer` (human or reviewer agent, `"none"` removes it).
+- Dependencies: `create_task`/`update_task` take `depends_on` (list of task numbers or a comma-separated string). The
+  agent can claim the task only once all of them are done. `update_task` replaces the list, `"none"` removes all, and
+  `show_task` lists the dependencies with their status.
 - SFTP storage (when enabled under *Admin → Settings* and the app's agent has an SFTP login): "Put the report on
   the SFTP" → `sftp_put(task_nr, files)` uploads files from the task's work folder into the task's folder on the
   SFTP server, `sftp_ls` lists it. The transfer runs in `tbr mcp` on the Mac – the Cowork VM does not reach the NAS
@@ -221,8 +227,10 @@ exists; it does not expect a `[runner]` or timer then.
 `tbr mcp` reads the files on the desktop machine and uploads them with the same API call as `tbr attach`
 (`POST /api/v1/tasks/{nr}/attachments`); TaskBrigade commits them into the project repository under
 `tasks/<NR>/`. The project needs a Gitea repository, and only the task's creator, its assignee, the project owner,
-orchestrators and admins may attach. If attaching fails after `create_task`, the task stays and the reply names the
-task number and the error – attach again with `attach_files`.
+orchestrators and admins may attach. In a `local_only` project the server refuses spreadsheet and archive files
+(`.xlsx`, `.xls`, `.xlsm`, `.csv`, `.tsv`, `.ods`, `.zip`) with `422 use_dataset_upload` and points at the coming
+data store; `cloud_ok` projects are unchanged. If attaching fails after `create_task`, the task stays and the reply
+names the task number and the error – attach again with `attach_files`.
 
 Because a chat model decides which paths to pass (and a prompt injection could try `~/.ssh/id_ed25519`), the MCP
 server reads files **only from allowed folders**:
@@ -269,5 +277,6 @@ the task is in "Review" in TaskBrigade, and the commit author is `claude-desktop
 
 ## See also
 
+- [Workflow tools](workflows-api.md#mcp) – inspect templates, preview, start and control runs.
 - [CLI agents on a second machine](cli-agents.md) – unattended agents with the runner.
 - [Agent workflow and API](agent-skill.md)

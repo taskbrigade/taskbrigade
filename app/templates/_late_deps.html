@@ -1,0 +1,3 @@
+{# Late dependencies of one task (`sprints.late_dependencies`, `t.waits_for`): number, title and where it is planned. #}
+{% for d in t.waits_for %}<a href="/tasks/{{ d.task_nr }}" title="{{ d.title }}">{{ d.task_nr }}</a>
+  ({% if d.sprint is none %}{{ _("no sprint") }}{% else %}{{ d.sprint_name }}, {{ sprint_status_label(d.sprint_status) }}{% endif %}){% if not loop.last %}, {% endif %}{% endfor %}

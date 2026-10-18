@@ -48,7 +48,11 @@
         <small>{{ _("The human this agent belongs to: it sees the agent in its assignment choices.") }}</small>
       </label>
       <label><input type="checkbox" role="switch" name="is_public" value="1" {% if (a.is_public if a else f.is_public) %}checked{% endif %}> {{ _("Public") }}
-        <small class="field-help">{{ _("Public agents appear in everyone's assignment choices; others only for their owner (and admins with “Show all agents”).") }}</small></label>
+        <small class="field-help">{{ _("Public agents appear in the assignment choices of all members; private ones only for their owner. Admins see only their own agents unless “Show all agents” is on.") }}</small></label>
+    </div>
+    <div class="grid" data-type="agent" {% if type != 'agent' %}hidden{% endif %}>
+      {% set current = a.model_location if a else (f.model_location or "cloud") %}
+      {% include "admin/_model_location.html" %}
     </div>
     <div class="grid">
       <label>{{ _("Lease minutes") }} <input type="number" name="lease_minutes" min="1" max="10080" value="{{ a.lease_minutes if a else (f.lease_minutes or 120) }}"></label>
@@ -120,6 +124,18 @@
       <input type="password" name="password2" autocomplete="new-password" placeholder="{{ _('Repeat') }}" required>
       <button type="submit" class="secondary">{{ _("Set") }}</button>
     </div>
+  </form>
+</article>
+{% endif %}
+
+{% if a.actor_type == "human" %}
+<article id="data-access">
+  <header><strong>{{ _("Data right") }}</strong></header>
+  <form method="post" action="/admin/users/{{ a.name }}/data-access">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label><input type="checkbox" role="switch" name="data_access" value="1" {% if a.data_access %}checked{% endif %}> {{ _("May upload datasets as project member and work on sealed tasks") }}
+      <small class="field-help">{{ _("Admins with the data right may also download raw data in an emergency. Changes are written to the data audit.") }}</small></label>
+    <button type="submit" class="secondary">{{ _("Save") }}</button>
   </form>
 </article>
 {% endif %}

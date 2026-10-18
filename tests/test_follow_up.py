@@ -25,6 +25,7 @@ def test_new_agent_gets_default_limit_two(env):  # noqa: F811
 
 
 def test_limit_visible_and_editable_in_ui(env, ui):  # noqa: F811
+    post(ui, "/profile/display", show_all_agents="1")  # Seeded agents have no owner; an admin sees them only so.
     mkproject(env)
     mktask(env, assigned_to="claude-code")
     claim(env)

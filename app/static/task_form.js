@@ -98,6 +98,17 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    // "+ Link task" opens edit mode on the task-links fold (drafts can change parent and dependencies there).
+    document.querySelectorAll("[data-open-edit]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const tab = document.getElementById("tab-details");
+        if (tab && tab.getAttribute("aria-selected") !== "true") tab.click();
+        const toggle = document.querySelector('[data-toggle][aria-controls="edit"]');
+        if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+        const fold = document.getElementById(el.getAttribute("data-open-edit"));
+        if (fold) { fold.open = true; fold.scrollIntoView({block: "nearest"}); }
+      });
+    });
     const form = document.getElementById("new-task-form") || document.getElementById("edit");
     if (!form) return;
     init(form);

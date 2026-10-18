@@ -383,6 +383,10 @@ def server(respx_mock, monkeypatch):
         respx_mock.get(f"{GITEA}/api/v1/user").mock(return_value=httpx.Response(200, json={"login": me["name"]}))
         respx_mock.get(f"{API}/agents/me/sftp").mock(return_value=httpx.Response(404, json={
             "error": {"code": "sftp_disabled", "message": "SFTP storage is not enabled"}}))
+        respx_mock.get(f"{API}/agents/me/email-status").mock(return_value=httpx.Response(404, json={
+            "error": {"code": "email_disabled", "message": "Email notifications are not enabled (Admin → Settings → Email)"}}))
+        respx_mock.get(f"{API}/agents/me/workflow-tick-status").mock(return_value=httpx.Response(200, json={
+            "last": None, "stale": True, "enabled": False}))
         respx_mock.get(url__startswith=f"{API}/agents/me/tasks").mock(return_value=httpx.Response(200, json={
             "items": [], "total": 0}))
     return serve

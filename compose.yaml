@@ -2,6 +2,8 @@
 # then `docker compose up -d` and sign in at http://127.0.0.1:8090 (details: docs/docker.md).
 # With a bundled Gitea and a demo project: `docker compose --profile gitea up -d`.
 # Backup, restore and update: deploy/docker/backup.sh, restore.sh, update.sh (docs/docker.md).
+# Data zones (runner, launcher, sandbox jobs with network_mode none): TBR_DATA_ZONES=1 and COMPOSE_PROFILES=data in
+# .env; plus the SFTP inbox: TBR_DATA_SFTP=1 and COMPOSE_PROFILES=data,data-sftp (docs/docker.md → Data zones).
 # The native installation (deploy/install.sh) does not use this file.
 
 name: taskbrigade
@@ -15,6 +17,21 @@ x-taskbrigade-env: &taskbrigade-env
   TBR_DB_NAME: ${TBR_DB_NAME:-taskbrigade}
   TBR_DB_USER: ${TBR_DB_USER:-taskbrigade}
   TBR_DB_PASSWORD: ${TBR_DB_PASSWORD:?set TBR_DB_PASSWORD in .env}
+
+# Data zones: paths inside the containers (the native defaults of .env.example do not apply here).
+x-data-env: &data-env
+  TBR_DATA_DIR: /srv/taskbrigade-data
+  TBR_DATA_KEY_FILE: /etc/taskbrigade-data/data.key
+  TBR_SFTP_DIR: /srv/taskbrigade-sftp
+  TBR_SFTP_SPOOL: /var/lib/taskbrigade-sftp/accounts.json
+
+# Runner image (Dockerfile target runner): runner, launcher, every sandbox job and data-init use it.
+x-runner-image: &runner-image
+  image: ${TBR_RUNNER_IMAGE:-taskbrigade-runner:local}
+  build:
+    context: .
+    target: runner
+  pull_policy: ${TBR_RUNNER_PULL_POLICY:-build}
 
 x-gitea-admin-env: &gitea-admin-env
   TBR_GITEA_ADMIN_USER: ${TBR_GITEA_ADMIN_USER:-giteaadmin}
@@ -32,15 +49,28 @@ services:
       - path: .env
         required: false
     environment:
-      <<: *taskbrigade-env
+      <<: [*taskbrigade-env, *data-env]
       # The published port reaches the app through the bridge gateway, not loopback (docs/docker.md).
       TRUSTED_PEER_NETWORKS: ${TRUSTED_PEER_NETWORKS:-172.31.250.1/32}
+      # Data zones: API (with tokens) for the runner container on its internal network; SFTP accounts as a spool
+      # for the SFTP container; the SFTP import runs as an app job.
+      TBR_RUNNER_NETWORKS: ${TBR_RUNNER_SUBNET:-172.31.252.0/24}
+      TBR_SFTP_PROVISION: spool
+      TBR_DATA_IMPORT: app
+    # tbr-data (Dockerfile): read what the runner writes into the quarantine, import SFTP deliveries.
+    group_add: ["10004"]
     ports:
       - "${TBR_PUBLISH:-127.0.0.1:8090}:8090"
     volumes:
       - taskbrigade-state:/var/lib/taskbrigade
+      # Data zones (owners and modes set by data-init, profile data); empty and unused without the profile.
+      - taskbrigade-data:/srv/taskbrigade-data
+      - taskbrigade-data-key:/etc/taskbrigade-data:ro
+      - taskbrigade-sftp:/srv/taskbrigade-sftp
+      - taskbrigade-sftp-spool:/var/lib/taskbrigade-sftp
     networks:
       - taskbrigade
+      - taskbrigade-runner
     depends_on:
       mariadb:
         condition: service_healthy
@@ -71,6 +101,126 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
+
+  # --- Profile "data": data-zone runner (docs/docker.md → Data zones) -----------------------------------------
+  # Container runner design: the runner never gets the Docker socket. `runner-launcher` holds it and starts every
+  # sandbox job from a fixed template (network_mode none, read-only root, no capabilities, only this job's
+  # sub-directories of taskbrigade-jobs); the runner can only ask it to run or stop a job id.
+
+  # One-shot as root: folder layout of the data volumes and the data key (KEK), like TBR_DATA_ZONES=1 install.sh.
+  data-init:
+    <<: *runner-image
+    profiles: [data]
+    restart: "no"
+    user: "0:0"
+    command: ["init"]
+    network_mode: none
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *data-env
+      # The opt-in switch (also read from .env): without it data-init refuses and the profile stays off.
+      TBR_DATA_ZONES: ${TBR_DATA_ZONES:-}
+    volumes:
+      - taskbrigade-data:/srv/taskbrigade-data
+      - taskbrigade-data-key:/etc/taskbrigade-data
+      - taskbrigade-runner-state:/var/lib/taskbrigade-runner
+      - taskbrigade-sftp-spool:/var/lib/taskbrigade-sftp
+
+  # Holds the Docker socket; listens only on the socket in taskbrigade-launcher (group tbr-runner).
+  runner-launcher:
+    <<: *runner-image
+    profiles: [data]
+    restart: unless-stopped
+    # root for the Docker socket, primary group tbr-runner for the control socket; no capabilities at all.
+    user: "0:10002"
+    entrypoint: ["python", "-m", "app.runner.docker"]
+    command: []
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TBR_JOB_IMAGE: ${TBR_RUNNER_IMAGE:-taskbrigade-runner:local}
+      TBR_JOBS_VOLUME: taskbrigade-jobs
+      TBR_JOB_MAX_MEMORY_MB: ${TBR_JOB_MAX_MEMORY_MB:-65536}
+      TBR_JOB_MAX_CPU_PERCENT: ${TBR_JOB_MAX_CPU_PERCENT:-3200}
+    volumes:
+      - ${TBR_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+      - taskbrigade-launcher:/run/taskbrigade-launcher
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+
+  # Claims run/profile tasks, decrypts the input into the job volume, encrypts outputs into the quarantine.
+  runner:
+    <<: *runner-image
+    profiles: [data]
+    restart: unless-stopped
+    command: ["serve"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      <<: *data-env
+      TBR_RUNNER_URL: http://taskbrigade:8090
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    volumes:
+      # Read the encrypted store, write the quarantine – nothing else of the data volume.
+      - type: volume
+        source: taskbrigade-data
+        target: /srv/taskbrigade-data/store
+        read_only: true
+        volume:
+          subpath: store
+      - type: volume
+        source: taskbrigade-data
+        target: /srv/taskbrigade-data/quarantine
+        volume:
+          subpath: quarantine
+      - taskbrigade-data-key:/etc/taskbrigade-data:ro
+      - taskbrigade-runner-state:/var/lib/taskbrigade-runner
+      - taskbrigade-jobs:/run/taskbrigade-runner/jobs
+      - taskbrigade-launcher:/run/taskbrigade-launcher
+    # Internal network: the TaskBrigade API only – no MariaDB, no Gitea, no internet.
+    networks:
+      - taskbrigade-runner
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+      runner-launcher:
+        condition: service_started
+      taskbrigade:
+        condition: service_healthy
+
+  # --- Profile "data-sftp": SFTP inbox (OpenSSH internal-sftp, chroot per deliverer; docs/docker.md) ----------
+
+  sftp:
+    image: ${TBR_SFTP_IMAGE:-taskbrigade-sftp:local}
+    build:
+      context: .
+      dockerfile: deploy/docker/sftp/Dockerfile
+    pull_policy: ${TBR_SFTP_PULL_POLICY:-build}
+    profiles: [data-sftp]
+    restart: unless-stopped
+    environment:
+      TBR_SFTP_DIR: /srv/taskbrigade-sftp
+      TBR_SFTP_SPOOL: /var/lib/taskbrigade-sftp/accounts.json
+    cap_drop: [ALL]
+    # sshd privilege separation and chroot, user/folder sync (chown); nothing else.
+    cap_add: [CHOWN, FOWNER, FSETID, SETUID, SETGID, SYS_CHROOT, NET_BIND_SERVICE, KILL, AUDIT_WRITE]
+    ports:
+      # Deliverers in the LAN: e.g. TBR_SFTP_PUBLISH=0.0.0.0:2223
+      - "${TBR_SFTP_PUBLISH:-127.0.0.1:2223}:22"
+    volumes:
+      - taskbrigade-sftp:/srv/taskbrigade-sftp
+      - taskbrigade-sftp-spool:/var/lib/taskbrigade-sftp:ro
+      - taskbrigade-sftp-hostkeys:/etc/ssh/keys
+    # Own network: deliverers reach sshd, the container reaches nothing of the stack.
+    networks:
+      - taskbrigade-sftp
 
   # --- Profile "gitea": bundled Gitea, admin/service user/token and demo project (docs/docker.md) -----
 
@@ -167,6 +317,13 @@ networks:
         # Fixed so that TRUSTED_PEER_NETWORKS can name the gateway; change both if the range is taken.
         - subnet: ${TBR_DOCKER_SUBNET:-172.31.250.0/24}
           gateway: ${TBR_DOCKER_GATEWAY:-172.31.250.1}
+  # App and runner only; internal = no route out of the host. Its range is TBR_RUNNER_NETWORKS of the app.
+  taskbrigade-runner:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${TBR_RUNNER_SUBNET:-172.31.252.0/24}
+  taskbrigade-sftp:
 
 volumes:
   taskbrigade-db:
@@ -175,3 +332,30 @@ volumes:
     name: taskbrigade-state
   gitea-data:
     name: taskbrigade-gitea
+  # Data zones (profiles data/data-sftp). Back up taskbrigade-data-key separately from everything else.
+  taskbrigade-data:
+    name: taskbrigade-data
+  taskbrigade-data-key:
+    name: taskbrigade-data-key
+  taskbrigade-runner-state:
+    name: taskbrigade-runner-state
+  # Plaintext input only while a job runs: tmpfs (RAM), owner tbr-runner, group tbr-job – like the native
+  # RuntimeDirectory. The launcher mounts sub-paths of it into the job containers by this fixed name.
+  taskbrigade-jobs:
+    name: taskbrigade-jobs
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "uid=10002,gid=10003,mode=0750,size=${TBR_JOBS_TMPFS_SIZE:-2g}"
+  taskbrigade-launcher:
+    name: taskbrigade-launcher
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "uid=0,gid=10002,mode=0750,size=1m"
+  taskbrigade-sftp:
+    name: taskbrigade-sftp
+  taskbrigade-sftp-spool:
+    name: taskbrigade-sftp-spool
+  taskbrigade-sftp-hostkeys:
+    name: taskbrigade-sftp-hostkeys

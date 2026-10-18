@@ -1,0 +1,60 @@
+{% import "_ui.html" as ui %}
+{% call ui.page_header(_("Backlog"), _("%(shown)s of %(total)s tasks", shown=items | length, total=scope_total | default(total))) %}
+  {% if can_plan_sprints %}<a href="/sprints/new{% if params.project %}?project={{ params.project | urlencode }}{% endif %}" class="ui-btn ui-btn-secondary">{{ _("New sprint") }}</a>{% endif %}
+  <a href="/tasks/new" class="ui-btn">+ {{ _("New task") }}</a>
+{% endcall %}
+<form id="backlog-filter" class="filters backlog-filters" hx-get="/backlog" hx-target="#backlog-content" hx-push-url="true"
+      hx-trigger="change, keyup changed delay:300ms from:input[name=q]">
+  {{ ui.search("q", _("Search"), params.q or '', _("Search key, title, description …"), id="backlog-search") }}
+  <input type="hidden" name="status_set" value="1">
+  <button type="button" class="ui-btn ui-btn-secondary filter-toggle" aria-expanded="false" aria-controls="backlog-more" data-toggle>{{ _("Filters") }}{% if active_filters %} <span class="count">{{ active_filters }}</span>{% endif %}</button>
+  <div id="backlog-more" class="filter-more collapsible">
+  <button type="button" class="ui-btn ui-btn-secondary backlog-filter-close" data-close="backlog-more">{{ _("Close") }}</button>
+  {% include "_owner_filter.html" %}
+
+  <select class="ui-select" name="project" aria-label="{{ _('Project') }}">
+    <option value="">{{ _("All my projects") if owner_locked else _("All projects") }}</option>
+    {% for key, name in projects %}<option value="{{ key }}" {% if params.project == key %}selected{% endif %}>{{ key }}</option>{% endfor %}
+  </select>
+  {% include "_sprint_filter.html" %}
+  <select name="agent" class="ui-select" aria-label="{{ _('Agent') }}">
+    <option value="">{{ _("All actors") }}</option>
+    <option value="none" {% if params.assigned_to == "none" %}selected{% endif %}>{{ _("not assigned") }}</option>
+    {% for a in agents %}<option {% if params.assigned_to == a %}selected{% endif %}>{{ a }}</option>{% endfor %}
+  </select>
+  <select class="ui-select" name="prio" aria-label="{{ _('Prio') }}">
+    <option value="">{{ _("Any prio") }}</option>
+    {% for p in range(1, 6) %}<option {% if p in params.prio %}selected{% endif %}>{{ p }}</option>{% endfor %}
+  </select>
+
+  {% include "_workflow_filter.html" %}
+  </div>
+<div class="backlog-status-row">
+  <div class="ui-chips backlog-status-chips" role="group" aria-label="{{ _('Status') }}">
+  {% for s in statuses %}<label class="ui-chip"><input type="checkbox" name="status" form="backlog-filter" value="{{ s }}" {% if s in params.status or (not params.status and not params.status_set) %}checked{% endif %}>{{ _("Questions") if s == "questions" else status_label(s) }} <span class="ui-chip-count">{{ (status_counts | default({})).get(s, 0) }}</span></label>{% endfor %}
+  </div>
+  <a href="/backlog?workflow=hide&amp;owner=all" class="small">{{ _("Reset filters") }}</a>
+</div>
+</form>
+{% include "_owner_hint.html" %}
+{% include "_workflow_hidden_hint.html" %}
+<div class="backlog-bulk" id="backlog-bulk" hidden>
+  <strong data-selection-count data-label="{{ _('%(count)s selected', count='{count}') }}"></strong>
+  {% for action, label in (("assigned_to", _("Assign …")), ("sprint", _("Move to sprint …")), ("prio", _("Set priority …")), ("status", _("Set status …"))) %}
+  <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" data-bulk-action="{{ action }}">{{ label }}</button>
+  {% endfor %}
+  <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" data-clear-selection>{{ _("Clear") }}</button>
+</div>
+<div id="backlog-table">{% include "_backlog_table.html" %}</div>
+<dialog id="backlog-dialog" aria-labelledby="bulk-title">
+  <article><form id="backlog-bulk-form">
+    <h2 id="bulk-title"></h2>
+    <label data-bulk-field="assigned_to">{{ _("Assigned") }}<select name="assigned_to"><option value="">{{ _("not assigned") }}</option>{% for a in agents %}<option>{{ a }}</option>{% endfor %}</select></label>
+    <label data-bulk-field="sprint">{{ _("Sprint") }}<select name="sprint"><option value="none">{{ _("Without sprint") }}</option>{% for x in sprints %}<option value="{{ x.id }}">{{ x.project }} · {{ x.name }}</option>{% endfor %}</select></label>
+    <label data-bulk-field="prio">{{ _("Prio") }}<select name="prio">{% for p in range(1, 6) %}<option>{{ p }}</option>{% endfor %}</select></label>
+    <label data-bulk-field="status">{{ _("Status") }}<select name="status">{% for s in statuses %}<option value="{{ s }}">{{ status_label(s) }}</option>{% endfor %}</select></label>
+    <label data-bulk-field="status">{{ _("Comment") }}<textarea name="comment" rows="3"></textarea></label>
+    <p id="bulk-error" role="alert"></p>
+    <div class="ui-row"><button type="button" class="ui-btn ui-btn-secondary" data-bulk-cancel>{{ _("Cancel") }}</button><button type="submit" class="ui-btn">{{ _("Apply") }}</button></div>
+  </form></article>
+</dialog>

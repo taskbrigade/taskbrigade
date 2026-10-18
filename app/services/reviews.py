@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.errors import Conflict, Forbidden, Unprocessable
 from app.i18n import _
 from app.models import Actor, Project, ProjectMember, Task
-from app.services import access, members, model_choice
+from app.services import access, members, model_choice, zones
 from app.services.state_machine import add_comment, add_event, utcnow
 
 NONE_VALUES = ("", "none", "-")
@@ -49,23 +49,23 @@ def find(session: Session, name: str | None) -> Actor | None:
     return actor
 
 
-def check(project: Project, reviewer: Actor, assignee_id: int | None) -> None:
+def check(project: Project, reviewer: Actor, assignee_id: int | None, task: Task | None = None) -> None:
     """Refuse a reviewer that cannot review this task (role, inactive, privacy, self-review)."""
     if not reviewer.is_active:
         raise Unprocessable(_("Actor '%(name)s' is inactive", name=reviewer.name), code="invalid_reviewer")
     if not eligible(reviewer):
         raise Unprocessable(_("%(name)s cannot review: reviewers are humans or agents with the role 'reviewer'",
                               name=reviewer.name), code="invalid_reviewer")
-    members.check_privacy(project, reviewer)
+    members.check_privacy(project, reviewer, task)
     if assignee_id is not None and reviewer.id == assignee_id:
         raise Unprocessable(_("%(name)s cannot review its own task – choose another reviewer or assignee",
                               name=reviewer.name), code="self_review")
 
 
-def _ensure_access(session: Session, project: Project, reviewer: Actor) -> None:
+def _ensure_access(session: Session, project: Project, reviewer: Actor, task: Task | None = None) -> None:
     """A reviewer agent needs read access to the repo (clone, diff); an existing membership is kept."""
     if reviewer.actor_type == "agent" and session.get(ProjectMember, (project.id, reviewer.id)) is None:
-        members.set_member(session, project, reviewer, "read")
+        members.set_member(session, project, reviewer, "read", task)
 
 
 def set_reviewer(session: Session, task: Task, project: Project, reviewer: Actor | None, by: Actor | None,
@@ -80,8 +80,8 @@ def set_reviewer(session: Session, task: Task, project: Project, reviewer: Actor
     if reviewer is not None and not project_default:
         access.require_may_use_agent(by, reviewer)
     if reviewer is not None:
-        check(project, reviewer, task.assigned_to)
-        _ensure_access(session, project, reviewer)
+        check(project, reviewer, task.assigned_to, task)
+        _ensure_access(session, project, reviewer, task)
     old = session.get(Actor, task.reviewer_id) if task.reviewer_id else None
     task.reviewer_id = reviewer.id if reviewer else None
     if task.review_claimed_at is not None:
@@ -95,7 +95,7 @@ def apply_default(session: Session, task: Task, project: Project, by: Actor) -> 
         return
     reviewer = session.get(Actor, project.default_reviewer_id)
     try:
-        check(project, reviewer, task.assigned_to)
+        check(project, reviewer, task.assigned_to, task)
     except Unprocessable as e:
         add_event(session, task, by, "reviewer", None, None, _("project default not applied: %(reason)s",
                                                               reason=e.message)[:500])
@@ -111,7 +111,7 @@ def effective(session: Session, task: Task) -> Actor | None:
     if not eligible(reviewer) or reviewer.id == task.assigned_to:
         return None
     project = session.get(Project, task.project_id)
-    if project.privacy == "local_only" and reviewer.runtime == "cloud":
+    if not zones.may_handle(project, reviewer, task, session=session):
         return None
     return reviewer
 

@@ -55,7 +55,8 @@ from pathlib import Path
 
 import typer
 
-from cli.client import ApiError, Client, agent_config, split_open_points
+from cli.client import ApiError, Client, agent_config
+from cli.outputs import split_submit_sections
 from cli.i18n import N_, _
 from cli.prepare import COMMAND, LEGACY_COMMAND, REVIEW_SUFFIX, SUBMIT_FILE, PrepareError, _git, prepare, tm_command
 from cli.prepare import release_review, review_worktree
@@ -78,6 +79,10 @@ REVIEW_PROMPT = N_("You are the TaskBrigade agent {agent} and review task {task_
                    "acceptance criteria, and finish with exactly one decision: tbr review {task_nr} approve, reject "
                    "or conflict (the commands are in REVIEW.md). Do not edit, commit or push. Run tbr and git "
                    "commands one at a time – without && chains, heredocs or pipes.")
+APPROVAL_PROMPT = N_("You are the TaskBrigade agent {agent} and review workflow approval {task_nr}. "
+                     "Read REVIEW.md and check the task and its linked predecessors. "
+                     "Finish with tbr review {task_nr} approve or reject --comment \"<reason>\", "
+                     "or release --reason \"<reason>\". This job requires no Git checkout or pull request.")
 # Bash(tm:*) stays during the transition: older TASK.md texts and agent habits still use the old name.
 DEFAULT_CLAUDE_ALLOW = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(git:*)", "Bash(tbr:*)", "Bash(tm:*)",
                         "Bash(ls:*)", "Bash(cat:*)", "Bash(mkdir:*)"]
@@ -164,7 +169,8 @@ def build_command(cfg: dict, task: dict, agent: str, worktree: Path | None = Non
     (`[runner] review_prompt` overrides it)."""
     parts = with_model(_parts(cfg), cfg, model)[0]
     if review:
-        prompt = (cfg.get("review_prompt") or _(REVIEW_PROMPT)).format(agent=agent, task_nr=task["task_nr"])
+        default_review = APPROVAL_PROMPT if task.get("task_kind") == "approval" else REVIEW_PROMPT
+        prompt = (cfg.get("review_prompt") or _(default_review)).format(agent=agent, task_nr=task["task_nr"])
     else:
         default = RUNNER_GIT_PROMPT if git_by_runner(cfg) else DEFAULT_PROMPT
         prompt = (cfg.get("prompt") or _(default)).format(agent=agent, task_nr=task["task_nr"])
@@ -714,6 +720,31 @@ def close_window(work_root: Path, window: dict, log: Path | None = None) -> None
     _tmux("kill-window", "-t", window["id"])
 
 
+def descendant_processes(pid: int) -> dict[int, str] | None:
+    """Processes below `pid` (children, grandchildren …) as {pid: command line}; None if `ps` cannot be run. A job
+    started detached (`setsid nohup … &` from a shell that then exits) is re-parented and no longer below `pid`."""
+    try:
+        r = subprocess.run(["ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "args="], capture_output=True, text=True,
+                           timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    children: dict[int, list[tuple[int, str]]] = {}
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            children.setdefault(int(parts[1]), []).append((int(parts[0]), parts[2] if len(parts) > 2 else ""))
+    found: dict[int, str] = {}
+    todo = [pid]
+    while todo:
+        for child, args in children.get(todo.pop(), []):
+            if child not in found:
+                found[child] = args
+                todo.append(child)
+    return found
+
+
 # Like `_stop_agent`: Ctrl+C, then more forcefully, each with a grace period in seconds.
 STOP_SIGNALS = ((signal.SIGINT, 15), (signal.SIGTERM, 10), (signal.SIGKILL, 5))
 
@@ -978,7 +1009,7 @@ def read_submit_file(worktree: Path) -> tuple[str, str] | None:
     return message, rest.strip() or message
 
 
-def finish(client: Client, task_nr: str, worktree: Path, exit_code: int) -> str:
+def finish(client: Client, task_nr: str, worktree: Path, exit_code: int, output_text: str | None = None) -> str:
     task = client.get(f"/tasks/{task_nr}")
     me = client.get("/agents/me")["name"]
     if task["status"] != "in_progress" or task.get("assigned_to") != me:
@@ -995,6 +1026,18 @@ def finish(client: Client, task_nr: str, worktree: Path, exit_code: int) -> str:
         client.request("POST", f"/tasks/{task_nr}/release", json={"reason": reason})
         return _("%(nr)s: given back (%(reason)s)", nr=task_nr, reason=reason)
     declared = read_submit_file(worktree)  # Completion by an agent without Git (git = "runner").
+    submit_outputs = None
+    if declared:
+        try:
+            text, points, submit_outputs = split_submit_sections(declared[1])
+        except ValueError as exc:
+            # Keep the file so the agent can fix the Outputs section.
+            (worktree / SUBMIT_FILE).write_text(declared[0] + "\n\n" + declared[1] + "\n")
+            client.request("POST", f"/tasks/{task_nr}/release", json={"reason": str(exc)})
+            return _("%(nr)s: given back (%(reason)s)", nr=task_nr, reason=exc)
+        declared = (declared[0], text)
+    else:
+        points = []
     if declared and _git("status", "--porcelain", cwd=worktree):
         _git("add", "-A", cwd=worktree)
         message = declared[0] or _("%(nr)s: result from %(agent)s", nr=task_nr, agent=me)
@@ -1005,17 +1048,21 @@ def finish(client: Client, task_nr: str, worktree: Path, exit_code: int) -> str:
     if ahead:
         _git("push", "--quiet", "-u", "origin", f"HEAD:{branch}", cwd=worktree)
         sha = _git("rev-parse", "HEAD", cwd=worktree)
-        points: list[str] = []
         if declared:
-            text, points = split_open_points(declared[1])
-            summary = (text or declared[0]) + "\n\n---\n" + _("Commit, push and submission by the runner (agent "
+            summary = (declared[1] or declared[0]) + "\n\n---\n" + _("Commit, push and submission by the runner (agent "
                                                                  "without Git access).")
         else:
+            points = []
             summary = _git("log", "-1", "--format=%B", cwd=worktree).strip() + "\n\n---\n" + _(
                 "Submitted automatically by the runner: agent finished (exit %(rc)s) without tbr submit.", rc=exit_code
             ) + (_(" Note: %(num)s uncommitted change(s) in the worktree.", num=len(dirty)) if dirty else "")
-        client.request("POST", f"/tasks/{task_nr}/submit",
-                       json={"branch_name": branch, "commit_sha": sha, "summary": summary, "open_points": points})
+        payload = {"branch_name": branch, "commit_sha": sha, "summary": summary, "open_points": points}
+        if submit_outputs is not None:
+            payload["outputs"] = submit_outputs
+        usage = read_usage(worktree, output_text)
+        if usage is not None:
+            payload["usage"] = usage
+        client.request("POST", f"/tasks/{task_nr}/submit", json=payload)
         return _("%(nr)s: %(num)s commit(s) pushed and submitted", nr=task_nr, num=ahead)
     if declared:
         reason = _("Agent reported \"done\" (exit %(rc)s), but there are no changes compared to %(base)s",
@@ -1027,6 +1074,13 @@ def finish(client: Client, task_nr: str, worktree: Path, exit_code: int) -> str:
         if dirty else "")
     client.request("POST", f"/tasks/{task_nr}/release", json={"reason": reason})
     return _("%(nr)s: given back (%(reason)s)", nr=task_nr, reason=reason)
+
+
+def read_usage(worktree: Path, output_text: str | None = None) -> dict | None:
+    """Usage reported by the agent: an explicit `.tm-usage.json` wins, else JSON cost/usage lines in its output."""
+    from cli.usage import parse_usage_output, read_usage_file
+
+    return read_usage_file(worktree) or (parse_usage_output(output_text) if output_text else None)
 
 
 def submit_file_ready(worktree: Path, settle_s: float) -> bool:
@@ -1057,10 +1111,17 @@ class Supervisor:
       still unsent → Enter (at most twice), otherwise stop, release with the reason and block the agent;
     - stall (`stall_minutes`, tmux only): the window has not changed → one comment in the thread, agent keeps running;
     - parked (`park_idle_seconds`, tmux only): the agent reported waiting for a background run and its window has not
-      changed since → stop the agent; the task stays in progress and `tbr run` keeps it (`keep_parked`).
+      changed since → stop the agent; the task stays in progress and `tbr run` keeps it (`keep_parked`). Not while
+      processes the agent started are still running below it (`session_jobs`, e.g. a job in Claude Code's
+      `run_in_background`): ending the session would kill them, so the session stays open (waiting counts as activity,
+      as without parking) and one comment per waiting period names them; it is parked once they are gone. A job
+      started detached (`setsid nohup …`) is no longer below the agent and does not prevent parking.
     """
 
     ENTER_ATTEMPTS = 2
+    # Processes below the agent this long after the start (MCP servers, helpers of the CLI) belong to the agent itself
+    # and never prevent parking.
+    BASELINE_SECONDS = 60
 
     def __init__(self, client: Client, task_nr: str, work_root: Path, cfg: dict, command: list[str],
                  pane: str | None, check_s: float, clock=time.monotonic, review: bool = False):
@@ -1085,6 +1146,9 @@ class Supervisor:
         self.file_sig: tuple | None = None
         self.file_change = self.clock()
         self.file_reported = False
+        self.agent_pid: int | None = None  # Set by `_session` once the agent runs.
+        self.baseline: set[int] | None = None
+        self.jobs_reported = False
 
     def due(self) -> bool:
         return self.clock() >= self.next_check
@@ -1117,18 +1181,25 @@ class Supervisor:
             result = self._start_check(pane)
             if result:
                 return result
+        if self.baseline is None and self.agent_pid and now - self.started >= self.BASELINE_SECONDS:
+            self.baseline = set(descendant_processes(self.agent_pid) or {})
         if self.waiting and self.park_idle > 0 and now - self.pane_change >= self.park_idle:
             # The agent reported waiting and then went idle (an interactive CLI does not exit by itself): end the
-            # session; finish() is skipped, the task stays in progress and the next passes keep its lease.
-            return _("%(nr)s waits for a background run and the agent is idle – session ended, the task stays in "
-                     "progress (parked)", nr=self.task_nr), None
+            # session; finish() is skipped, the task stays in progress and the next passes keep its lease – unless
+            # the session still runs processes the agent started, which would die with it.
+            jobs = self.session_jobs()
+            if not jobs:
+                return _("%(nr)s waits for a background run and the agent is idle – session ended, the task stays in "
+                         "progress (parked)", nr=self.task_nr), None
+            if not self.jobs_reported:
+                self._report_session_jobs(jobs)
         if self.waiting:
             # The agent waits for a background run: that is no stall. Waiting counts as activity, so normal
             # detection starts only `stall_minutes` after it ended; a watched file that stays unchanged is reported.
             self.last_change, self.stall_reported = now, False
             self._check_watch_file(now)
             return None
-        self.file_sig = None
+        self.file_sig, self.jobs_reported = None, False
         if self.stall_s > 0 and not self.stall_reported and now - self.last_change >= self.stall_s:
             self._report_stall(pane)
         return None
@@ -1146,6 +1217,26 @@ class Supervisor:
             self.file_sig, self.file_change, self.file_reported = (sig, path), now, False
         if self.stall_s > 0 and not self.file_reported and now - self.file_change >= self.stall_s:
             self._report_file_stall(path, sig is None)
+
+    def session_jobs(self) -> dict[int, str]:
+        """Processes below the agent that it started after `BASELINE_SECONDS` (before that: all of them), {pid:
+        command line}; empty without a known agent or when `ps` fails (then parking works as before)."""
+        procs = descendant_processes(self.agent_pid) if self.agent_pid else None
+        return {pid: args for pid, args in (procs or {}).items() if pid not in (self.baseline or set())}
+
+    def _report_session_jobs(self, jobs: dict[int, str]) -> None:
+        self.jobs_reported = True
+        listed = "\n".join(f"{pid} {args[:160]}" for pid, args in sorted(jobs.items())[:10])
+        body = _("Not parked: the agent is idle while waiting, but processes it started are still running in its "
+                 "session – ending the session would kill them. The session stays open until they end. Start long "
+                 "jobs detached next time: `setsid nohup <command> > <log> 2>&1 < /dev/null &`. Processes:") + \
+            f"\n\n```\n{listed}\n```"
+        try:
+            self.client.request("POST", f"/tasks/{self.task_nr}/comments", json={"type": "comment", "body": body})
+            typer.echo("\n[tm] " + _("Not parked: %(num)s process(es) started by the agent are still running – note "
+                                     "written to the thread", num=len(jobs)))
+        except Exception as e:  # noqa: BLE001
+            typer.echo("\n[tm] " + _("Note could not be written: %(error)s", error=e), err=True)
 
     def _task_status(self) -> str | None:
         """Task status, 'reassigned' if another actor holds it now, None if the API is not reachable."""
@@ -1291,6 +1382,7 @@ def _session(client: Client, task_nr: str, worktree: Path, cfg: dict, command: l
     try:
         try:
             proc = subprocess.Popen(command, cwd=worktree)
+            sup.agent_pid = proc.pid
         except OSError as e:
             reason = _("The agent command %(cmd)s could not be started: %(error)s", cmd=command[0], error=e)
             typer.echo("\n[tm] " + reason + " – " + give_back(client, task_nr, reason), err=True)
@@ -1303,7 +1395,8 @@ def _session(client: Client, task_nr: str, worktree: Path, cfg: dict, command: l
                 pass
             if watch and submit_file_ready(worktree, settle_s):
                 try:
-                    done = finish(client, task_nr, worktree, 0)
+                    output = _capture(sup.pane, history=True) if sup.pane else None
+                    done = finish(client, task_nr, worktree, 0, output)
                 except (PrepareError, ApiError, RunnerError) as e:
                     typer.echo("\n[tm] " + _("Submitting failed (%(error)s) – retrying after the agent ends", error=e))
                     watch = False
@@ -1341,6 +1434,7 @@ def _session(client: Client, task_nr: str, worktree: Path, cfg: dict, command: l
                                                                                                 model_error)
             typer.echo("\n[tm] " + model_error + " – " + back)
             return rc
-        result = finish_review(client, task_nr, rc) if sup.review else finish(client, task_nr, worktree, rc)
+        output = _capture(sup.pane, history=True) if sup.pane else None
+        result = finish_review(client, task_nr, rc) if sup.review else finish(client, task_nr, worktree, rc, output)
         typer.echo(f"\n[tm] {result}")
     return rc

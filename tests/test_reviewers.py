@@ -226,6 +226,27 @@ def test_inbox_separates_agent_reviews(renv):
     assert [t["task_nr"] for t in data["agent_review"]] == [agent_nr] and data["for_review"] == []
 
 
+def test_inbox_lists_agent_decisions_until_the_rework_starts(renv):
+    by_agent, by_human = _submitted(renv, reviewer="hermes"), _submitted(renv, reviewer="hermes")
+    assert _review_claim(renv, task_nr=by_agent).json()["task_nr"] == by_agent
+    with db.session() as s:
+        running = task_svc.inbox(s)["agent_review"]
+    assert {t["task_nr"]: bool(t["review_claimed_at"]) for t in running} == {by_agent: True, by_human: False}
+    assert all(t["submitted_at"] for t in running)
+    assert _decide(renv, by_agent, "reject", comment="Tests fehlen").json()["status"] == "changes_requested"
+    assert _decide(renv, by_human, "reject", who="admin", comment="Nein").json()["status"] == "changes_requested"
+    with db.session() as s:
+        data = task_svc.inbox(s)
+    assert data["agent_review"] == []
+    assert [(t["task_nr"], t["decision"], t["reviewer"]) for t in data["agent_decided"]] == [(by_agent, "reject", "hermes")]
+    assert data["agent_decided"][0]["decided_at"] is not None
+    with db.session() as s:
+        assert task_svc.inbox(s, owner_id=-1)["agent_decided"] == []  # Owner filter applies.
+    claim(renv)  # The assignee picks the rework up: nothing left to act on.
+    with db.session() as s:
+        assert task_svc.inbox(s)["agent_decided"] == []
+
+
 def test_review_lease_expires_and_returns_to_queue(renv):
     c = renv["c"]
     nr = _submitted(renv, reviewer="hermes")
@@ -352,6 +373,7 @@ def test_cli_reviewer_options_and_review_command(renv, tm_as):  # noqa: F811
 # --- Web UI ---------------------------------------------------------------------------------------------------------
 
 def test_ui_reviewer_fields_inbox_and_detail(renv, ui):  # noqa: F811
+    post(ui, "/profile/display", show_all_agents="1")  # Seeded agents have no owner; an admin sees them only so.
     page = ui.get("/tasks/new?project=KET").text
     assert 'name="reviewer"' in page and "hermes (Reviewer-Agent)" in page and "– Projekt-Standard –" in page
     assert '<option value="codex"' not in page  # Workers are no reviewers.
@@ -381,6 +403,28 @@ def test_ui_reviewer_fields_inbox_and_detail(renv, ui):  # noqa: F811
     _decide(renv, agent_nr, "reject", comment="Tests fehlen")
     detail = ui.get(f"/tasks/{agent_nr}").text
     assert "Zurückgewiesen von hermes (Reviewer-Agent)" in detail and "hermes</strong> (Reviewer-Agent)" in detail
+
+
+def test_ui_inbox_shows_agent_reviews_as_action_cards(renv, ui):  # noqa: F811
+    nr = _submitted(renv, reviewer="hermes")
+    page = ui.get("/").text
+    cards = page.split('class="inbox-cards"')[1].split('class="inbox-notices"')[0]
+    assert f'id="ar-{nr}"' in cards and "Wartet auf Reviewer-Agenten" in cards and "hermes" in cards
+    assert f'hx-post="/inbox/{nr}/approve"' in cards and f'hx-post="/inbox/{nr}/reject"' in cards  # Admin overrules.
+    assert "Reviews 1" in page and '<span class="nav-badge" aria-label="Aktion erforderlich">1</span>' in page
+    assert "Review durch Agenten" in page.split('class="inbox-notices"')[1]  # The notice stays.
+    _review_claim(renv)
+    page = ui.get("/?tab=questions").text
+    assert f'id="ar-{nr}"' not in page and '<span class="nav-badge" aria-label="Aktion erforderlich">1</span>' in page
+    assert "Review läuft" in ui.get("/?tab=reviews").text
+    _decide(renv, nr, "reject", comment="Tests fehlen")
+    page = ui.get("/?tab=reviews").text
+    card = page.split(f'id="ar-{nr}"')[1].split("</article>")[0]
+    assert "Änderungen angefordert" in card and "hermes" in card and f'href="/tasks/{nr}"' in card
+    assert "/approve" not in card  # Decided: the state machine only lets the assignee continue.
+    assert "Reviews 1" in page
+    r = post(ui, f"/inbox/{nr}/approve")
+    assert r.status_code == 422  # The endpoint keeps refusing it (status changes_requested).
 
 
 def test_sprint_plan_batch_and_duplicate_keep_reviewer(renv):

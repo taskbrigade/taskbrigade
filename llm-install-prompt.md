@@ -105,7 +105,7 @@ release; to pin a version clone the release tag instead (`git clone --branch v<v
 | 3 `sudo … deploy/install.sh` with the environment variables for DB host/port/name/user and `GITEA_URL` (plus `TAILSCALE_SERVE=1` or `LAN_UI_NETWORK=…` if chosen) | `systemctl is-active taskbrigade`; `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/healthz` is 503 (setup mode) |
 | 4 Bootstrap password (`tbr-admin hash-password`, `tbr-admin config set BOOTSTRAP_ADMIN_PASSWORD_HASH --restart`) – the user runs both | login as `admin` works |
 | 5 *Admin → Database* in the UI (user) | `/healthz` reports `"db":"ok"` |
-| 6 *Admin → Settings*: Gitea URL, tokens, owner, TaskBrigade URL (user) | **Test Gitea connection** names the token's user |
+| 6 *Admin → Settings*: Gitea URL, tokens, owner, TaskBrigade URL (user) | **Test connection** (Gitea group) names the token's user |
 
 Remind the user to back up `/var/lib/taskbrigade/master.key` somewhere other than the database backup.
 

@@ -68,7 +68,9 @@ def test_settings_ui_roundtrip(ready_db, respx_mock):
         csrf = _csrf(page)
         r = ui.post("/admin/settings", data={
             "csrf_token": csrf, "gitea_url": GITEA, "gitea_default_owner": "admin", "merge_style": "squash",
-            "branch_protection": "1", "default_lease_minutes": "120", "telegram_chat_id": "",
+            "branch_protection": "1", "privacy_enforce_model_location": "1", "default_lease_minutes": "120",
+            "data_four_eyes": "1",
+            "telegram_chat_id": "",
             "gitea_token": "", "telegram_bot_token": ""})
         assert "Gespeichert." in r.text
         with db.engine.connect() as conn:

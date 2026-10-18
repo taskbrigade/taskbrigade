@@ -44,7 +44,9 @@ tasks …" or "mute the notifications for 2 hours".
 | "with opus", "use gpt-5.6-sol" (a concrete model) | `--model <name>` – only if the human names the model; it must be on the agent's allow list, otherwise TaskBrigade refuses it: say so and offer a tier instead |
 | "cancel KET-0012" | `tbr cancel <NR> --reason "…"` |
 | "plan a sprint W43 for KET with the tasks …" | `tbr sprint create -p <KEY> --name "W43" --goal "…"`, then `tbr sprint add-tasks "W43" -p <KEY> --file -` (one line per task: `Title \| Agent \| Prio`) |
+| "change the sprint goal / name / dates", "clear the end date" | `tbr sprint update "<sprint>" -p <KEY> [--name …] [--goal …] [--start YYYY-MM-DD] [--end YYYY-MM-DD]` (only the given fields; `--start none` / `--end none` clear a date, `--goal ""` clears the goal; the status stays) |
 | "release the sprint" (role permitting) | `tbr sprint release "<sprint>" -p <KEY>` |
+| "reopen the sprint" (role permitting) | `tbr sprint reopen "<sprint>" -p <KEY>` (`--no-restore` leaves the tasks that were moved out where they are) |
 | "mute the notifications for 2 hours", "quiet until 18:00", "mute until I say so" | `tbr notify pause 2h --user <human>` / `tbr notify pause until 18:00 --user <human>` / `tbr notify pause --user <human>` |
 | "notifications back on" | `tbr notify resume --user <human>` |
 | "no review requests today" / "reviews back on" | `tbr notify reviews off 1d --user <human>` / `tbr notify reviews on --user <human>` |

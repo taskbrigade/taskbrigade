@@ -17,7 +17,7 @@ from app.logging_setup import audit
 from app.models import Actor
 from app.services import access, projects, sprints
 from app.services import tasks as task_svc
-from app.services.state_machine import missing_definition
+from app.services.state_machine import END_STATUSES, missing_definition
 from app.web.common import render, ui_actor, web_session
 from app.web.tasks_ui import agent_choices, require_user
 
@@ -72,24 +72,41 @@ def _page(request: Request, user: UiUser, key: str, sprint_id: int, status_code:
         sprint = sprints.get(s, sprint_id, project)
         rows = sprints.ordered_tasks(s, sprint)
         names = task_svc._names(s, {t.assigned_to for t in rows})
+        late = sprints.late_dependencies(s, sprint, [t.id for t in rows if t.status not in END_STATUSES])
         tasks = [{**task_svc.summary(t, project.project_key, names),
-                  "missing": missing_definition(t) if t.status == "draft" else []} for t in rows]
+                  "missing": missing_definition(t) if t.status == "draft" else [],
+                  "waits_for": late.get(t.id, [])} for t in rows]
         info = sprints.info(s, sprint)
         targets = [x for x in sprints.list_for_project(s, project, ["planned", "released"]) if x.id != sprint.id]
         preview = sprints.release_preview(s, sprint) if sprint.status != "closed" else None
         agents = agent_choices(s, me, [t["assigned_to"] for t in tasks])
         can_plan = sprints.can_plan(project, me)
         can_manage = access.can_manage_project(project, me)
+        restorable = len(sprints.moved_out_at_close(s, sprint)[0]) if sprint.status == "closed" else 0
     counts = info["task_counts"]
     total = sum(counts.values())
     return render(request, "sprint.html", status_code, p=project, sprint=info, tasks=tasks, targets=targets,
                   preview=preview, agents=agents, can_plan=can_plan, can_manage=can_manage, total=total,
+                  restorable=restorable,
                   done=counts.get("done", 0), cancelled=counts.get("cancelled", 0),
                   open_count=total - counts.get("done", 0) - counts.get("cancelled", 0),
                   batch_format=BATCH_FORMAT, **ctx)
 
 
-def _url(key: str, sprint_id: int, msg: str | None = None, err: str | None = None) -> str:
+def _planning_url(key: str, status: str | None, msg: str | None = None, err: str | None = None) -> str:
+    """Back to the planning board showing the acted sprint: the default filter "all" (closed hidden by default),
+    the toggle on for a closed sprint so it stays in view."""
+    url = f"/planning?project={quote_plus(key.upper())}&filter=all&closed={1 if status == 'closed' else 0}"
+    if msg:
+        return f"{url}&msg={quote_plus(msg)}"
+    return f"{url}&err={quote_plus(err)}" if err else url
+
+
+def _url(key: str, sprint_id: int, msg: str | None = None, err: str | None = None, back: str = "",
+         status: str | None = None) -> str:
+    """Where an action redirects to: the sprint page, or the planning board when the form sent `back=planning`."""
+    if back == "planning":
+        return _planning_url(key, status, msg, err)
     url = f"/projects/{key}/sprints/{sprint_id}"
     if msg:
         return f"{url}?msg={quote_plus(msg)}"
@@ -98,7 +115,7 @@ def _url(key: str, sprint_id: int, msg: str | None = None, err: str | None = Non
 
 @router.post("/new", dependencies=POST)
 def create_sprint(key: str, user: UiUser = Depends(require_user), name: str = Form(...),
-                  goal: str = Form(""), start_date: str = Form(""), end_date: str = Form("")):
+                  goal: str = Form(""), start_date: str = Form(""), end_date: str = Form(""), back: str = Form("")):
     try:
         with web_session() as s:
             me = ui_actor(s, user)
@@ -107,8 +124,12 @@ def create_sprint(key: str, user: UiUser = Depends(require_user), name: str = Fo
             sprint_id = sprint.id
             audit(me.name, "sprint_created", project=key.upper(), sprint=sprint_id, via="ui")
     except AppError as e:
+        if back == "planning":
+            return RedirectResponse(_url(key, 0, err=e.message, back=back), 303)
         return RedirectResponse(f"/projects/{key}?err={quote_plus(e.message)}", 303)
-    return RedirectResponse(_url(key, sprint_id, msg=_("Sprint created")), 303)
+    if back == "planning":  # A new sprint is planned: the board shows it right away under the default filter.
+        return RedirectResponse(_planning_url(key, "planned", msg=_("Sprint created")), 303)
+    return RedirectResponse(_url(key, sprint_id, msg=_("Sprint created"), back=back), 303)
 
 
 @router.get("/{sprint_id}")
@@ -116,30 +137,36 @@ def sprint_page(request: Request, key: str, sprint_id: int, user: UiUser = Depen
     return _page(request, user, key, sprint_id)
 
 
-def _run(request: Request, user: UiUser, key: str, sprint_id: int, fn):
-    """Run an action on the locked sprint; redirect with its message or show the page with the error."""
+def _run(request: Request, user: UiUser, key: str, sprint_id: int, fn, back: str = ""):
+    """Run an action on the locked sprint; redirect with its message or show the page with the error (from the
+    planning board: back there with the error)."""
     try:
         with web_session() as s:
             me = ui_actor(s, user)
             sprint = sprints.get(s, sprint_id, projects.get(s, key), for_update=True)
             message = fn(s, me, sprint)
+            status = sprint.status
     except AppError as e:
+        if back == "planning":
+            return RedirectResponse(_url(key, sprint_id, err=e.message, back=back), 303)
         return _page(request, user, key, sprint_id, 422 if e.status < 500 else e.status, error=e.message)
-    return RedirectResponse(_url(key, sprint_id, msg=message), 303)
+    return RedirectResponse(_url(key, sprint_id, msg=message, back=back, status=status), 303)
 
 
 @router.post("/{sprint_id}/edit", dependencies=POST)
 def edit_sprint(request: Request, key: str, sprint_id: int, user: UiUser = Depends(require_user),
-                name: str = Form(...), goal: str = Form(""), start_date: str = Form(""), end_date: str = Form("")):
+                name: str = Form(...), goal: str = Form(""), start_date: str = Form(""), end_date: str = Form(""),
+                back: str = Form("")):
     def fn(s, me, sprint):
         sprints.update(s, me, sprint, {"name": name, "goal": goal, "start_date": _date(start_date),
                                        "end_date": _date(end_date)})
         return _("Saved")
-    return _run(request, user, key, sprint_id, fn)
+    return _run(request, user, key, sprint_id, fn, back)
 
 
 @router.post("/{sprint_id}/release", dependencies=POST)
-def release_sprint(request: Request, key: str, sprint_id: int, user: UiUser = Depends(require_user)):
+def release_sprint(request: Request, key: str, sprint_id: int, user: UiUser = Depends(require_user),
+                   back: str = Form("")):
     def fn(s, me, sprint):
         result = sprints.release(s, me, sprint)
         audit(me.name, "sprint_released", project=key.upper(), sprint=sprint.id,
@@ -150,12 +177,12 @@ def release_sprint(request: Request, key: str, sprint_id: int, user: UiUser = De
             msg += " · " + ngettext("%(num)d stays a draft (see below)", "%(num)d stay drafts (see below)",
                                     len(result["blocked"]))
         return msg
-    return _run(request, user, key, sprint_id, fn)
+    return _run(request, user, key, sprint_id, fn, back)
 
 
 @router.post("/{sprint_id}/close", dependencies=POST)
 def close_sprint(request: Request, key: str, sprint_id: int, user: UiUser = Depends(require_user),
-                 open_tasks: str = Form("detach"), move_to: str = Form("")):
+                 open_tasks: str = Form("detach"), move_to: str = Form(""), back: str = Form("")):
     def fn(s, me, sprint):
         move = open_tasks == "move"
         if move and not move_to.isdigit():
@@ -172,7 +199,24 @@ def close_sprint(request: Request, key: str, sprint_id: int, user: UiUser = Depe
             return ngettext("Sprint closed: %(num)d open task detached from the sprint",
                             "Sprint closed: %(num)d open tasks detached from the sprint", len(result["detached"]))
         return _("Sprint closed")
-    return _run(request, user, key, sprint_id, fn)
+    return _run(request, user, key, sprint_id, fn, back)
+
+
+@router.post("/{sprint_id}/reopen", dependencies=POST)
+def reopen_sprint(request: Request, key: str, sprint_id: int, user: UiUser = Depends(require_user),
+                  restore_tasks: str = Form("0"), back: str = Form("")):
+    def fn(s, me, sprint):
+        result = sprints.reopen(s, me, sprint, restore_tasks == "1")
+        audit(me.name, "sprint_reopened", project=key.upper(), sprint=sprint.id, restored=len(result["restored"]),
+              skipped=len(result["skipped"]), via="ui")
+        msg = ngettext("Sprint reopened: %(num)d task moved back", "Sprint reopened: %(num)d tasks moved back",
+                       len(result["restored"]))
+        if result["skipped"]:
+            msg += " · " + ngettext("%(num)d skipped (moved elsewhere later or finished)",
+                                    "%(num)d skipped (moved elsewhere later or finished)",
+                                    len(result["skipped"]))
+        return msg
+    return _run(request, user, key, sprint_id, fn, back)
 
 
 @router.post("/{sprint_id}/batch", dependencies=POST)

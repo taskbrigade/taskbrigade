@@ -1,0 +1,19 @@
+{#- The one chain component (research/konzept-workflows.md §8.5, research/konzept-datenzonen.md §8): one entry per step with type, data
+    class, status, task and duration. Used by the workflow run detail page, the workflow line on the task page and
+    the chain across zones on the task page (`data_refs.chain`, DZ 9). Context: `chain` (cells of
+    `workflows.ui.chain` or `data_refs.chain`), optional `chain_task` (task number to highlight). Data-zone cells
+    (`zone_chain`) carry their own `label` (task kind), the task status, the assignee (`who`) and the handover to
+    the next step (`handover`: profile#7 released, commit a1b2c3d, result#12 …). -#}
+<ol class="wf-chain{% if chain and chain[0].zone_chain %} zone-chain{% endif %}" aria-label="{{ _('Steps of the chain') if chain and chain[0].zone_chain else _('Steps of the run') }}">
+  {% for c in chain %}
+  <li class="wf-chain-step wf-{{ c.status }}{% if c.current %} current{% endif %}{% if chain_task and c.task_nr == chain_task %} this-task{% endif %}"{% if chain_task and c.task_nr == chain_task %} aria-current="step"{% endif %}>
+    <span class="wf-chain-head">{% with cls=c.data_class, compact=True %}{% include "_data_class.html" %}{% endwith %} <strong>{{ c.key }}</strong> <small class="muted">{{ c.label if c.zone_chain else wf_type_label(c.type) }}</small></span>
+    <span class="wf-chain-state"><span aria-hidden="true">{{ c.symbol }}</span> {% if c.zone_chain %}{{ status_label(c.task_status) }}{% if c.pr_number %} (PR #{{ c.pr_number }}){% endif %}{% else %}{{ step_status_label(c.status) }}{% endif %}{% if c.repaired %} · {{ _("repaired") }}{% endif %}{% if c.attempt > 1 %} · {{ _("attempt %(num)d", num=c.attempt) }}{% endif %}</span>
+    <span class="wf-chain-meta">{% if c.task_nr %}<a href="/tasks/{{ c.task_nr }}">{{ c.task_nr }}</a>{% elif c.type == "notify" %}<small class="muted">{{ _("no task needed") }}</small>{% endif %}
+      {%- if c.zone_chain %} <small class="muted">{{ c.who or "–" }}</small>{% endif %}
+      {%- if c.duration is not none %} <small class="muted">{{ c.duration | wf_duration }}</small>{% endif %}
+      {%- if c.error_code %} <code class="missing">{{ c.error_code }}</code>{% endif %}</span>
+    {% if c.handover %}<span class="wf-chain-handover"><small>{% if not loop.last %}<span aria-hidden="true">└▶</span> {% endif %}{{ c.handover }}</small></span>{% endif %}
+  </li>
+  {% endfor %}
+</ol>

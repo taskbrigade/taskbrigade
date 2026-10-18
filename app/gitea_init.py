@@ -210,7 +210,7 @@ def ensure_demo(session: Session, admin: GiteaAdmin, cfg: InitConfig, settings: 
     agent = session.scalar(select(Actor).where(Actor.name == DEMO_AGENT))
     if agent is None:
         created = actors.create(session, name=DEMO_AGENT, display_name="Demo agent", actor_type="agent",
-                                agent_kind="other", runtime="local",
+                                agent_kind="other", runtime="local", model_location="local",  # DEMO is local_only
                                 notes="Created by the Docker Compose profile gitea")
         agent, result.agent_token = created.actor, created.token
         result.steps.append(f"Agent {DEMO_AGENT} created")

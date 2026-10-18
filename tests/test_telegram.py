@@ -385,7 +385,7 @@ def _task(s, nr):
 @pytest.mark.db
 def test_profile_settings_form(tenv, ui, settings, monkeypatch):  # noqa: F811
     monkeypatch.setattr(settings, "tz_display", "UTC")
-    r = post(ui, "/profile/notifications", event_question="1", event_review="1", quiet_start="22:00",
+    r = post(ui, "/profile/notifications", ch_question_telegram="1", ch_review_telegram="1", quiet_start="22:00",
              quiet_end="07:00", mute_all="1d", mute_review="forever", all_projects="1")
     assert "Gespeichert." in r.text and 'value="22:00"' in r.text
     with db.session() as s:
@@ -403,6 +403,41 @@ def test_profile_settings_form(tenv, ui, settings, monkeypatch):  # noqa: F811
         pref = notifications.prefs(s, s.scalar(select(Actor.id).where(Actor.name == "admin")))
         assert pref.mute_all_until is None and pref.mute_review_until == notifications.FOREVER
         assert pref.quiet_start is None and notifications.enabled_events(pref) == set()
+
+
+@pytest.mark.db
+def test_profile_combined_form_saves_notifications_but_not_display_switches(tenv, ui, settings, monkeypatch):  # noqa: F811
+    """'Save all changes' stores the notification settings in one POST to /profile/notifications; the display
+    switches have their own form (`/profile/display`) and are ignored here."""
+    monkeypatch.setattr(settings, "tz_display", "UTC")
+    r = post(ui, "/profile/notifications", show_all_projects="1", show_all_agents="1",
+             ch_question_telegram="1", ch_review_email="1", bundle="60", quiet_start="21:00", quiet_end="07:00",
+             mute_all="forever", mute_review="off", all_projects="1")
+    assert "Gespeichert." in r.text
+    with db.session() as s:
+        actor = s.scalar(select(Actor).where(Actor.name == "admin"))
+        pref = notifications.prefs(s, actor.id)
+        assert not actor.show_all_projects and not actor.show_all_agents
+        assert notifications.channels_for(pref, "question") == {"telegram"}
+        assert notifications.channels_for(pref, "review") == {"email"}
+        assert notifications.bundle_minutes(pref) == 60
+        assert (pref.quiet_start, pref.quiet_end) == (21 * 60, 7 * 60)
+        assert pref.mute_all_until == notifications.FOREVER and pref.mute_review_until is None
+        assert pref.all_projects
+
+
+@pytest.mark.db
+def test_channel_buttons_are_not_the_implicit_default(tenv, ui):  # noqa: F811
+    """Telegram/email actions live in their own forms, not as formaction buttons in the settings form –
+    so pressing Enter in a text/time field submits 'Save all changes' instead of unlinking the chat."""
+    page = ui.get("/profile").text
+    assert '<form id="pf-settings" method="post" action="/profile/notifications"' in page
+    assert '<form method="post" action="/profile/telegram/code">' in page
+    assert '<form method="post" action="/profile/email">' in page
+    assert 'formaction="/profile/telegram/' not in page
+    # The settings form carries no submit button other than "Save all changes" (nothing before the actions block).
+    form = page.split('<form id="pf-settings"', 1)[1].split('<div class="pf-actions">', 1)[0]
+    assert "<button" not in form
 
 
 @pytest.mark.db

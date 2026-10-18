@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}{{ _("New task") }} – TaskBrigade{% endblock %}
-{% block body_attrs %} class="tinted"{% endblock %}
 {% block head %}<script src="/static/task_form.js?v={{ static_v }}" defer></script>{% endblock %}
 {% block content %}
 {# Content first (project/status, title, description, criteria), then planning; rarely needed options fold away.
@@ -10,13 +9,14 @@
 {% set model_open = has_tier or has_model or error_section == "model" %}
 {% set links_open = form.parent_task_nr or form.depends_on or error_section == "links" %}
 <div class="task-form">
+<div class="ui-page-header">
+  <div><h1 class="ui-page-title" id="new-task-heading">{{ _("New task") }}</h1><p class="ui-page-subtitle">{{ _("Describe the task and plan its execution") }}</p></div>
+</div>
 {% if own_projects_only and not projects %}{% include "_own_projects_hint.html" %}{% endif %}
 <form method="post" action="/tasks/new" enctype="multipart/form-data" data-guard="new" id="new-task-form">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <input type="hidden" name="back" value="{{ back or '/backlog' }}">
   <section class="form-card" aria-labelledby="new-task-heading">
-    <h2 id="new-task-heading">{{ _("New task") }}</h2>
-    <p class="form-lead muted">{{ _("Describe the task and plan its execution") }}</p>
     {% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
     <div class="form-row cols-2-1">
       <label>{{ _("Project") }} <select name="project" required>
@@ -60,6 +60,9 @@
       {% set reviewer_value = form.reviewer or "" %}{% set reviewer_default = True %}{% include "_reviewer_field.html" %}
       <label>{{ _("Due") }} <input type="date" name="due_date" value="{{ form.due_date or '' }}"></label>
     </div>
+    <div class="form-row cols-3">
+      {% set dc_value = form.data_class or "inherit" %}{% set dc_project = None %}{% include "_data_class_field.html" %}
+    </div>
 
     <details class="form-fold" id="new-task-model" {% if model_open %}open{% endif %}>
       <summary><span class="fold-title">{{ _("Model & execution") }}</span>
@@ -81,7 +84,7 @@
     <fieldset class="form-fold attachments">
       <legend class="fold-title">{{ _("Attachments") }}</legend>
       <div class="attach-row">
-        <input type="file" name="attachments" multiple id="new-task-files" aria-describedby="new-task-files-help">
+        <input type="file" name="attachments" multiple id="new-task-files" aria-label="{{ _("Attachments") }}" aria-describedby="new-task-files-help">
         <small class="muted" id="new-task-files-help">{{ _("Max. 10 MB per file, stored in the project repo under <code>tasks/&lt;task no.&gt;/</code>") }}</small>
       </div>
       <label><input type="checkbox" name="create_spec_file" value="1" {% if form.create_spec_file %}checked{% endif %}>

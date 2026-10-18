@@ -10,14 +10,15 @@ behave exactly as before.
 Rights: create/edit/assign/batch – admins, orchestrators and the project owner; release/close – admins and the
 project owner (like publishing a single task as a human).
 """
-from datetime import date
+import json
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.i18n import _
 from app.errors import AppError, Conflict, Forbidden, NotFound, Unprocessable
-from app.models import SPRINT_STATUSES, Actor, Project, Sprint, Task
+from app.models import SPRINT_STATUSES, Actor, Project, Sprint, Task, TaskDependency, TaskEvent
 from app.services import access
 from app.services.state_machine import END_STATUSES, add_event, missing_definition, transition, utcnow
 
@@ -148,6 +149,8 @@ def target_for(session: Session, project: Project, sprint_id: int) -> Sprint:
 def assign(session: Session, task: Task, sprint: Sprint | None, actor: Actor) -> None:
     """Change a task's sprint (None detaches). A `defined` task moved into a planned sprint returns to draft
     (status event `to_draft`); every other status is kept. Does not check planning rights."""
+    if sprint is not None and task.workflow_run_step_id is not None:
+        raise Unprocessable(_("Workflow tasks cannot belong to a sprint"), code="workflow_task_no_sprint")
     old = session.get(Sprint, task.sprint_id) if task.sprint_id else None
     if (old.id if old else None) == (sprint.id if sprint else None):
         return
@@ -160,16 +163,17 @@ def assign(session: Session, task: Task, sprint: Sprint | None, actor: Actor) ->
         transition(session, task, "to_draft", actor, {})
 
 
-def batch_create(session: Session, actor: Actor, sprint: Sprint, entries: list[dict],
-                 numbers: list[int] | None = None) -> list[Task]:
-    """Create several drafts in the sprint. All or nothing: the first invalid entry raises, and the caller's
-    transaction rolls back the entries created before it. `numbers` are the entry numbers named in errors
-    (default 1, 2, …)."""
+def batch_create(session: Session, actor: Actor, sprint: Sprint | None, entries: list[dict],
+                 numbers: list[int] | None = None, project: Project | None = None) -> list[Task]:
+    """Create several drafts in the sprint (`sprint` None: drafts without a sprint in `project`). All or nothing:
+    the first invalid entry raises, and the caller's transaction rolls back the entries created before it.
+    `numbers` are the entry numbers named in errors (default 1, 2, …)."""
     from app.services import tasks
 
-    project = session.get(Project, sprint.project_id)
+    if sprint is not None:
+        project = session.get(Project, sprint.project_id)
     require_plan(project, actor)
-    if sprint.status == "closed":
+    if sprint is not None and sprint.status == "closed":
         raise Conflict(_("Sprint '%(sprint)s' is closed", sprint=sprint.name), code="sprint_closed")
     if not entries:
         raise Unprocessable(_("No tasks given"))
@@ -178,7 +182,7 @@ def batch_create(session: Session, actor: Actor, sprint: Sprint, entries: list[d
         n = numbers[i] if numbers else i + 1
         try:
             created.append(tasks.create(session, actor, project=project.project_key, status="draft",
-                                        sprint=sprint.id, **entry))
+                                        sprint=sprint.id if sprint is not None else None, **entry))
         except AppError as e:
             raise type(e)(_("Entry %(n)d: %(error)s", n=n, error=e.message), code=e.code) from e
     return created
@@ -221,6 +225,53 @@ def _plan_changes(session: Session, task: Task, entry: dict) -> dict:
     return changes
 
 
+def _update_draft(session: Session, actor: Actor, task: Task, changes: dict, row_version: int | None,
+                  n: int) -> bool:
+    """Apply plan `changes` to the draft `task` with `tasks.update` (errors name entry `n`); False if none."""
+    from app.services import tasks
+
+    if not changes:
+        return False
+    try:
+        tasks.update(session, actor, task, changes, row_version)
+    except AppError as e:
+        raise type(e)(_("Entry %(n)d: %(error)s", n=n, error=e.message), code=e.code) from e
+    return True
+
+
+def prio_from_order(i: int, n: int) -> int:
+    """Prio of the `i`-th (0-based) of `n` drafts when the order sets the prio: 1–5 spread over the list (the
+    sprint editor's "Prio from order" in `static/sprint_editor.js` uses the same formula)."""
+    return i + 1 if n <= 5 else 1 + (i * 5) // n
+
+
+def reorder(session: Session, actor: Actor, sprint: Sprint, task_nrs: list[str]) -> list[str]:
+    """Planning board: new order of a planned sprint's tasks. Every task gets its position as `sprint_rank` (as
+    in `save_plan`); drafts also get their prio from the order (`prio_from_order`, via `tasks.update` like the
+    sprint editor). Tasks of the sprint missing from `task_nrs` keep their relative order after the listed ones.
+    Returns the drafts whose prio changed."""
+    project = session.get(Project, sprint.project_id)
+    require_plan(project, actor)
+    if sprint.status != "planned":
+        raise Conflict(_("Only tasks of a planned sprint can be reordered (status: '%(status)s')",
+                         status=sprint.status), code="invalid_sprint_status")
+    rows = list(session.scalars(select(Task).where(Task.sprint_id == sprint.id, Task.status != "cancelled")
+                                .order_by(Task.sprint_rank.is_(None), Task.sprint_rank, Task.prio, Task.id)
+                                .with_for_update().execution_options(populate_existing=True)))
+    position = {nr.upper(): i for i, nr in enumerate(dict.fromkeys(task_nrs))}
+    rows.sort(key=lambda t: position.get(t.task_nr, len(position)))  # Stable: unlisted ones keep their order.
+    drafts = [t for t in rows if t.status == "draft"]
+    changed = []
+    for i, task in enumerate(drafts):
+        prio = prio_from_order(i, len(drafts))
+        if prio != task.prio and _update_draft(session, actor, task, {"prio": prio}, None, i + 1):
+            changed.append(task.task_nr)
+    for n, task in enumerate(rows, 1):
+        task.sprint_rank = n
+    session.flush()
+    return changed
+
+
 def save_plan(session: Session, actor: Actor, project: Project, sprint: Sprint | None, *, name: str,
               goal: str | None = None, start_date: date | None = None, end_date: date | None = None,
               entries: list[dict], removed: list[str] | None = None) -> dict:
@@ -234,8 +285,6 @@ def save_plan(session: Session, actor: Actor, project: Project, sprint: Sprint |
     New entries become drafts (`batch_create`); existing drafts are updated with `tasks.update` (version check);
     tasks past draft are read-only here and only keep their position. `removed` names drafts of the sprint to
     cancel. Every listed task gets its position as `sprint_rank`."""
-    from app.services import tasks
-
     if sprint is None:
         sprint = create(session, actor, project, name=name, goal=goal, start_date=start_date, end_date=end_date)
     else:
@@ -270,14 +319,9 @@ def save_plan(session: Session, actor: Actor, project: Project, sprint: Sprint |
         if task is None or nr in result["cancelled"]:
             raise Conflict(_("Entry %(n)d: %(task_nr)s is no longer part of this sprint – reload the editor",
                              n=n, task_nr=nr), code="not_in_sprint")
-        if task.status == "draft":
-            changes = _plan_changes(session, task, entry)
-            if changes:
-                try:
-                    tasks.update(session, actor, task, changes, entry.get("row_version"))
-                except AppError as e:
-                    raise type(e)(_("Entry %(n)d: %(error)s", n=n, error=e.message), code=e.code) from e
-                result["updated"].append(nr)
+        if task.status == "draft" and _update_draft(session, actor, task, _plan_changes(session, task, entry),
+                                                    entry.get("row_version"), n):
+            result["updated"].append(nr)
         task.sprint_rank = n
     if new:
         created = batch_create(session, actor, sprint, new, numbers)
@@ -290,24 +334,67 @@ def save_plan(session: Session, actor: Actor, project: Project, sprint: Sprint |
 
 # --- Release / close -----------------------------------------------------------------------
 
-def release_preview(session: Session, sprint: Sprint) -> dict:
-    """What `release` would do now, without changing anything: drafts that would be published and drafts that
-    stay drafts with their missing fields (`missing_definition`)."""
-    drafts = session.scalars(select(Task).where(Task.sprint_id == sprint.id, Task.status == "draft")
-                             .order_by(Task.prio, Task.id)).all()
-    released, blocked = [], []
+def _is_later(start: date | None, sprint_id: int, than: Sprint) -> bool:
+    """Sprint (`start`, `sprint_id`) comes after `than`: by start date when both have one, otherwise by id
+    (creation order)."""
+    if start and than.start_date and start != than.start_date:
+        return start > than.start_date
+    return sprint_id > than.id
+
+
+def late_dependencies(session: Session, sprint: Sprint, task_ids: list[int]) -> dict[int, list[dict]]:
+    """Dependencies of `task_ids` that will not be done in time for `sprint` (task id → list): the dependency is not
+    `done` and has no sprint, sits in a planned sprint or in a sprint later than this one. Dependencies in the same
+    sprint or in an earlier released/closed one are not listed. One query."""
+    out: dict[int, list[dict]] = {}
+    if not task_ids:
+        return out
+    rows = session.execute(
+        select(TaskDependency.task_id, Task.task_nr, Task.title, Task.status, Sprint.id, Sprint.name, Sprint.status,
+               Sprint.start_date)
+        .join(Task, Task.id == TaskDependency.depends_on_task_id)
+        .outerjoin(Sprint, Sprint.id == Task.sprint_id)
+        .where(TaskDependency.task_id.in_(task_ids), Task.status != "done").order_by(Task.id))
+    for task_id, nr, title, status, sid, sname, sstatus, sstart in rows:
+        if sid == sprint.id:
+            continue
+        if sid is not None and sstatus != "planned" and not _is_later(sstart, sid, sprint):
+            continue
+        out.setdefault(task_id, []).append({"task_nr": nr, "title": title, "status": status, "sprint": sid,
+                                            "sprint_name": sname, "sprint_status": sstatus})
+    return out
+
+
+def _release_lists(session: Session, sprint: Sprint, drafts: list[Task], publish=None) -> dict:
+    released, blocked, ready = [], [], []
     for task in drafts:
         missing = missing_definition(task)
         if missing:
             blocked.append({"task_nr": task.task_nr, "title": task.title, "missing": missing})
         else:
+            ready.append(task)
             released.append({"task_nr": task.task_nr, "title": task.title})
-    return {"released": released, "blocked": blocked}
+    late = late_dependencies(session, sprint, [t.id for t in ready])
+    waiting = [{"task_nr": t.task_nr, "title": t.title, "waits_for": late[t.id]} for t in ready if t.id in late]
+    if publish:
+        for task in ready:
+            publish(task)
+    return {"released": released, "blocked": blocked, "waiting": waiting}
+
+
+def release_preview(session: Session, sprint: Sprint) -> dict:
+    """What `release` would do now, without changing anything: drafts that would be published, drafts that stay
+    drafts with their missing fields (`missing_definition`) and, as a warning, the published ones that wait for a
+    dependency that will not be done in time (`waiting`, see `late_dependencies`)."""
+    drafts = session.scalars(select(Task).where(Task.sprint_id == sprint.id, Task.status == "draft")
+                             .order_by(Task.prio, Task.id)).all()
+    return _release_lists(session, sprint, drafts)
 
 
 def release(session: Session, actor: Actor, sprint: Sprint) -> dict:
     """Publish every complete draft of the sprint (as `publish`, with the same events) and mark the sprint
-    released. Incomplete drafts stay drafts and are returned with their missing fields."""
+    released. Incomplete drafts stay drafts and are returned with their missing fields; `waiting` lists published
+    tasks with a late dependency (a warning, releasing is never refused for it)."""
     project = session.get(Project, sprint.project_id)
     access.require_manage_project(project, actor)
     if sprint.status == "closed":
@@ -315,18 +402,12 @@ def release(session: Session, actor: Actor, sprint: Sprint) -> dict:
     drafts = session.scalars(select(Task).where(Task.sprint_id == sprint.id, Task.status == "draft")
                              .order_by(Task.prio, Task.id).with_for_update()
                              .execution_options(populate_existing=True)).all()
-    released, blocked = [], []
-    for task in drafts:
-        missing = missing_definition(task)
-        if missing:
-            blocked.append({"task_nr": task.task_nr, "title": task.title, "missing": missing})
-        else:
-            transition(session, task, "publish", actor, {})
-            released.append({"task_nr": task.task_nr, "title": task.title})
+    result = _release_lists(session, sprint, drafts,
+                            publish=lambda task: transition(session, task, "publish", actor, {}))
     if sprint.status == "planned":
         sprint.status, sprint.released_at = "released", utcnow()
     session.flush()
-    return {"released": released, "blocked": blocked}
+    return result
 
 
 def close(session: Session, actor: Actor, sprint: Sprint, move_to: int | None = None,
@@ -357,9 +438,122 @@ def close(session: Session, actor: Actor, sprint: Sprint, move_to: int | None = 
         task.row_version += 1
     sprint.status, sprint.closed_at = "closed", utcnow()
     session.flush()
+    # Remember which tasks the close moved out and where to, so `reopen` can tell a task moved again afterwards
+    # from one still where the close left it.
+    sprint.moved_task_ids = _pack_moved(open_tasks, target) if open_tasks else None
+    session.flush()
     nrs = [t.task_nr for t in open_tasks]
     return {"moved_to": target.id if target else None, "moved": nrs if target else [],
             "detached": [] if target else nrs}
+
+
+def moved_out_at_close(session: Session, sprint: Sprint) -> tuple[list[Task], list[str]]:
+    """Tasks that `close` moved out of `sprint` (to another sprint or detached) and the skipped ones.
+
+    The reliable source is `sprint.moved_task_ids`, written by `close` (`_pack_moved`): the ids of the moved tasks
+    and the sprint the close moved them to (null = detached). It is immune to sprint renames and to tasks moved out
+    by hand while the sprint was still released (a sprint name is only unique per project, so matching by name
+    alone is not enough).
+
+    For sprints closed before the `moved_task_ids` column existed (values are NULL) the lookup falls back to the
+    task events of type `sprint` written at/after `closed_at` by the close call, limited to this sprint's project.
+
+    Skipped either way: tasks that are done/cancelled, that are already back in this sprint, or that were moved
+    again after the close call – `restore=True` must not overwrite that. Returns the tasks to restore and the task
+    numbers to report."""
+    stored = _stored_moved(sprint)
+    if stored is not None:
+        ids, target = stored
+        moved_again = _moved_again_since_close(session, ids, target)
+    else:
+        fallback = _moved_ids_from_events(session, sprint)
+        if fallback is None:
+            return [], []
+        ids, last = fallback
+        moved_again = set(session.scalars(select(TaskEvent.task_id)
+                                          .where(TaskEvent.event_type == "sprint", TaskEvent.task_id.in_(ids),
+                                                 TaskEvent.id > last))) if ids else set()
+    tasks = {t.id: t for t in session.scalars(select(Task).where(Task.id.in_(ids)).with_for_update()
+                                             .execution_options(populate_existing=True))}
+    restore, skipped = [], []
+    for task_id in ids:
+        task = tasks.get(task_id)
+        if task is None:
+            continue  # Task deleted in the meantime.
+        if (task.status in END_STATUSES or task_id in moved_again or task.sprint_id == sprint.id):
+            skipped.append(task.task_nr)
+        else:
+            restore.append(task)
+    return restore, skipped
+
+
+def _pack_moved(tasks: list[Task], target: Sprint | None) -> str:
+    """JSON for `sprints.moved_task_ids`: the moved task ids and the sprint the close moved them to (null =
+    detached). The target lets `reopen` recognise a task that was moved again afterwards."""
+    return json.dumps({"ids": [t.id for t in tasks], "target": target.id if target else None})
+
+
+def _stored_moved(sprint: Sprint) -> tuple[list[int], int | None] | None:
+    """(task ids, close target) that `close` stored, or None when the sprint was closed before the column
+    existed or the value cannot be read."""
+    if sprint.moved_task_ids is None:
+        return None
+    try:
+        data = json.loads(sprint.moved_task_ids)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(data, list):  # Defensive: an older/foreign shape with only the ids.
+        return [int(i) for i in data], None
+    return [int(i) for i in data.get("ids") or []], data.get("target")
+
+
+def _moved_again_since_close(session: Session, ids: list[int], target: int | None) -> set[int]:
+    """Stored-path counterpart of the event check: a task was moved again after the close when it is no longer in
+    the sprint the close moved it to (null = detached)."""
+    if not ids:
+        return set()
+    current = {task_id: sprint_id for task_id, sprint_id in
+               session.execute(select(Task.id, Task.sprint_id).where(Task.id.in_(ids)))}
+    return {task_id for task_id in ids if current.get(task_id, object()) != target}
+
+
+def _moved_ids_from_events(session: Session, sprint: Sprint) -> tuple[list[int], int] | None:
+    """Fallback for sprints closed before `moved_task_ids`: the `sprint` events written at/after `closed_at` with
+    this sprint's name as old value, limited to this sprint's project. Returns the task ids and the id of the last
+    such event (the close call's last move), or None when there is nothing to look at."""
+    if sprint.closed_at is None:
+        return None
+    # MariaDB timestamps have second granularity and `closed_at` is set right after the events of the close call,
+    # so the close's own events may lie up to one second before `closed_at`.
+    since = sprint.closed_at - timedelta(seconds=1)
+    events = list(session.scalars(
+        select(TaskEvent).join(Task, Task.id == TaskEvent.task_id)
+        .where(TaskEvent.event_type == "sprint", TaskEvent.from_value == sprint.name,
+               Task.project_id == sprint.project_id, TaskEvent.created_at >= since)
+        .order_by(TaskEvent.id)))
+    if not events:
+        return None
+    return list(dict.fromkeys(e.task_id for e in events)), events[-1].id
+
+
+def reopen(session: Session, actor: Actor, sprint: Sprint, restore_tasks: bool = True) -> dict:
+    """Reopen a closed sprint: status back to `released`, `closed_at` cleared. Same permission as `close`.
+
+    With `restore_tasks` the tasks that `close` moved out of the sprint (to another sprint or detached) are moved
+    back with `assign` (so events are written); their status is untouched. Tasks that someone moved again after
+    the close, or that are done/cancelled, are skipped and reported in `skipped`."""
+    project = session.get(Project, sprint.project_id)
+    access.require_manage_project(project, actor)
+    if sprint.status != "closed":
+        raise Conflict(_("Only closed sprints can be reopened (status: '%(status)s')", status=sprint.status),
+                       code="invalid_sprint_status")
+    restore, skipped = moved_out_at_close(session, sprint) if restore_tasks else ([], [])
+    sprint.status, sprint.closed_at, sprint.moved_task_ids = "released", None, None
+    for task in restore:
+        assign(session, task, sprint, actor)
+        task.row_version += 1
+    session.flush()
+    return {"restored": [t.task_nr for t in restore], "skipped": skipped}
 
 
 def parse_statuses(status: list[str] | None) -> list[str] | None:

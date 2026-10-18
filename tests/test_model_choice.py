@@ -269,6 +269,7 @@ def test_model_used_event_and_ignoring_agents(env):  # noqa: F811
 
 @pytest.mark.db
 def test_ui_admin_models_task_form_and_board(env, ui):  # noqa: F811
+    post(ui, "/profile/display", show_all_agents="1")  # Seeded agents have no owner; an admin sees them only so.
     mkproject(env)
     page = ui.get("/admin/users/claude-code").text
     assert 'name="model_default"' in page and 'name="model_simple"' in page and 'name="models_allowed"' in page

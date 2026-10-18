@@ -1,0 +1,63 @@
+{% set base = '/workflows/' ~ r.project ~ '/' ~ r.key %}
+{% set id = 'wf-' ~ r.template.id %}
+<div class="wf-row-actions">
+  {% if r.can_start %}
+    {% if r.start_dialog %}
+    <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" data-wf-open="{{ id }}-start"><span aria-hidden="true">▶</span> {{ _("Start workflow") }}</button>
+    {% else %}
+    <form method="post" action="{{ base }}/start"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="overview" value="1"><button class="ui-btn ui-btn-secondary ui-btn-sm"><span aria-hidden="true">▶</span> {{ _("Start workflow") }}</button></form>
+    {% endif %}
+  {% elif r.can_edit and not r.template.current_version_id %}
+    <button class="ui-btn ui-btn-secondary ui-btn-sm" disabled title="{{ _('Not published yet – publish first') }}"><span aria-hidden="true">▶</span> {{ _("Start workflow") }}</button>
+  {% endif %}
+  {% if r.can_edit %}
+  <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" aria-label="{{ _('More actions') }}" aria-haspopup="dialog" data-wf-open="{{ id }}-menu">⋯</button>
+  <dialog id="{{ id }}-menu" class="wf-action-menu" aria-labelledby="{{ id }}-menu-title">
+    <h2 id="{{ id }}-menu-title">{{ r.template.name }}</h2>
+    <button type="button" class="ui-btn ui-btn-secondary wf-menu-item" data-wf-open="{{ id }}-rename">{{ _("Rename") }}</button>
+    <form method="post" action="{{ base }}/manage/duplicate"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="ui-btn ui-btn-secondary wf-menu-item">{{ _("Duplicate") }}</button></form>
+    <hr>
+    <button type="button" class="ui-btn ui-btn-secondary wf-menu-item wf-danger" data-wf-open="{{ id }}-delete">{{ _("Delete") }}</button>
+    <button type="button" class="ui-btn ui-btn-secondary" data-wf-close>{{ _("Cancel") }}</button>
+  </dialog>
+  <dialog id="{{ id }}-rename" class="wf-action-dialog" aria-labelledby="{{ id }}-rename-title">
+    <h2 id="{{ id }}-rename-title">{{ _("Rename workflow") }}</h2>
+    <form method="post" action="{{ base }}/manage/rename">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <label>{{ _("Name") }}<input name="name" value="{{ r.template.name }}" required maxlength="120"></label>
+      <p class="ui-muted">{{ _("The key stays unchanged:") }} <code>{{ r.key }}</code></p>
+      <div class="wf-dialog-footer"><button type="button" class="ui-btn ui-btn-secondary" data-wf-close>{{ _("Cancel") }}</button><button class="ui-btn">{{ _("Save") }}</button></div>
+    </form>
+  </dialog>
+  <dialog id="{{ id }}-delete" class="wf-action-dialog" aria-labelledby="{{ id }}-delete-title">
+    <h2 id="{{ id }}-delete-title">{{ _("Delete workflow?") }}</h2>
+    <p><strong>{{ r.template.name }}</strong> · <code>{{ r.key }}</code></p>
+    <p>{{ _("Runs: %(runs)d · Active schedules: %(schedules)d · Active triggers: %(triggers)d", runs=r.impact.runs, schedules=r.impact.schedules, triggers=r.impact.triggers) }}</p>
+    <p>{{ _("The workflow will be archived. Schedules and triggers will be disabled. Run history and tasks remain available.") }}</p>
+    {% if r.impact.active %}<p role="alert">{{ _("Cancel active runs first") }}</p>{% endif %}
+    <form method="post" action="{{ base }}/manage/delete">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="wf-dialog-footer"><button type="button" class="ui-btn ui-btn-secondary" data-wf-close>{{ _("Cancel") }}</button><button class="ui-btn ui-btn-secondary wf-danger"{% if r.impact.active %} disabled{% endif %}>{{ _("Delete") }}</button></div>
+    </form>
+  </dialog>
+  {% endif %}
+  {% if r.can_start and r.start_dialog %}
+  <dialog id="{{ id }}-start" class="wf-action-dialog" aria-labelledby="{{ id }}-start-title">
+    <h2 id="{{ id }}-start-title">{{ _("Start a run") }} · {{ r.template.name }}</h2>
+    <form method="post" action="{{ base }}/start">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="overview" value="1">
+      {% for p in r.start_params %}
+      <label>{{ p.label if p.label and p.label != '***' else p.name }}
+        {% if p.type == 'bool' %}<select name="param_{{ p.name }}"{% if p.required and not p.default %} required{% endif %}><option value="">{{ _("default") }}</option><option value="true"{% if p.default == 'true' %} selected{% endif %}>{{ _("yes") }}</option><option value="false"{% if p.default == 'false' %} selected{% endif %}>{{ _("no") }}</option></select>
+        {% elif p.type == 'enum' and p['values'] and p['values'] != '***' %}<select name="param_{{ p.name }}"{% if p.required and not p.default %} required{% endif %}><option value="">{{ _("default") }}</option>{% for value in p['values'] %}<option{% if value == p.default %} selected{% endif %}>{{ value }}</option>{% endfor %}</select>
+        {% else %}<input name="param_{{ p.name }}" type="{{ 'date' if p.type == 'date' else 'month' if p.type == 'month' else 'number' if p.type in ('int', 'decimal', 'dataset') else 'text' }}"{% if p.type == 'decimal' %} step="any"{% endif %} value="{{ p.default if p.default and p.default != '***' and '{{' not in p.default else '' }}" placeholder="{{ p.default if p.default and p.default != '***' else '' }}"{% if p.required and not p.default %} required{% endif %}>{% endif %}
+      </label>
+      {% endfor %}
+      <p class="ui-muted">{{ _("Empty fields use the default.") }}</p>
+      <label>{{ _("Token budget (optional)") }}<input type="number" name="budget_tokens" min="0" max="4294967295" value="{{ r.template.default_budget_tokens if r.template.default_budget_tokens is not none else '' }}"></label>
+      <label>{{ _("Cost budget in cents (optional)") }}<input type="number" name="budget_cents" min="0" max="4294967295" value="{{ r.template.default_budget_cents if r.template.default_budget_cents is not none else '' }}"></label>
+      <div class="wf-dialog-footer"><button type="button" class="ui-btn ui-btn-secondary" data-wf-close>{{ _("Cancel") }}</button><button class="ui-btn">{{ _("Start now") }}</button></div>
+    </form>
+  </dialog>
+  {% endif %}
+</div>

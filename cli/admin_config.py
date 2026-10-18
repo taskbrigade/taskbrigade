@@ -58,6 +58,11 @@ def _whole_number(minimum: int):
     return check
 
 
+def _zero_or_one(value: str) -> None:
+    if value not in ("0", "1"):
+        raise ValueError(_("must be 0 or 1"))
+
+
 def _absolute_path(value: str) -> None:
     if not value.startswith("/"):
         raise ValueError(_("must be an absolute path"))
@@ -91,6 +96,11 @@ EXTRA_KEYS = {
     "TBR_MAX_ATTACHMENT_MB": ("10", _whole_number(1)),
     "TBR_BACKUP_DIR": ("/var/backups/taskbrigade", _absolute_path),
     "TBR_BACKUP_KEEP_DAYS": ("14", _whole_number(0)),
+    # Read by deploy/install.sh and deploy/update.sh, not by the app (docs/operations.md, data zones).
+    "TBR_DATA_ZONES": ("", _zero_or_one),
+    "TBR_DATA_SFTP": ("", _zero_or_one),
+    "TBR_RUNNER_VENV": ("", _absolute_path),
+    "TBR_BACKUP_DATA": ("", _zero_or_one),
 }
 # Checks on top of the Settings types.
 VALUE_CHECKS = {

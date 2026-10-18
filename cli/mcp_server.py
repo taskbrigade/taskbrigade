@@ -13,14 +13,22 @@ from pathlib import Path
 from mcp.server.mcpserver import MCPServer
 
 from cli.client import BATCH_FORMAT, ApiError, Client, close_report, explain, is_no_sprint, parse_batch, parse_due
+from cli.client import parse_depends_on
 from cli.client import NOTIFY_ACTIONS, notify_report, notify_request, parallel_limit_note, patch_task, release_report
+from cli.client import reopen_report
 from cli.client import duplicate_task, model_line, model_value, parse_tier, resolve_sprint, sprint_line, transition
 from cli.client import agent_scope, heartbeat_task, review_task, waiting_report
+from cli.client import data_class_line, parse_data_class
+from cli.client import email_report, emails_report, recipients_report, send_email
 from cli import attachments as att, sftp
 from cli.i18n import N_, _
 from cli.prepare import PrepareError, _git, prepare, unresolved_conflicts
+from cli.workflow_mcp import WorkflowTools, register as register_workflows
 
 # Translated in build_server (`_()`), so the language from the agent's .taskbrigade.toml applies
+DATA_CLASS_HELP = N_("data_class: cloud_ok, local_only or sealed (\"inherit\" = the project's privacy, the "
+                     "default). A class looser than the project's is reserved for the owner and admins; once work "
+                     "has started it can only be made stricter.")
 INSTRUCTIONS = N_("""\
 TaskBrigade is your team's central task manager. With these tools you claim tasks and report results.
 
@@ -35,9 +43,10 @@ Flow:
 3. Do NOT run git commands and do not call TaskBrigade yourself – submit_task takes care of commit, push and pull
    request. show_changes shows your changes so far.
 4. Finish with exactly one step:
-   - done → submit_task(task_nr, summary, commit_message, open_points): summary = what changed, how it was
+   - done → submit_task(task_nr, summary, commit_message, open_points, outputs): summary = what changed, how it was
      checked; open_points = list of points that remain open (one short, self-contained sentence each; leave it
      out if nothing is left). Humans take them over into a follow-up task, so do not hide them in the summary.
+     outputs = declared workflow outputs (object; omit when the task lists none). Required outputs are also listed in TASK.md.
    - unclear → ask(task_nr, question) and stop; the answer arrives in the thread with the next start_task
    - not solvable for you → abort_task(task_nr, reason); a human reassigns the task
 Never push anything to main or write secrets into files. The server extends the lease automatically.
@@ -49,7 +58,7 @@ Creating new tasks (when the user asks for it, e.g. "Create a task for codex …
   publishes it). due_date (YYYY-MM-DD) is optional and for information only – it plays no role in claiming.
   Write the description and criteria so concretely that the agent can work without asking back. If something
   essential is missing (project, goal, form of the result), ask first. Without assigned_to nobody claims the task.
-- Assign projects with privacy "local_only" only to local agents (runtime local).
+- Assign projects with privacy "local_only" only to agents with a local model (model location local, runtime local).
 - Attachments: create_task(…, attachments=[paths]) or attach_files(task_nr, paths) attach files from this machine –
   only from the allowed folders (work directory, ~/Downloads, ~/Documents, ~/Desktop unless configured otherwise),
   never hidden files or keys. A file you cannot reach by path (e.g. dropped into the chat) can be attached as text
@@ -61,6 +70,11 @@ Creating new tasks (when the user asks for it, e.g. "Create a task for codex …
   opinion from another agent/model); without assign the draft stays unassigned.
 - reviewer (create_task/update_task): who reviews the result – a human or an agent with role "reviewer", never the
   assignee; empty = the project's default reviewer, "none" = the project owner and admins.
+- depends_on (create_task/update_task): task numbers (list or comma-separated string) that must be done first –
+  the agent can claim the task only once all dependencies are done. Set real dependencies instead of writing
+  "depends on X" into the description. update_task replaces the list ("none" removes all, omitted = unchanged);
+  show_task lists the dependencies with their status. Errors (unknown number, self-dependency, no permission) are
+  reported as the server's message.
 
 Reviews (agents with role "reviewer"): a task waiting for your review is a review job – list_tasks shows it under
 "Review jobs", start_task claims it and returns REVIEW.md with a read-only checkout. Check the changes against the
@@ -70,15 +84,26 @@ job back undecided). You can only decide tasks you are entered for as reviewer.
 
 Sprints (optional level project → sprint → task; sprint = id or name):
 - list_sprints(project) and show_sprint(project, sprint) show sprints, goal and tasks.
-- create_sprint, add_sprint_tasks (several tasks at once, one line each: "Title | Agent | Prio | Reviewer") and
-  the sprint parameter of create_task/update_task ("none" detaches) – admins, orchestrators and the project owner.
+- create_sprint, update_sprint (name, goal, start_date, end_date; only the given fields; "none" clears a date and
+  an empty goal clears it; the status stays unchanged), add_sprint_tasks (several tasks at once, one line each:
+  "Title | Agent | Prio | Reviewer") and the sprint parameter of create_task/update_task ("none" detaches) – admins,
+  orchestrators and the project owner.
 - Tasks in a sprint that is not released yet are drafts. release_sprint publishes every draft with description and
   acceptance criteria and lists the rest; close_sprint moves open tasks (move_to) or detaches them (detach=True).
-  Both only for admins and the project owner – otherwise report the refusal to the user. Released tasks are worked
-  on in parallel; order only through prio and dependencies.
+  reopen_sprint reopens a closed sprint (status back to released); with restore_tasks (default True) the tasks that
+  were moved out when closing return, their status unchanged; tasks moved elsewhere later or finished are skipped.
+  release_sprint, close_sprint and reopen_sprint only for admins and the project owner – otherwise report the
+  refusal to the user. Released tasks are worked on in parallel; order only through prio and dependencies.
 
 SFTP storage (if the admin enabled it): put results on the team's SFTP server only when the task asks for it –
 sftp_put(task_nr, files) uploads files from the working folder into the task's folder, sftp_ls lists folders.
+
+Results by email (if the project has recipients): only when the task asks for it – send_email(task_nr, to, subject,
+body, attachments) files a request, the server checks the project's recipient list (list_mail_recipients) and sends
+it after a human approved it; list_emails(task_nr) shows the status. Attachments are references the server reads
+itself (attachment:<id>, branch:<path>, merge:<path>) – push files before you reference them.
+result:<id> attaches a released output-gate aggregate. Local-only mail accepts only these attachments and always
+needs separate human mail approval; sealed mail is refused.
 
 Notifications: notify(action="status"|"pause"|"resume"|"reviews_off"|"reviews_on", duration, user) mutes or unmutes
 Telegram messages ("mute notifications for 2 hours" → notify("pause", "2h", user=<human>)). For someone else only
@@ -87,7 +112,7 @@ you are the task's entered reviewer.
 """)
 
 
-class TaskBrigadeMCP:
+class TaskBrigadeMCP(WorkflowTools):
     def __init__(self, client: Client, work_root: Path, max_session_hours: float = 8.0,
                  attach_policy: att.AttachPolicy | None = None):
         self.client, self.work_root = client, work_root
@@ -216,7 +241,8 @@ class TaskBrigadeMCP:
                  status=status, commits=commits, diff=diff or _("(empty)"))
 
     def submit_task(self, task_nr: str, summary: str, commit_message: str,
-                    open_points: list[str] | None = None) -> str:
+                    open_points: list[str] | None = None, outputs: dict | None = None,
+                    usage: dict | None = None) -> str:
         task = self._task(task_nr)
         wt = self._worktree(task)
         if not wt.is_dir():
@@ -236,10 +262,14 @@ class TaskBrigadeMCP:
             return _("No changes compared to %(base)s – nothing to submit.", base=base)
         _git("push", "--quiet", "-u", "origin", f"HEAD:{branch}", cwd=wt)
         sha = _git("rev-parse", "HEAD", cwd=wt)
+        payload = {"branch_name": branch, "commit_sha": sha, "summary": summary.strip(),
+                   "open_points": [p for p in open_points or [] if p.strip()]}
+        if outputs is not None:
+            payload["outputs"] = outputs
+        if usage is not None:
+            payload["usage"] = usage
         try:
-            r = self.client.request("POST", f"/tasks/{task['task_nr']}/submit",
-                                    json={"branch_name": branch, "commit_sha": sha, "summary": summary.strip(),
-                                          "open_points": [p for p in open_points or [] if p.strip()]})
+            r = self.client.request("POST", f"/tasks/{task['task_nr']}/submit", json=payload)
         except ApiError as e:
             return _("Push ok, submitting failed: %(error)s", error=e)
         self._stop_heartbeat(task["task_nr"])
@@ -277,9 +307,10 @@ class TaskBrigadeMCP:
         actors = self.client.get("/actors")
         agents = [a for a in actors if a["actor_type"] == "agent"]
         humans = [a for a in actors if a["actor_type"] == "human"]
-        lines = [_("Agents you may assign (name – display name, runtime, public or owner; local_only projects only "
-                   "to runtime local):")]
-        lines += [f"  - {a['name']} – {a['display_name']}, {a['runtime']}{agent_scope(a)}" for a in agents]
+        lines = [_("Agents you may assign (name – display name, runtime, model location, public or owner; local_only "
+                   "projects only to agents with a local model):")]
+        lines += [f"  - {a['name']} – {a['display_name']}, {a['runtime']}, {_('model')} {a.get('model_location', '?')}"
+                  f"{agent_scope(a)}" for a in agents]
         if humans:
             lines += [_("Humans:"), *[f"  - {a['name']} – {a['display_name']}" for a in humans]]
         return "\n".join(lines)
@@ -288,10 +319,13 @@ class TaskBrigadeMCP:
                     assigned_to: str | None = None, prio: int = 3, draft: bool = False,
                     due_date: str | None = None, sprint: str | None = None, tier: str | None = None,
                     model: str | None = None, reviewer: str | None = None,
-                    attachments: list[str] | None = None) -> str:
+                    attachments: list[str] | None = None, data_class: str | None = None,
+                    depends_on: list[str] | str | None = None) -> str:
         try:
+            deps = parse_depends_on(depends_on)
             due = parse_due(due_date)
             model_tier = parse_tier(tier)
+            cls = parse_data_class(data_class)
             sprint_id = (resolve_sprint(self.client, project, str(sprint))
                          if sprint is not None and str(sprint).strip() and not is_no_sprint(str(sprint)) else None)
         except (ValueError, ApiError) as e:
@@ -301,7 +335,8 @@ class TaskBrigadeMCP:
                 "acceptance_criteria": acceptance_criteria.strip() or None,
                 "assigned_to": (assigned_to or "").strip() or None,
                 "status": "draft" if draft else "defined", "sprint": sprint_id, "model_tier": model_tier,
-                "model": model_value(model), **({"reviewer": reviewer.strip()} if (reviewer or "").strip() else {})}
+                "model": model_value(model), **({"reviewer": reviewer.strip()} if (reviewer or "").strip() else {}),
+                **({"data_class": cls} if cls else {}), **({"depends_on": deps} if deps else {})}
         try:
             t = self.client.request("POST", "/tasks", json=body).json()
         except ApiError as e:
@@ -321,9 +356,16 @@ class TaskBrigadeMCP:
         if t.get("reviewer"):
             out += "\n" + _("Reviewer: %(name)s", name=t["reviewer"])
         out += ("\n" + model_line(t).removeprefix("- ")) if model_line(t) else ""
+        out += ("\n" + data_class_line(t).removeprefix("- ")) if t.get("data_class") else ""
+        out += ("\n" + self._dependencies_line(t)) if t.get("dependencies") else ""
         if attachments and any(str(p).strip() for p in attachments):
             out += "\n" + self._attach_report(t["task_nr"], attachments, created=True)
         return out
+
+    @staticmethod
+    def _dependencies_line(t: dict) -> str:
+        return _("Depends on: %(deps)s – the agent can claim the task once all are done.",
+                 deps=", ".join(f"{d['task_nr']} ({d['status']})" for d in t["dependencies"]))
 
     # --- Attachments ---------------------------------------------------------------------------
 
@@ -374,9 +416,15 @@ class TaskBrigadeMCP:
     def update_task(self, task_nr: str, title: str | None = None, description: str | None = None,
                     acceptance_criteria: str | None = None, assigned_to: str | None = None, prio: int | None = None,
                     due_date: str | None = None, sprint: str | None = None, tier: str | None = None,
-                    model: str | None = None, reviewer: str | None = None) -> str:
+                    model: str | None = None, reviewer: str | None = None, data_class: str | None = None,
+                    depends_on: list[str] | str | None = None) -> str:
         changes = {k: v for k, v in (("title", title), ("description", description),
                                      ("acceptance_criteria", acceptance_criteria), ("prio", prio)) if v is not None}
+        if depends_on is not None:
+            try:
+                changes["depends_on"] = parse_depends_on(depends_on)
+            except ValueError as e:
+                return _("Not changed: %(error)s", error=e)
         if tier is not None:
             try:
                 changes["model_tier"] = parse_tier(tier)
@@ -384,6 +432,11 @@ class TaskBrigadeMCP:
                 return _("Not changed: %(error)s", error=e)
         if model is not None:
             changes["model"] = model_value(model)
+        try:
+            if parse_data_class(data_class):
+                changes["data_class"] = parse_data_class(data_class)
+        except ValueError as e:
+            return _("Not changed: %(error)s", error=e)
         if assigned_to is not None:
             changes["assigned_to"] = None if assigned_to.strip().lower() in ("none", "-", "") else assigned_to.strip()
         if reviewer is not None:
@@ -410,7 +463,10 @@ class TaskBrigadeMCP:
                  who=t.get("assigned_to") or _("nobody"), prio=t["prio"], due=t.get("due_date") or "–",
                  sprint=t.get("sprint_name") or "–", status=t["status"]) + (
             "\n" + _("Reviewer: %(name)s", name=t["reviewer"]) if "reviewer" in changes and t.get("reviewer") else "") + (
-            "\n" + model_line(t).removeprefix("- ") if model_line(t) else "")
+            "\n" + model_line(t).removeprefix("- ") if model_line(t) else "") + (
+            "\n" + data_class_line(t).removeprefix("- ") if "data_class" in changes and data_class_line(t) else "") + (
+            "\n" + (self._dependencies_line(t) if t.get("dependencies") else _("Dependencies: none."))
+            if "depends_on" in changes else "")
 
     def _transition(self, task_nr: str, to: str, reason: str | None, tool: str) -> str:
         try:
@@ -481,6 +537,33 @@ class TaskBrigadeMCP:
         return _("Sprint '%(name)s' created (id %(id)s, %(status)s). Tasks in it stay drafts until release_sprint.",
                  name=sp["name"], id=sp["id"], status=sp["status"])
 
+    def update_sprint(self, project: str, sprint: str, name: str | None = None, goal: str | None = None,
+                      start_date: str | None = None, end_date: str | None = None) -> str:
+        """PATCH name, goal and dates. Omitted arguments stay unchanged; 'none' clears a date; '' clears the goal."""
+        body: dict = {}
+        if name is not None:
+            body["name"] = name
+        if goal is not None:
+            body["goal"] = goal
+        try:
+            if start_date is not None:
+                body["start_date"] = parse_due(start_date)
+            if end_date is not None:
+                body["end_date"] = parse_due(end_date)
+        except ValueError as e:
+            return _("Sprint not updated: %(error)s", error=e)
+        if not body:
+            return _("Nothing to change – give name, goal, start_date or end_date.")
+        try:
+            path = self._sprint_path(project, sprint)
+            self.client.request("PATCH", path, json=body)
+            sp = self.client.get(path)
+        except (ValueError, ApiError) as e:
+            return _("Failed: %(error)s", error=explain(e, "update_sprint") if isinstance(e, ApiError) else e)
+        lines = [sprint_line(sp), _("Goal: %(goal)s", goal=sp.get("goal") or "–"), ""]
+        lines += [f"  - {self._fmt(t)} ({t.get('assigned_to') or _('nobody')})" for t in sp["tasks"]]
+        return "\n".join(lines).rstrip()
+
     def add_sprint_tasks(self, project: str, sprint: str, lines: str) -> str:
         entries, errors = parse_batch(lines)
         if errors or not entries:
@@ -513,10 +596,18 @@ class TaskBrigadeMCP:
             return _("Failed: %(error)s", error=explain(e, "close_sprint") if isinstance(e, ApiError) else e)
         return close_report(r, move_to)
 
-    def report_waiting(self, task_nr: str, reason: str | None = None, duration: str | None = None,
-                       watch_file: str | None = None, done: bool = False) -> str:
+    def reopen_sprint(self, project: str, sprint: str, restore_tasks: bool = True) -> str:
         try:
-            return waiting_report(heartbeat_task(self.client, task_nr, reason, duration, watch_file, done))
+            r = self.client.request("POST", f"{self._sprint_path(project, sprint)}/reopen",
+                                    json={"restore_tasks": restore_tasks}).json()
+        except (ValueError, ApiError) as e:
+            return _("Failed: %(error)s", error=explain(e, "reopen_sprint") if isinstance(e, ApiError) else e)
+        return reopen_report(r)
+
+    def report_waiting(self, task_nr: str, reason: str | None = None, duration: str | None = None,
+                       watch_file: str | None = None, done: bool = False, usage: dict | None = None) -> str:
+        try:
+            return waiting_report(heartbeat_task(self.client, task_nr, reason, duration, watch_file, done, usage))
         except ValueError as e:
             return _("Failed: %(error)s", error=e)
         except ApiError as e:
@@ -556,6 +647,25 @@ class TaskBrigadeMCP:
         return "\n".join([_("Uploaded and noted in %(nr)s:", nr=task["task_nr"]),
                           *[f"  {line}" for line in sftp.upload_lines(done)]])
 
+    def send_email(self, task_nr: str, to: list[str], subject: str, body: str, cc: list[str] | None = None,
+                   attachments: list[str] | None = None, on_approve: bool = False) -> str:
+        try:
+            return email_report(send_email(self.client, task_nr, to, subject, body, cc, attachments, on_approve))
+        except ApiError as e:
+            return _("Failed: %(error)s", error=e)
+
+    def list_emails(self, task_nr: str) -> str:
+        try:
+            return emails_report(self.client.get(f"/tasks/{task_nr.strip().upper()}/emails"))
+        except ApiError as e:
+            return _("Failed: %(error)s", error=e)
+
+    def list_mail_recipients(self, project: str) -> str:
+        try:
+            return recipients_report(self.client.get(f"/projects/{project.strip().upper()}/mail-recipients"))
+        except ApiError as e:
+            return _("Failed: %(error)s", error=e)
+
     def sftp_ls(self, where: str | None = None) -> str:
         try:
             path = sftp.remote_path(self.client, where)
@@ -567,6 +677,7 @@ class TaskBrigadeMCP:
 
 def build_server(app: TaskBrigadeMCP) -> MCPServer:
     server = MCPServer("taskbrigade", instructions=_(INSTRUCTIONS))
+    register_workflows(server, app)
 
     @server.tool(description=_("Shows your TaskBrigade tasks: in progress, ready to claim and waiting. Use this for "
                                "\"Check whether there is a task for me\"."))
@@ -598,9 +709,13 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
     @server.tool(description=_("Submits the result: commits all changes in the working folder with commit_message, "
                                "pushes the task branch and creates the pull request. summary: what changed, how it "
                                "was checked. open_points (optional): list of points left open, one per entry – they "
-                               "are stored at the task and offered for a follow-up task."))
-    def submit_task(task_nr: str, summary: str, commit_message: str, open_points: list[str] | None = None) -> str:
-        return app.submit_task(task_nr, summary, commit_message, open_points)
+                               "are stored at the task and offered for a follow-up task. outputs (optional): declared "
+                               "workflow outputs, the same object as tbr submit --output/--output-json. usage "
+                               "(optional): token/cost report for workflow budgets, with input_tokens, output_tokens, "
+                               "cost_cents and model."))
+    def submit_task(task_nr: str, summary: str, commit_message: str, open_points: list[str] | None = None,
+                    outputs: dict | None = None, usage: dict | None = None) -> str:
+        return app.submit_task(task_nr, summary, commit_message, open_points, outputs, usage)
 
     @server.tool(description=_("Asks the humans a question (state \"Questions\"). Stop afterwards – the answer "
                                "arrives in the thread."))
@@ -635,17 +750,20 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
                                "agent's allow list (only when asked for explicitly). Without both the agent uses its "
                                "default model. reviewer: a human or an agent with role reviewer (not the assignee); "
                                "empty = the project's default reviewer, \"none\" = the owner and admins. "
+                               "depends_on: list of task numbers (or comma-separated string) this task depends on – "
+                               "the agent can claim it only once all of them are done. "
                                "attachments: optional list of file paths on this machine, attached after creating "
                                "(only from the allowed folders: work directory, ~/Downloads, ~/Documents, ~/Desktop "
                                "unless configured otherwise; no hidden files or keys). If attaching fails the task "
-                               "still exists and the reply names the error."))
+                               "still exists and the reply names the error.") + " " + _(DATA_CLASS_HELP))
     def create_task(project: str, title: str, description: str = "", acceptance_criteria: str = "",
                     assigned_to: str | None = None, prio: int = 3, draft: bool = False,
                     due_date: str | None = None, sprint: str | None = None, tier: str | None = None,
                     model: str | None = None, reviewer: str | None = None,
-                    attachments: list[str] | None = None) -> str:
+                    attachments: list[str] | None = None, data_class: str | None = None,
+                    depends_on: list[str] | str | None = None) -> str:
         return app.create_task(project, title, description, acceptance_criteria, assigned_to, prio, draft, due_date,
-                               sprint, tier, model, reviewer, attachments)
+                               sprint, tier, model, reviewer, attachments, data_class, depends_on)
 
     @server.tool(description=_("Attaches files from this machine to a task (stored in the project repo under "
                                "tasks/<task>/). paths: absolute file paths (relative ones count from the work "
@@ -668,13 +786,18 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
                                "YYYY-MM-DD (\"none\" removes it); sprint: sprint id or name (\"none\" detaches the "
                                "task); tier: model tier simple, standard or complex (\"none\" removes it); model: "
                                "concrete model from the agent's allow list (\"none\" removes it); reviewer: human or "
-                               "reviewer agent (\"none\" removes it – the owner and admins review)."))
+                               "reviewer agent (\"none\" removes it – the owner and admins review); depends_on: list of "
+                               "task numbers (or comma-separated string) that REPLACES the dependencies (\"none\" "
+                               "removes all; omitted = unchanged) – the agent can claim the task only once all of "
+                               "them are done.") + " "
+                 + _(DATA_CLASS_HELP))
     def update_task(task_nr: str, title: str | None = None, description: str | None = None,
                     acceptance_criteria: str | None = None, assigned_to: str | None = None, prio: int | None = None,
                     due_date: str | None = None, sprint: str | None = None, tier: str | None = None,
-                    model: str | None = None, reviewer: str | None = None) -> str:
+                    model: str | None = None, reviewer: str | None = None, data_class: str | None = None,
+                    depends_on: list[str] | str | None = None) -> str:
         return app.update_task(task_nr, title, description, acceptance_criteria, assigned_to, prio, due_date, sprint,
-                               tier, model, reviewer)
+                               tier, model, reviewer, data_class, depends_on)
 
     @server.tool(description=_("Lists the sprints of a project (id, name, status, dates, progress, goal). status: "
                                "optional filter planned, released or closed (comma-separated)."))
@@ -710,6 +833,20 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
     def close_sprint(project: str, sprint: str, move_to: str | None = None, detach: bool = False) -> str:
         return app.close_sprint(project, sprint, move_to, detach)
 
+    @server.tool(description=_("Edits a sprint's name, goal or dates (admins, orchestrators, project owner). Only the "
+                               "given fields change; the status stays as it is. start_date/end_date YYYY-MM-DD, "
+                               "\"none\" clears a date; an empty goal clears it. sprint is an id or a name."))
+    def update_sprint(project: str, sprint: str, name: str | None = None, goal: str | None = None,
+                      start_date: str | None = None, end_date: str | None = None) -> str:
+        return app.update_sprint(project, sprint, name, goal, start_date, end_date)
+
+    @server.tool(description=_("Reopens a closed sprint (admins and the project owner only). Status goes back to "
+                               "released. restore_tasks (default True) moves the tasks that were moved out when it "
+                               "was closed back into it; tasks moved elsewhere later or finished are skipped and "
+                               "listed."))
+    def reopen_sprint(project: str, sprint: str, restore_tasks: bool = True) -> str:
+        return app.reopen_sprint(project, sprint, restore_tasks)
+
     @server.tool(description=_("Duplicates a task into a new draft of the same project (admins, orchestrators, project "
                                "owner): description, criteria, prio, due date, model, dependencies, parent and an open "
                                "sprint are copied, thread/review/branch are not. assign: optional actor for the draft "
@@ -733,8 +870,8 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
                                "counts as activity, no change for 30 min is reported). done=true ends the waiting "
                                "state. Also extends the lease."))
     def report_waiting(task_nr: str, reason: str | None = None, duration: str | None = None,
-                       watch_file: str | None = None, done: bool = False) -> str:
-        return app.report_waiting(task_nr, reason, duration, watch_file, done)
+                       watch_file: str | None = None, done: bool = False, usage: dict | None = None) -> str:
+        return app.report_waiting(task_nr, reason, duration, watch_file, done, usage)
 
     @server.tool(description=_("Writes a comment into the task's thread (e.g. current state)."))
     def comment(task_nr: str, text: str) -> str:
@@ -757,5 +894,26 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
                                "folder, or empty (the base folder)."))
     def sftp_ls(where: str | None = None) -> str:
         return app.sftp_ls(where)
+
+    @server.tool(description=_("Sends a work result by email through the server – only when the task asks for it. "
+                               "to/cc: addresses on the project's recipient list (list_mail_recipients); body: "
+                               "Markdown; attachments: attachment:<id> (task attachment), branch:<path> (file on "
+                               "the task branch, pushed), merge:<path> (merge commit). Usually a human approves "
+                               "before it is sent; on_approve=true sends it when the task is approved. You never "
+                               "get SMTP credentials. result:<id> attaches a released output-gate aggregate. "
+                               "Local-only mail always needs separate human mail approval; sealed mail is refused."))
+    def send_email(task_nr: str, to: list[str], subject: str, body: str, cc: list[str] | None = None,
+                   attachments: list[str] | None = None, on_approve: bool = False) -> str:
+        return app.send_email(task_nr, to, subject, body, cc, attachments, on_approve)
+
+    @server.tool(description=_("Lists your email requests of a task with status (waiting for approval, queued, sent, "
+                               "failed, rejected), Message-ID and SMTP error."))
+    def list_emails(task_nr: str) -> str:
+        return app.list_emails(task_nr)
+
+    @server.tool(description=_("Lists the addresses a project's results may be sent to and whether they need "
+                               "approval."))
+    def list_mail_recipients(project: str) -> str:
+        return app.list_mail_recipients(project)
 
     return server

@@ -1,0 +1,15 @@
+[Unit]
+Description=TaskBrigade SFTP inbox: watch the upload folders (data zones, TBR_DATA_SFTP=1)
+# One PathExists per deliverer is not possible in a template unit; PathExistsGlob over the whole tree works and
+# `tbr-admin data sftp-user import` then visits only the configured accounts. The import runs in the service; a
+# change while it runs is picked up by the next start.
+
+[Path]
+# Any new file directly below an upload folder of some deliverer.
+PathExistsGlob=/srv/taskbrigade-sftp/*/upload/*
+# DirectoryCreated makes a freshly created upload folder trigger an (empty) run too.
+DirectoryNotEmpty=/srv/taskbrigade-sftp
+Unit=taskbrigade-data-import.service
+
+[Install]
+WantedBy=paths.target

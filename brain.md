@@ -30,6 +30,18 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
 - Docker docs and the install prompt recommend the public image `ghcr.io/taskbrigade/taskbrigade:<version>` with
   `TBR_PULL_POLICY=always`; the local build stays the alternative. Bump the example version in `.env.example` and
   `docs/docker.md` with each release.
+- Reopening a sprint restores exactly the tasks that `close` moved out, from `sprints.moved_task_ids` (migration
+  0039): `close` stores the moved task ids and the sprint it moved them to (null = detached) as JSON, and `reopen`
+  (`app/services/sprints.py::moved_out_at_close`) moves those ids back. A task counts as skipped when it is
+  done/cancelled, is already back in the sprint, or no longer sits in the close target (someone moved it again
+  afterwards). Storing the ids is immune to sprint renames and to tasks moved out by hand while the sprint was still
+  released – matching the sprint **name** in the `sprint` task events alone is not enough (names are only unique per
+  project and pre-close moves look the same). Sprints closed before the column existed (NULL) still reopen: they fall
+  back to the `sprint` events written at/after `closed_at` by the close call, limited to the same project.
+- Page titles come only from `ui.page_header` in `app/templates/_ui.html` (`h1.ui-page-title`, size in `ui.css`);
+  no page-specific heading sizes. Admin pages put the area into the title ("Admin: Settings", same text in
+  `<title>`). `tests/test_ui_screens.py::test_page_titles_share_one_style` compares the computed title style of the
+  main pages at 390/1440 px.
 
 ## Build / run / test
 
@@ -57,6 +69,27 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   it prints `SEED {json}` with id-dependent page paths (sprint editor). Capture runs in the Playwright image with
   `--user <uid>:<gid>`, `HOME=/tmp` and the repo mounted read-only; images are 256-colour PNGs (40–85 KiB).
 - Screenshot script also captures phone pages (`MOBILE_SHOTS`, 390×844, `is_mobile`/`has_touch`, 2× pixels, files `*-mobile.png`) in a second browser context with the same demo data.
+- Docker data zones: `deploy/docker/data-zones-test.sh` (project `tbr-dztest`, subnets `172.31.251.0/24` +
+  `172.31.253.0/24`, ports 18091/12223; `TBR_DZTEST_KEEP=1` keeps it) builds the images, starts both profiles and
+  runs the self-test probes through the launcher, `deploy/sandbox-test/e2e_job.py` with `TBR_E2E_*` (Docker paths,
+  `TBR_E2E_LAUNCHER=docker`), network/socket checks, `runner join` and SFTP upload → import → profile by the runner.
+  Never together with the smoke test or the screenshot script. Unit tests without Docker: `tests/test_docker_runner.py`.
+- Screenshot and layout tests: `tests/test_ui_screens.py` (marker `db`, Playwright 1.63.0 in the dev group) seeds demo
+  data, serves the app with uvicorn on a free port and opens every page of `PAGES` at 390/768/1440 px (plus 360 px
+  without screenshots). Checks per page: viewport meta, no horizontal page scroll (content inside an `overflow-x`
+  container is allowed), labels, `aria-expanded`/`aria-pressed`, text contrast >= 4.5:1, fixed bottom tab bar not
+  covering the page end, on the phone tap targets and 16 px inputs, on desktop visible focus for 25 Tab steps.
+  Full-page shots (max. 2400 px, dates/times normalised, `time` masked) are compared with `tests/screenshots/` by a
+  canvas pixel diff in the browser (max. 0.2 % differing pixels; actual/diff PNGs go to `TBR_SCREENSHOT_OUT`).
+  New baselines: `TBR_UPDATE_SCREENSHOTS=1`; a missing baseline is written and the test fails once. Without a usable
+  Chromium the tests skip; on a host whose Chromium misses libraries run a browser server and point the tests at it:
+  `docker run -d --rm --network host --user $(id -u):$(id -g) -e HOME=/tmp mcr.microsoft.com/playwright/python:v1.63.0-noble
+  sh -c "pip install --user --break-system-packages -q playwright==1.63.0 && python -m playwright run-server --port 39141
+  --host 127.0.0.1"`, then `TBR_PLAYWRIGHT_WS=ws://127.0.0.1:39141/`. Make baselines with that image or CI's
+  `playwright install --with-deps chromium` (same Chromium build); another Chromium renders differently.
+- Phone flows that open only on a tap (More/quick-capture sheets, kanban status tabs and "Move to …" sheet, sticky save
+  bars, user panel) plus tablet/desktop header and Inbox answer form: `tests/test_ui_mobile_flows.py` (marker `db`,
+  same setup and `TBR_PLAYWRIGHT_WS` as `test_ui_screens.py`). Review copies of the screenshots: `docs/ui-redesign/review/`.
 
 ## Decisions (date – decision – reason)
 
@@ -490,6 +523,417 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   the column-head sorting is replaced by sort fields in `_backlog_table.html` that belong to the filter form via
   `form="backlog-filter"` (htmx collects `form.elements`), so they follow every table update. The inbox hides empty
   action categories ("All done" line) and folds non-empty notices with a count.
+- 2026-10-15 – Parking never kills the agent's own background job: before `Supervisor` ends an idle waiting session
+  it lists the processes below the agent (`runner.descendant_processes`, `ps -A -o pid=,ppid=,args=`). Processes
+  already there `BASELINE_SECONDS` (60 s) after the start (MCP servers, CLI helpers) are ignored; any other one keeps
+  the session open (waiting counts as activity, as without parking) and leaves one comment per waiting period naming
+  the processes; the session is parked once they are gone. Chosen over a warning plus parking because the job would
+  be lost (a Claude Code `run_in_background` job died with the parked session, ~40 min lost). If `ps`
+  fails, parking works as before. Agent instructions (TASK.md, Hermes/OpenClaw skills) say to start long jobs with
+  `setsid nohup <cmd> > <log> 2>&1 < /dev/null &`: the starting shell exits, the job is re-parented away from the
+  agent, gets its own session and survives the end of the tmux window.
+- The earlier promotion and awareness plans live in `research/promotion-plan.md` and `research/awareness-plan.md`
+  (moved out of `docs/` because they name third-party X handles); they are source material only. External account
+  identities and community rules were researched on 2026-10-15 and must be rechecked before outreach.
+- 2026-10-16 – Model location of agents (`actors.model_location` `cloud`/`local`/`none`, migration 0020) next to
+  `runtime`, and one zone helper `app/services/zones.py` for every privacy decision (`members.check_privacy`,
+  `reviews.effective`, `tasks._review_jobs`/`claim`/`_agent_reviewed`, `actors.update` via `zones.check_switch`,
+  the project privacy switch, the access table in *Admin → Users & agents*). Setting
+  `privacy_enforce_model_location` (bool in `app_settings`, default `true`): on → an agent may work on `local_only`
+  only with runtime `local` **and** model location `local`; off → the old runtime rule. Migration 0020 sets every
+  actor to `cloud` and stores `false` only when agents or projects already exist, so new installations enforce and
+  existing ones keep working until the admin has worked through *Admin → Settings → Model location findings*
+  (`zones.findings`). Humans keep the runtime rule in both modes; `none` (runner) never gets `cloud_ok`/`local_only`
+  work and is accepted only for `agent_kind = runner` (not there yet). `claude_code`/`codex` are fixed to `cloud`;
+  switching to `local` in the UI needs the checkbox `confirm_local_model` (`zones.require_confirmation`, UI only –
+  the admin API takes the field directly). Claim now filters work tasks by zone too (`zones.sql_classes`), so a task
+  assigned before enforcement is skipped and a named claim answers `422 privacy_violation`.
+- 2026-10-16 – Stage-1 workflow persistence uses seven tables and SQLAlchemy models in `app/models.py` (see `docs/workflow-data-model.md`). Runs pin `version_id`; the template's `current_version_id` can advance independently. `task_kind` is introduced once with `work`, `profile`, `run`, `approval` (default `work`); runner `run_*` task fields remain for the data-zone runner task. Schedule/trigger foreign-key columns and schedule-slot uniqueness arrive with their target tables in stages 2/3. Publishing and execution validation belong to the workflow services follow-up.
+- 2026-10-16 – Spreadsheet and archive task attachments (`.xlsx`, `.xls`, `.xlsm`, `.csv`, `.tsv`, `.ods`, `.zip`) are refused with `422 use_dataset_upload` when the effective class is `local_only` or `sealed` (`app/services/attachments.py`). Effective class is the task's class (`zones.effective_class`: `tasks.data_class`, else `projects.privacy`). `cloud_ok` is unchanged. `tbr-admin data scan-attachments` lists matching rows already stored in `local_only` projects and deletes nothing. The Data page does not exist yet, so the message names the coming data store instead of linking to it.
+- 2026-10-16 – Workflow stage 1 is migration `0021` (revises `0020`). Model location stays `0020` because `tests/test_model_location.py` upgrades to that revision. Both wave-1 branches had used `0020` against `0019`; `0021` restores one linear Alembic head. Databases already at model-location `0020` pick up the workflow tables on the next `upgrade head`.
+- Workflow execution lives in `app/services/workflows/` (`docs/workflow-engine.md`). Service callers own the transaction; template/run/attempt locks serialize run numbering and activation, including older repeatable-read snapshots. Only activation creates tasks. Task transitions (also human overrides) update runs in the same transaction. Approval tasks start in `for_review`, use `reviewer_id` without an assignee, and approve without a PR; rejection reopens the prior agent task and creates fresh later attempts. Never route these through normal task submission.
+- 2026-10-16 – Data class per task (`tasks.data_class`, migration `0022`, NULL = inherits `projects.privacy`; no
+  backfill). Rules 1–4 live in `zones.check_class` (called by `tasks.create`/`tasks._set_class`, so API, UI, CLI and
+  MCP share them): stricter always; looser than the project only for owner/admin (`403 data_class_forbidden`, audit
+  `data_class_loosened`); `task_kind` `profile`/`run` must be `sealed` (`422 data_class_runner`) – the dataset
+  reference part of rule 3 waits for `task_data_refs` (DZ 9); after start (status past `defined` or `claimed_at` set)
+  only stricter (`422 data_class_downgrade`). Switching a project `local_only` → `cloud_ok` pins started inheriting
+  tasks to `local_only` (`projects._pin_started_classes`). Local humans may work on `sealed` (until `data_access`
+  exists); LLM agents never. A loosened task gives its cloud assignee project membership (`members.set_member(...,
+  task)`), because the agent needs the repo – that is the concept's "cloud_ok code task in a local_only project".
+  Task payloads carry `task_kind`, `data_class` and `data_class_effective`; badges via `_data_class.html`.
+- 2026-10-16 – Workflow output contracts and placeholders live in `app/services/workflows/` (parser, resolver, publish checks, submit validation). No Jinja. Agents set outputs with `tbr submit --output/--output-json`, MCP `submit_task(outputs)`, or a `.tm-submit.md` `## Outputs` JSON block. Declared values are stored on `workflow_run_steps.output_json`; file outputs are rewritten to the merge commit on approve. Guide: `docs/workflow-outputs.md`.
+- 2026-10-16 – Email as a second notification channel, outbound only (`app/services/mail.py`, migration `0023`;
+  concept `docs/konzept-email.md`): TaskBrigade never reads mail (no IMAP/POP, `tests/test_email.py` checks `app/`
+  and `cli/`). `notifications.channel` (`telegram`/`email`), one row per recipient and channel, written by
+  `notifications._actor_rows` for the channels in `channels_for(pref, event)` that can reach the person
+  (`_reachable`: Telegram enabled + linked chat; email enabled + `mail.verified_address`). `notification_prefs.
+  channels_json` = `{"events": {event: [channels]}, "bundle": 0|15|60}`; NULL or a missing event = defaults
+  (Telegram always, email only for `review`/`sprint_done`, `EMAIL_DEFAULT_EVENTS`); `events` stays the list of
+  events with any channel, so `/status` and `tbr notify` keep working. `SETTINGS_EVENT` is Telegram only. Mute and
+  quiet hours apply per row for both channels. `notifications.deliver` only sends `telegram` rows, `mail.deliver`
+  (job `email_deliver`, 30 s, only the holder of `<state_dir>/email-sender.lock`) only `email` rows: same back-off
+  and `MAX_ATTEMPTS`, 5xx for recipient/data = permanent, connection/TLS/login errors are retried (configuration or
+  outage; a run stops at the first connection error). Throttle: distinct `notifications.email_message_id` sent in the
+  last hour < `mail_rate_per_hour`; bundled rows share one Message-ID. Bundling waits until the oldest due row is
+  `bundle` minutes old (a retry or quiet-hours rows go at once). Settings `email_enabled`, `smtp_*`, `mail_*` live in
+  `app_settings` only (password secret); no `.env` keys. Address confirmation: `actors.email_verified_at` +
+  `email_verify_codes` (24 h, SHA-256 only, bound to the address it was sent to, one-time via conditional `UPDATE`);
+  `actors.update` clears `email_verified_at` when `email` changes. `GET /profile/email/verify` needs no login (the
+  link proves the address). Test mail and confirmation link are sent synchronously in the request (plain SMTP error
+  shown), not through the outbox.
+- 2026-10-16 – Data store (DZ 4, migration `0024`, guide `docs/data-store.md`): `datasets` with envelope encryption
+  (`app/data_crypto.py`: KEK in `TBR_DATA_KEY_FILE`, one DEK per dataset wrapped with AES-256-GCM, bound to the
+  dataset key and tagged with a KEK fingerprint; files in 1 MiB AES-GCM records whose AAD holds header, index and
+  final flag), ciphertext under `TBR_DATA_DIR/store`. Service `app/services/datasets.py` (rights, upload, deletion,
+  retention, emergency download), UI `app/web/data_ui.py` (menu *Data*, `/data`, `/data/upload`, `/data/<key>`).
+  Admin settings `data_enabled` (default off), `data_max_upload_mb`, `data_retention_days`. The header holds a random
+  file id instead of the dataset id (the file is encrypted while it streams in, before the row exists); the dataset
+  binding is the wrapped DEK. Status after upload is `quarantine` ("Stored – awaits profile") until the profiler (DZ 7).
+- 2026-10-16 – `actors.data_access` (data right, humans only, *Admin → Users & agents → Data right*, audited): needed to
+  upload as a project member and to work on `sealed` tasks (`zones.allowed_classes`/`sql_may_handle`); it replaces
+  "local humans may work on sealed until data_access exists" from DZ 3. Emergency raw download: admin + data right,
+  reason required, audited before the first byte. Upload: owner, admin, member with data right; delete: owner, admin;
+  list/metadata: project members.
+- 2026-10-16 – `data_audit` is hash-chained (`app/services/data_audit.py`) and has no foreign keys (a cascade or SET
+  NULL would rewrite hashed rows). Appends lock the single row of `data_audit_head` (`FOR UPDATE` on the primary key,
+  no gap locks – locking the last audit row deadlocked concurrent inserts in theory) and assign `id = last_id + 1`
+  so the id is part of the hash. Triggers refuse UPDATE/DELETE; the migration only warns when MariaDB refuses to
+  create them (binary logging), `tbr-admin data audit verify` reports them. `data_class_lowered` (task looser than
+  its project) is written there too.
+- 2026-10-16 – Retention job `datasets.retention_sweep` (APScheduler `data_retention` hourly, `tbr-admin data
+  retention` for a timer): `GET_LOCK('tbr_data_retention')` on a connection of its own (the session switches
+  connections at each commit), reminder once 7 days before (`datasets.retention_warned_at`, notification event
+  `dataset_retention`: key, event, link only), crypto-shred after the date. The attachment lock message now points to
+  *Data* (`/data/upload`).
+- 2026-10-16 – Work results by email (`app/services/result_mail.py`, migration `0025`, guide *operations.md → Sending
+  work results by email*): agents file send requests (`POST /tasks/{nr}/emails`, `tbr mail send`, MCP `send_email`),
+  never get SMTP credentials; `email_deliver` also runs `result_mail.deliver` and shares the hourly throttle
+  (`mail.sent_last_hour` counts sent `outgoing_mails`). Recipients: `project_mail_recipients` (mode `freigabe`/
+  `ohne_freigabe`) or an active human with a **confirmed** address (implicitly without approval; a list entry wins).
+  Approval only by humans (`result_mail.may_decide`: human admin, project owner, the task's human reviewer) – never by
+  an agent, so a prompt injection cannot both file and release a mail; `on_approve` requests are queued by
+  `state_machine.transition` after a human approve (an agent approval leaves them pending), a cancel rejects pending
+  ones. Attachments are not stored: the request records ref + SHA-256, sending re-reads the file from Gitea
+  (`GiteaClient.raw_bytes`; `branch:` falls back to the merge commit) and fails on a different hash. Only `cloud_ok`
+  (`zones.effective_class`) may send; `local_only` waits for the output gate (Email 3), `sealed` never. Body and refs
+  are cleared after 30 days (`result_mail.cleanup` inside `deliver`); waiting requests expire then.
+- 2026-10-16 – Workflow UI stage 1 (`app/web/workflows_ui.py`, view data in `app/services/workflows/ui.py`, guide
+  `docs/workflows-ui.md`): the editor posts the whole draft as repeated fields (`s_<field>`/`p_<field>`, DOM order =
+  step order) and saves through `workflows.api.save_draft`/`publish`, so UI and API share validation (`to_draft`
+  builds the API's `Draft`). The checks panel runs `check_publish` on the *unsaved* form via HTMX. Output/input/config
+  contracts are JSON textareas, not row editors. Run detail lives at `/workflow-runs/<id>`, the path the engine
+  already puts into `{{run.url}}`. `_workflow_chain.html` is the one chain component (run page, task page, later
+  DZ 9). There is no `workflows_enabled` switch yet; the menu shows for every signed-in actor.
+- 2026-10-16 – Kanban/backlog filter `workflow` (`hide` default, `all`, `only`, template id; cookie `tm_workflow`,
+  `tasks.search(workflow=…)`), counted as an active filter; “Reset filters” links add `workflow=hide`. The inbox
+  moves workflow questions/reviews/aborted tasks into `workflow_*` lists (`tasks_ui.workflow_group`) shown first.
+  `tasks.summary(..., workflow=)` carries the badge data, filled in batch by `tasks.workflow_badges`.
+- 2026-10-16 – Workflow tick trigger `TBR_WORKFLOW_TICK=timer|app|off` (`app/config.py`): native installations run
+  `tbr-admin workflows tick` once a minute through `deploy/systemd/taskbrigade-workflows.{service,timer}` (installed
+  by `deploy/install.sh`/`update.sh`; `update.sh` stops the timer around the schema upgrade, and the tick itself
+  refuses while the schema is not at `head`), Docker runs the same tick as the APScheduler job `workflow_tick`
+  (`app/scheduler.py`, image default `TBR_WORKFLOW_TICK=app`). The native default is `timer`, the Docker default
+  `app`, so neither install has to set it. `tbr doctor` (via `GET /agents/me/workflow-tick-status`, which returns
+  `tick.status`) and `tbr-admin db-status` warn when the last tick is older than five minutes while workflows are
+  enabled.
+- 2026-10-16 – Data-zone runner (DZ 6, `app/runner/`, `app/services/runner_jobs.py`, `/api/v1/runner/jobs/<nr>`,
+  migration `0028`, guide *docs/operations.md → Data-zone runner*): agent kind `runner` forces model location `none`,
+  role worker, runtime local; `zones.check_kind`/`sql_kind_for` keep runners on `run`/`profile` tasks and LLM agents
+  off them (claim and assignment). The runner runs on the app host (`tbr-admin runner serve`, user `tbr-runner`) and
+  decrypts the dataset itself (KEK via group `tbr-data`): the server only hands out storage path and wrapped DEK, so
+  plaintext never crosses HTTP. The **server** fetches the script from Gitea with its service token (runners need no
+  Gitea user) and only for a `run_commit_sha` that is the `merge_commit_sha` of a `done` task of the same project –
+  stricter than the concept's "commit on the default branch", which Gitea's API cannot check cheaply. The input
+  dataset is `tasks.run_dataset_id` until `task_data_refs` (DZ 9) exists. `run_results` (concept §6 plus `job_id`,
+  `files_json`, `dek_wrapped`, `service_result`, `task_kind`) is created here with status `quarantine`; outputs are
+  encrypted with one new DEK per result, wrapped with context `run-result/<job_id>`. Runner submit goes through
+  `state_machine._runner_submit` (payload key `_run_result` must be a `RunResult` object, so an API body cannot fake
+  it); approving or rejecting a `run`/`profile` task like a code task raises `409 output_gate_required` – the output gate
+  decides (DZ 8). Profile jobs abort with
+  `profile_unsupported` until the profiler (DZ 7). Script contract in TASK.md via payload flag `script_contract`
+  (work task in a project with datasets, or a `run` task depends on it).
+- 2026-10-16 – Native SFTP inbox (DZ 10, `docs/konzept-datenzonen.md` §4, migration `0029`, guide
+  `docs/data-store.md`): OpenSSH `internal-sftp` with a per-user chroot under `TBR_SFTP_DIR`
+  (default `/srv/taskbrigade-sftp/<user>/upload`, `root:root 0755` above, `<user>:tbr-data 0730` for `upload`).
+  The drop-in `deploy/ssh/60-taskbrigade-sftp.conf` (`Match Group tbr-sftp`) forces SFTP, forbids shells and
+  forwarding and allows keys only; `install.sh`/`update.sh` install it only after `sshd -t` passes and then reload
+  sshd. Accounts (`data_sftp_accounts`, one project each) and their keys (`data_sftp_keys`, `authorized_keys` line
+  with `restrict,command="…/sftp-server"`) are managed by `tbr-admin data sftp-user …` (`app/services/data_sftp.py`).
+  The systemd path unit `taskbrigade-data-import.path` starts `tbr-admin data sftp-user import`
+  (`app/services/data_import.py`, DB lock `tbr_data_import`): a file is finished after 60 s without change or with
+  a `.done`/`.ready` suffix, is encrypted into the store (`upload_channel=sftp`, `dataset_uploaded` audit, project
+  notification), then the plaintext is removed. `TBR_DATA_SFTP=1` needs `TBR_DATA_ZONES=1`.
+- 2026-10-16 – Local-model agents read `local_only` datasets (DZ 14, `docs/konzept-datenzonen.md` §11): `GET
+  /api/v1/data/datasets/{key}/content` streams the decrypted file to an agent whose `model_location = local` (and
+  `runtime = local` once `privacy_enforce_model_location` is on) that is a member of the dataset's project. The
+  right is checked with the zone helper `zones.may_read_dataset`: only `local_only` datasets are readable, and only
+  by an agent whose `allowed_classes` include `local_only` (`model_location=local`); `sealed` and `cloud_ok`
+  datasets are never readable over this path, `model_location=none` (runner) agents are refused, cloud-model agents
+  get `403 data_read_forbidden`, non-members `404`. Every read
+  is written to the data audit (`dataset_read`, `via="api"`) and committed before the first byte streams
+  (`app/services/datasets.py:open_agent_read`, `app/api/data.py`). The dataset detail page marks `local_only` as
+  readable by local agents and `sealed` as runner/human only (`data_detail.html`).
+- DZ 7: `app/runner/profiler.py` is a standalone trusted sandbox entry point for CSV/TSV/XLSX. Upload/import queues a sealed profile task; encrypted outputs are authenticated and ingested by `dataset_profiles`. Generated profiles stay human-only until release from the dataset detail page. Release applies aliases, recomputes the structural SHA-256 fingerprint, creates a draft cloud code task and completes the profile task; rejection permits a fresh runner attempt. See `docs/data-store.md`.
+- 2026-10-16 – Workflow usage tracking and per-run budgets (WF 9): `task_usage` logs voluntary token/cost reports
+  (`--usage` on `tbr submit`/`tbr heartbeat`, MCP `submit_task`/`report_waiting`, plus the runner reading agent
+  output); each report increments the run's `used_tokens`/`used_cents`. A budget of 0 or NULL means no limit. At
+  80 % the owner gets `workflow_budget_warning`, at 100 % the run pauses with `budget_exceeded` (no further
+  `agent`/`script` step activates; `approval`/`notify` continue), the heartbeat replies `budget_exceeded`, and
+  resuming requires a higher budget. Reports are unverifiable, so the run detail shows "usage unknown" until the
+  first report.
+- 2026-10-16 – Planning board `/planning` (`app/web/planning_ui.py`, `planning.html`, `_plan_card.html`,
+  `static/planning.js`): one project at a time (`project` parameter, cookie `tm_planning_project`), columns "No sprint"
+  (open, non-workflow tasks without a sprint) + released, then planned sprints by start date/id; closed ones only with
+  `closed=1`, folded and not droppable. Menu item and page only for actors who may plan somewhere
+  (`planning_ui.may_plan_somewhere`: admin/orchestrator role or owner of a non-archived project), others get 403.
+  Drag and drop posts `POST /planning/move` (`task_nr`, `sprint` = id or `none`, `order`): `sprints.require_plan` +
+  `target_for` + `assign`; finished tasks are refused (`task_finished`), errors come back as JSON `{message}` and
+  the card snaps back. Only planned-sprint lists are sortable; their `order` goes to `sprints.reorder`, which sets
+  `sprint_rank` for every task and the draft prio via `prio_from_order` (same formula as the sprint editor's "Prio
+  from order") through `_update_draft` (`tasks.update`, also used by `save_plan`). Release/close/edit/"+ Sprint"
+  dialogs post to the existing sprint routes with `back=planning` (redirect back to the board, errors as `err`);
+  the release dialog loads `GET /planning/<key>/sprints/<id>/release` (`_release_preview.html`, shared with
+  `sprint.html`). Quick add `POST /planning/<key>/quick-add` reuses `parse_batch` and `batch_create`, which now
+  accepts `sprint=None` with `project=` for drafts without a sprint.
+- 2026-10-16 – Output gate (DZ 8, `docs/konzept-datenzonen.md` §6/§8, migration `0032`, guide *docs/data-store.md →
+  Output gate*): checks 1–3 and 6–9 are pure functions in `app/services/gate_checks.py`; `app/services/output_gate.py`
+  decrypts `result.json` on the server, stores `checks_json` (codes, counts and locations like `t0.r3.c1`, never
+  values) and decides. Checks 4 and 5 need the input and run as a **second sandbox job** `<job>-gate` with our own
+  self-contained probe `app/runner/gate_probe.py` (stdlib + openpyxl/pyarrow from the runner venv; the input file is
+  moved, not copied, into the probe job) – not in the runner process as the concept says, because parsing an untrusted
+  spreadsheet must not happen in a process holding the KEK. A missing or failed probe fails check 4 (fail closed).
+  Identifier columns: personal-looking column names, value patterns (IBAN, email, phone with leading `+`/`0`, tax id
+  on the text as written) or text columns with distinct values > 50 % of rows; dates/numbers never by cardinality.
+  Check 4 compares string cells, names and metric keys (also runs of up to four words); check 5 compares rows as sets
+  of normalised cells (one missing cell still counts from six cells on). Check 7 needs the script to declare
+  `"max_contribution": {"sum": "max"}`; the helper column is removed on release. Decisions only via the web UI
+  (`/data/results/<id>`): release (`released_json` = rounded form), reject (reason required) or keep in zone R
+  (`kept_sealed`, also from `checks_failed`); four-eyes (`projects.data_four_eyes`, NULL = setting `data_four_eyes`,
+  default on): the releaser is neither the run task's creator nor the actor of the script task's `merged` event.
+  State machine rules `gate_release`/`gate_reject`/`gate_keep`/`gate_return` (who `gate`) need the `RunResult` object
+  in the payload (`_gate`), so no request can trigger them. A sent-back run task (`checks_failed` or rejected) has its
+  `run_commit_sha` cleared and claim skips `run` tasks without a commit; setting new run fields (allowed in
+  `changes_requested`) makes it claimable. Agents read only `released` results (`GET /api/v1/data/results/<id>`,
+  404 otherwise) and only while they hold an open task in the project – until `task_data_refs` (DZ 9) narrows it.
+- 2026-10-16 – Task chain across zones (DZ 9, `app/services/data_refs.py`, migration `0034`, guide *docs/data-store.md
+  → Task chain across zones*): `task_data_refs` (one purpose per type: `dataset`/`input`, `profile`/`schema`,
+  `result`/`output`; no FK on `ref_id`, `created_by` nullable). Rule 3 lives in `data_refs.check_rule` (refs) and
+  `data_refs.check_class` (called by `tasks._set_class`); unreleased profile/result refs are refused for `local_only`
+  too, not only zone C (local models are LLMs). Runner tasks keep `tasks.run_dataset_id` for the runner;
+  `data_refs.sync_run_input` mirrors it as the input ref (`tasks.create`, `runner_jobs.update_run`). Follow-up
+  drafts: `propose_script` (from `dataset_profiles.decide`), `propose_run`/`propose_interpretation` via the hook
+  `data_refs.on_transition` in `state_machine.transition` (approve of a work task with a profile ref; `gate_release`);
+  drafts are created by the project owner as follow-ups and skipped for workflow tasks. The run draft's script path
+  comes from `GiteaClient.pull_files` (exactly one `.py` outside `tests/`), else empty – `normalize_run(draft=True)`
+  allows that, `require_definition` refuses publishing (`run_fields_incomplete`), the task page's *Data* box has a
+  *Run fields* form (`POST /tasks/<nr>/run-fields`). Agent reads of released profiles/results go through
+  `data_refs.agent_may_read` (open task with the ref, assignee or reviewer, zone allowed); this replaces the
+  `code_task_id` rule of DZ 7 and the "any open task in the project" rule of DZ 8. TASK.md section "Approved data
+  artifacts" comes from `GET /tasks/<nr>/artifacts` (`cli.prepare.artifacts_note`, only when the payload has
+  `data_refs`; reads audited `profile_read`/`result_read`). The chain view reuses `_workflow_chain.html` with cells
+  from `data_refs.chain` (`zone_chain` cells carry `label`, `task_status`, `who`, `handover`).
+- 2026-10-16 – Release warning for late dependencies: `sprints.late_dependencies(session, sprint, task_ids)` (one
+  query) lists dependencies that are not `done` and have no sprint, sit in a planned sprint or in a later one –
+  later by start date when both sprints have one, otherwise by id (creation order). The same sprint and earlier
+  released/closed sprints do not count. `release_preview` and `release` both return it as `waiting` (only tasks that
+  are released), shared via `_release_lists`; it is a warning only, never a refusal. The sprint page's *Waits for*
+  column uses the same rule for every unfinished task; the planning card's "waits for" hint
+  (`planning_ui.waiting_for`) still lists every unfinished dependency. Partial `_late_deps.html` renders the list
+  (`t.waits_for`) in the release dialog and the sprint table. The project page only lists sprints and links to
+  `/planning?project=KEY`; `POST /projects/{key}/sprints/new` stays for the planning board's "+ Sprint".
+- 2026-10-16 – Docker data zones (DZ 12, guide and design *docs/docker.md → Data zones*): compose profiles `data`
+  (`data-init` root one-shot = `TBR_DATA_ZONES=1 install.sh`, `runner-launcher`, `runner`) and `data-sftp` (`sftp`).
+  The runner never gets the Docker socket: `app/runner/docker.py` (launcher, `python -m app.runner.docker`) holds it,
+  listens on a 0660 unix socket in the tmpfs volume `taskbrigade-launcher` (peer uid checked with `SO_PEERCRED`) and
+  accepts only `run`/`stop <job id>`/`ping`; it builds each job container from its own template (`job_spec`:
+  `network_mode: none`, read-only root, `cap_drop: ALL`, `no-new-privileges`, user `tbr-job`, pids/memory/CPU/
+  fsize/nofile, log driver `none` + shell redirect into `/job/log`, volume `Subpath` mounts of only this job's
+  `in`/`script` (ro)/`out`/`log`, `mode=000` tmpfs over `/app`, `/home`, `/root` and the state paths). A second
+  container as `tbr-job` does the `chmod -R g+rwX` of the unit's `ExecStopPost`. `DockerLauncher` is the runner-side
+  drop-in for `SystemdLauncher` (`runner.toml` `launcher = "docker"`, image env `TBR_RUNNER_LAUNCHER=docker`,
+  `service.make_launcher`); job limits travel in `JobDir.limits`, clamped by the launcher. Rejected: socket in the
+  runner, a socket proxy (cannot filter the create body), nested bwrap/nsjail (needs userns), extra runtimes.
+- 2026-10-16 – Docker ids are fixed in the images (taskbrigade 10001, tbr-runner 10002, tbr-job 10003, tbr-data
+  10004; SFTP deliverers 20000 + account id) because volumes are shared between containers. Data dirs get the
+  set-group-id bit (`app/runner/container.py:layout`), so store files (app) and quarantine files (runner) carry
+  `tbr-data`; the app has `group_add: ["10004"]`. Tmpfs volumes (`taskbrigade-jobs`, `taskbrigade-launcher`) take
+  owner/mode from `driver_opts.o`, because a tmpfs starts empty on every mount.
+- 2026-10-16 – Runner network: internal compose network `taskbrigade-runner` (`TBR_RUNNER_SUBNET`, default
+  `172.31.252.0/24`) with only app and runner; the app setting `TBR_RUNNER_NETWORKS` makes it an API peer
+  (`Settings.api_client_networks`) and allows join codes from it (`Settings.is_runner_peer`, `/join`), but never
+  loopback trust. API_NETWORKS stays opt-in through `.env` only.
+- 2026-10-16 – Docker SFTP inbox: the app container cannot `useradd`, so `TBR_SFTP_PROVISION=spool` makes
+  `data_sftp` write the desired state to `TBR_SFTP_SPOOL` (format `tbr-sftp-accounts/1`, 0644, purge list kept
+  across writes); `deploy/docker/sftp/sftp_sync.py` (root in the SFTP image) applies it every few seconds and
+  supervises `sshd -D`. Import runs as the APScheduler job `data_import` (`TBR_DATA_IMPORT=app`). Upload folders are
+  `<user>:tbr-data 2770` there (native: 0730) – listing needs read, set-group-id gives deliveries the data group.
+- 2026-10-16 – Workflow event triggers (WF 12, migration `0036`, `app/services/workflows/events.py`, guide
+  `docs/workflow-events.md`): `workflow_events` is an outbox, `workflow_triggers` is the per-template config,
+  and `workflow_trigger_fires` plus `dedupe_key` make delivery exactly once (the concept only named
+  `processed_at`; a crash between the run insert and that timestamp would otherwise start a second run).
+  `dataset_ready` is written when a dataset becomes `ready`, not at upload, because the concept says "after
+  profiling". `workflow_failed` is written when a final step failure pauses the run: WF 8 never sets run
+  status `failed`, and a manual pause or cancel does not emit. Sealed and local-only step outputs are left
+  out of the payload so they are not stored on the next run. Event triggers skip on overlap; they have no
+  overlap policy column in the concept. `workflow_runs.trigger_id` is the concept's foreign key.
+- 2026-10-16 – Workflow step conditions (`workflow_steps.condition_tpl`, WF 13): a `when:` template resolves with the
+  normal placeholder resolver (params, run fields, earlier step outputs). An empty/whitespace result or one of the
+  falsy literals (`false`, `0`, `no`, `off`, `none`, `null`) skips the step with `status=skipped`,
+  `error_code=condition_false` and the condition template in `error_detail` (the run detail's "reason"). An
+  unresolved placeholder fails closed (`placeholder_unresolved`, run paused) exactly like a step text. Conditions
+  are only allowed on `agent`, `notify`, `script` and `runner` steps – `approval`/`gate` are human/zone-boundary
+  decisions and can never be skipped (publish error `workflow_condition_invalid`).
+- 2026-10-16 – Parallel workflow step groups (`workflow_steps.parallel_group`, WF 13): consecutive steps sharing the
+  same non-empty group name activate together; the run advances past the group only when every member is
+  `succeeded`/`skipped`. Members keep their own tasks, retries, clocks and failure handling (WF 8): a failed member
+  pauses the run while sibling tasks keep running. Groups may only contain `agent` and `notify` steps (publish error
+  `workflow_parallel_invalid`; a lone group name is also rejected). `run.current_position` is the group's first
+  member. Alembic `0036` adds both columns to `workflow_steps`.
+- 2026-10-17 – The German concepts moved from `docs/` to `research/konzept-datenzonen.md` and
+  `research/konzept-workflows.md` (DZ 15/WF 15) instead of being deleted: code comments cite their sections (`§n`)
+  for the reasoning (design alternatives, risk table). `research/` is not part of the public export, so public docs
+  never link there – they name the path as plain text. Earlier entries that say `docs/konzept-…` mean these files.
+  The implemented state is documented in English: overviews `docs/data-zones.md` and `docs/workflows.md` (each with
+  “Deviations from the concept”), details in the existing guides. Code comments keep citing the research file; a
+  new feature documents itself in the English guides, not in the concept.
+- 2026-10-17 – UI redesign foundation: the redesign tokens are `--ui-*` in a second `:root` block at
+  the top of `app/static/app.css`, next to the older `--tb-*`/`--st-*` palette; pages move to `--ui-*` one by one,
+  `--tb-*` can go once no page uses it. Components live in `app/static/ui.css` (loaded after `app.css`), classes
+  start with `ui-`, Jinja macros in `templates/_ui.html` (`{% import "_ui.html" as ui %}`); showcase
+  `/admin/ui-kit` (`app/web/admin_ui_kit.py`). `ui.css` holds no literal colours and every text/background token
+  pair keeps ≥ 4.5:1 – both checked by `tests/test_ui_kit.py`; add a new pair there. Breakpoints: phone < 640,
+  tablet 640–1023, desktop ≥ 1024 (`ui-hide-phone`, `ui-only-phone`, …; table → cards: `ui-table-cards` + `data-label`
+  on each `td`). IBM Plex (OFL) is self-hosted in `app/static/vendor/fonts/` (Fontsource 5.3.0, Latin subset) and
+  set globally through `--pico-font-family-sans-serif`/`-monospace`.
+- 2026-10-17 – The shared header is `templates/_app_header.html` with `static/header.css`: one row at >=1024 px, scrollable nav plus full-width capture at 640–1023 px, bottom tabs and capture/More sheets below 640 px. `shell.js` retains the generic disclosure/tab behavior and adds N-to-capture and explicit sheet close buttons. Avatar disclosures contain profile, language and logout. Existing feature/permission checks also apply in the phone More sheet. Header assets participate in the static version hash. The phone badge uses the Inbox's Needs your action categories (questions, human reviews, aborted tasks, email approvals and data releases), with the same owner/sprint scope; workflow actions remain in their separate Inbox group.
+- 2026-10-17 – Task dependencies from clients: `tbr update --depends-on` (repeatable, replaces the list, `none` clears, omitted = unchanged) and MCP `create_task`/`update_task(depends_on=…)` (list or comma-separated string, `"none"` clears on update) share `cli.client.parse_depends_on`. The server's `tasks._set_dependencies` now also refuses circles (`422`), since a circle makes tasks unclaimable forever.
+- 2026-10-17 – Inbox redesign (UI 3, `app/templates/inbox.html`): action cards (review/question) with type pill, key,
+  prio, actor chip, age and inline actions; a segmented filter `tab` (`all`/`reviews`/`questions`) and the sprint filter
+  are URL query params. The right-hand "Notices" panel is a notification feed from the `notifications` outbox
+  (`notifications.notices_for`, one entry per event, deduplicated across channels) with a colored dot per event
+  (conflict amber, sprint_done green, others navy); "Mark all read" sets `notifications.read_at` (migration 0039),
+  `POST /inbox/notices/read-all`. The old informational notices (agent review, unassigned, expired leases) stay in the
+  panel as collapsible `details`. Review "Request changes" reuses the existing `reject` action (comment required);
+  question "Send" reuses `answer`. A new `reltime` Jinja filter renders short relative ages ("12 min ago").
+- 2026-10-17 – Kanban redesign (`docs/ui-redesign/kanban.html`): the board always shows all seven columns
+  (`KANBAN_COLUMNS`, `app/web/tasks_ui.py`) as a grid `repeat(7, minmax(0, 1fr))` with `min-width: 1260px` and
+  horizontal scroll on smaller screens; the grey column backgrounds stretch to the tallest column (`.kanban-board`
+  modifier on the shared `.kanban` grid, so the planning board keeps its old behaviour). Below 640 px the board
+  snap-scrolls with ~85 vw columns and a sticky row of status tabs (`data-column` buttons, `static/kanban.js`)
+  replaces the "Status column" picker; the "Move" card menu opens as a bottom sheet. The card shows a mono task key
+  with model/runner tags and the priority badge, a sprint line, an assignee chip and the project key; the data-zone
+  badge is rendered only for `local_only`/`sealed` (not `cloud_ok`). A card filter search (`q`) was added to the
+  filter row. "Swimlanes by agent" (segmented control, `view` parameter/cookie `tm_kanban_view`,
+  `_kanban_swimlanes`) renders one seven-column board per assignee; drag and drop stays within each swimlane
+  (one Sortable group per board). "Draft" ends with "+ Add task", "Done" with "Show all N in Backlog".
+- 2026-10-17 – Planning `/planning` is a sprint accordion list instead of the column board (`app/web/planning_ui.py`,
+  `_plan_sprint.html`, `_plan_row.html`, `static/planning.js`, replacing `_plan_card.html`): one full-width card per
+  sprint with expand/collapse (planned/released open by default, the choice per project in
+  `localStorage["tb-plan-open:<key>"]`), name, status pill, a green progress bar with "<done> / <total> done" and a
+  primary "+ Task". The segmented filter Active / Planned / Closed / All plus the "Show closed sprints" toggle
+  (`closed=1`) replace the old `closed=1`-only switch; closed sprints are hidden by default in every filter and shown
+  dimmed. `planning_ui._sprint_rows` loads every sprint of the project with its rows in a constant number of queries
+  (`filter_counts` counts the filter badges from the same rows), and `visible` narrows the list. Tasks move between
+  sprints by drag & drop on the `<ul class="plan-rows">` and by the "Move to sprint …" row menu (`data-move-sprint`, a
+  `details` popup) – both post `POST /planning/move` (unchanged contract: `task_nr`, `sprint` = id or `none`, `order`),
+  the answer replaces the row in place. The "+ Task" button opens a dialog that posts to
+  `POST /planning/<key>/quick-add` (drafts, one per batch line, audit `via="planning"` as before) and returns to the
+  card (`#sprint-<id>`). Release, close, edit and reopen keep posting to the sprint routes with `back=planning`.
+- 2026-10-17 – The planning board's default filter is `all` with closed hidden (`planning_ui.DEFAULT_FILTER`) – like
+  the mockup, where "All" is the pressed tab: `/planning` without parameters shows planned and released sprints.
+  `active` now means running, i.e. planned + released (the mockup's "Active" tab); the badge counts come from the same
+  rows. `sprints_ui._planning_url` therefore returns to `filter=all` (closed sprints with `closed=1`) instead of the
+  previous `filter=planned`/`filter=active` split, so a sprint just acted on stays in view.
+- 2026-10-17 – Profile redesign (`docs/ui-redesign/profile.html`, `app/web/profile.py`, `app/templates/profile.html`,
+  `app/static/profile.css`): the page uses the `--ui-*` components (`ui-page-header`, `ui-card`, `ui-table`,
+  `ui-switch`). A sticky section nav anchors Display / Channels / Notifications / Quiet hours & mute / Delivery log
+  (ids `#display`, `#channels`, `#notifications`, `#quiet`, `#delivery-log`; `#display` and `#notifications` are kept
+  because `_own_projects_hint.html`, the inbox and mail headers link there). The notification matrix groups events
+  into Tasks / Workflows / Data (the groups are defined in the template, filtered by the `events` mapping) with one
+  Telegram/Email checkbox per event (`name="ch_<event>_<channel>"`, unchanged) and the admins-only "All projects"
+  checkbox in the card header. One combined form posts to `POST /profile/notifications`, which now also saves the
+  display switches (`show_all_projects`, `show_all_agents` for admins) via `form.getlist`; the display switches sit
+  outside the form element and are associated with it via the HTML `form` attribute (`id="pf-settings"`), while the
+  channel cards live in their own small forms (Telegram link/unlink, email save/verify) so their buttons are not the
+  settings form's implicit default submit. The delivery log always renders (empty state for new users) with a status
+  pill, recent 20 entries; `?log=all` shows all. On phones (<640 px) the section nav is a `<select>`
+  that sets the URL hash, the matrix keeps three columns, and the save button is sticky at the bottom.
+- 2026-10-17 – Projects overview (`/projects`) numbers come from `projects.overview` (one grouped query per fact:
+  task counts, last activity, active agent members) instead of a query per project – the list/card view shows
+  counts, agent count and last activity for every project without an N+1. "Last activity" is the newest task
+  `updated_at` of the project, not `projects.updated_at`: the latter only moves on settings edits and would show
+  "no activity" while tasks are being worked on. The list is always the default; the card view applies only while `?view=cards` is in the URL. Nothing is
+  remembered: the `tm_projects_view` cookie is no longer written and an old value is ignored and deleted, so a
+  stale cookie cannot force the card view. On the phone (< 640 px) the view switch is hidden and a small script
+  drops `?view=cards` too, so the phone always uses the list. The "Current" project of the cards
+  view is the first entry of the quick capture list (`common.quick_capture_projects`), so the pill matches the
+  preselected project in the header. `i18n.relative_time` renders the relative times ("today", "3 days ago",
+  fallback: locale date) and is registered as the `reltime` Jinja filter.
+- 2026-10-17 – Projects overview scope and toolbar: `?mine=mine` filters by `owner_id == me.id` whenever the
+  segment is "mine" – also for a user whose profile switch "Show all projects" is on (the switch only forces mine
+  when off); the header number counts the active projects of the selected scope, not of all projects. Only the
+  cards view moves the "Current" project to the front, the list keeps the chosen sort. The toolbar is one GET form
+  with `onchange="this.submit()"` (selects apply immediately) and a hidden `view` input, so clicking a segment does
+  not drop the other filter.
+- 2026-10-17 – Phone touch floor in `ui.css` (< 640 px): `--ui-h*` become 44 px, every button,
+  `[role=button]`, summary, select and text-like input gets `min-height`/`min-width: 44px !important` and form fields
+  16 px text (`!important`, because page styles fix desktop heights); segments, tabs, labels with a checkbox/radio
+  and listed stand-alone links (`.ui-key`, `.task-key`, breadcrumbs, result/filter links) get 44 px high boxes.
+  Small links and checkboxes count as fine when their 44 px area overlaps no other target (Lighthouse rule), links in
+  running text are exempt – making every inline link 44 px high would double the card heights.
+- 2026-10-17 – Admin pages share `admin/_nav.html`, now `ui.tabs` (Database, Users & agents, Settings, UI kit; the
+  latter three only with a ready DB) plus the message/error banners; the old `nav.subnav` styles are gone. Login and
+  error pages are one `.ui-auth-card` on `.ui-page`; stand-alone forms use `.ui-form-card`. Inbox, kanban and planning
+  use `ui-seg` instead of their own `.segmented`/`.plan-segment` styles (the old ones missed 4.5:1).
+- 2026-10-18 – Shared page canvas (UI 15): `html, body` use `--ui-bg`; `base.html` wraps every page in
+  `<main class="app-main">` (`ui.css`: max-width 1400px, centred, padding 24px, 16px below 640px, safe-area insets
+  included) instead of Pico's `container-fluid`. Pages add no wrapper box, `max-width` or side padding of their own –
+  `.ui-page` only sets font and text colour. `--pico-background-color` stays white because Pico paints `td`/`th` with
+  it (tables would turn grey); sticky bars on the page use `--ui-bg`. `tests/test_ui_screens.py` (`CANVAS_JS`) checks
+  body colour, container padding/width, transparent `.ui-page` and that the first `h1`/`.ui-page-title` starts at the
+  container edge on every page and width.
+- 2026-10-18 – Planning segmented-filter counts always cover every sprint of the selected project (closed ones
+  included), matching the subtitle total; the "Show closed sprints" toggle only narrows the displayed list, never the
+  counts (`planning_ui.filter_counts(all_rows)`). The expand/collapse chevron button is a 32px square with
+  background `#F1F3F5` and `#3A4554` chevron.
+- 2026-10-18 – Quick capture project select (`_app_header.html`): a native `<select>` whose options read
+  "KEY – name"; with JS the closed control shows only the key in mono via `.qc-project-key` laid over the select
+  (select text `color: transparent`, options keep their colour) and `shell.js` syncs key and tooltip (label `title`)
+  on `change`/`pageshow`. Native keeps keyboard, Esc and the phone pickers; a custom listbox would not. Without JS
+  the select shows the full option text. On phones the overlay is hidden and the full text shows in its own row.
+  The project choice is not remembered: the select always starts at the first entry of `quick_capture_projects`.
+- 2026-10-18 – Projects cards view polish (UI 24): the shared `ui.status` macro now handles `kind="project"`
+  (idea/active/paused/archived) via `project_status_label`, so the card pill never prints a raw status value. In the
+  cards view the progress bar spans the full card width (`width: 100%`, the list keeps its `140px` cell) and cards in
+  a row are equal height (`.ui-card-grid` stretches, `.ui-project-card .ui-card-body` grows, the footer is pinned with
+  `margin-top: auto`); the status pill stays top-right next to the key (`flex-wrap: nowrap` on `.ui-card-head`). The
+  List/Cards toggle sits flush right: Pico's `[role="search"] > * { flex: 1 1 auto }` grew the toggle span while its
+  inner `.ui-seg` stayed compact and left-aligned (a ~100px gap), so `.ui-toolbar > :is(.ui-seg, select.ui-select,
+  .ui-toolbar-view)` is `flex: 0 1 auto` – only the search field grows, the other controls stay compact and flush.
+- 2026-10-18 – Reviews by reviewer agents are Inbox action cards again (`agent_review` macro in `inbox.html`, filter
+  "Reviews"): `tasks.inbox` `agent_review` (for_review with an effective reviewer agent; rows carry `submitted_at`/
+  `review_claimed_at`) and `agent_decided` (status `changes_requested` whose latest `status_change` event came from
+  `for_review` by the task's reviewer agent; rows carry `decision` = the action note and `decided_at`; gone once the
+  assignee claims). `n_reviews` and `common.inbox_badge` count both lists; the Inbox page computes the badge before
+  the segmented filter empties categories. Running reviews offer the owner/admin overrule (approve/reject via
+  `/inbox/{nr}/…`); decided ones only open task/diff, because approve/reject need `for_review`. The "Review by agents"
+  notice in the side panel stays. Before UI 3 agent reviews were only a "Notices" table, never "Needs your action".
+- `tasks.inbox(..., cols={key: column})` merges extra columns into each row summary – use it instead of adding
+  inbox-only keys to `tasks.summary` (that dict is also returned by the sprints API).
+- 2026-10-18 – Profile display switches have their own form `#pf-display` , posted on every change
+  via htmx to `POST /profile/display` (answers with the status text only; `<noscript>` save button as fallback).
+  Before, they were bound by the `form` attribute to the notification form, whose "Save all changes" button sat far
+  below – toggling a switch and leaving the page (e.g. via the language toggle next to it) silently dropped the
+  change, so the switches looked broken. `POST /profile/notifications` no longer reads or clears them. This
+  replaces the 2026-10-17 note that the combined form saves the display switches.
+- 2026-10-18 – "Show all agents" off for an admin (`access.own_agents_only`) shows only the admin's **own** agents
+  – also when other owners' agents are public, and agents without an owner are hidden too (owner decision). Applies to `access.agent_choice_filter` (assignee/reviewer choices, agent filters, project default
+  reviewer) and Admin → Users & agents (`admin_users._users_page`: humans always listed, segment counts follow the
+  visible rows, hint "N agents of other owners hidden – Show all agents" linking `?all_agents=1` for that view; a
+  hidden agent's detail link still opens). Members have no switch and keep own + public. Display only: the API
+  (`GET /actors`) and the assignment permission (`may_use_agent`) are unchanged; assigned agents stay visible via
+  `keep`. Tests: `tests/test_display_switches.py`.
 
 ## Pitfalls
 
@@ -636,7 +1080,7 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   `tests/test_onboarding.py` to give `GET /user` per-token answers on top of `FakeGitea`). A respx side effect must
   return a plain `httpx.Response`; wrap a `TestClient` response (`httpx.Response(r.status_code, headers=…,
   content=r.content)`) when forwarding a CLI call to the in-process app.
-- `deploy/release/export-public.sh` drops `EXCLUDED_PATHS` (`research/`, `docs/naming/`, `media/`,
+- `deploy/release/export-public.sh` drops `EXCLUDED_PATHS` (`research/`, `Marketing/`, `Produktvideo/`, `docs/naming/`, `docs/ui-redesign/`, `media/`,
   `mediaassets/ChatGPT-Bild*.png`, `tasks/`) from the archived `HEAD` before scanning; internal notes may stay in the
   working repository. `tasks/` holds the attachments of TaskBrigade's own tasks (mockups, review screenshots), which
   TaskBrigade commits into this repository like into any project repository. `tests/test_export_public.py` checks
@@ -723,8 +1167,7 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   error messages never contain the request URL, because the URL contains the bot token.
 - Quiet hours and mute times in the profile use `TZ_DISPLAY`; the DB stores naive UTC. A permanent mute is
   `notifications.FOREVER` (9999-12-31).
-- `tests/conftest.py:ready_db` also empties `telegram_actions`, `question_reads`, `notifications`,
-  `notification_prefs`, `telegram_link_codes` and `telegram_links`; `test_schema_options_and_seed` counts 19 tables.
+- `tests/conftest.py:ready_db` also empties the seven workflow tables, `datasets`, `data_audit` (TRUNCATE) and `data_audit_head` (reset), `telegram_actions`, `question_reads`, `notifications`, `notification_prefs`, `telegram_link_codes`, `telegram_links`, `outgoing_mails` and `project_mail_recipients`; `test_schema_options_and_seed` counts 32 tables (with `email_verify_codes`). Reset workflow rows before projects, tasks and actors; the fixture temporarily disables foreign-key checks to handle the current-version and task/run-step cycles.
 - Telegram button/reply tests (`tests/test_telegram_actions.py`) drive `BotThread().handle(api, update)` with the
   `FakeApi` of `tests/test_telegram.py`, which records `markups`, `answers` (answerCallbackQuery) and `edits`
   (editMessageReplyMarkup) and returns `message_id` 1000 + n. A fake merge conflict needs `gitea.conflict = {...}`;
@@ -829,13 +1272,17 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   take the session as `session: Session = SessionDep` (`app/api/deps.py`, `Depends(get_session, scope="function")`),
   never `Depends(get_session)`; `tests/test_session_commit.py` checks every route. The web UI commits inside the
   handler (`web_session()`), it is not affected.
-- Task detail (`task_detail.html`) uses the new-task form's cards, `_md_field.html` with `md_tabs` and
-  `static/task_form.js` (it initialises `#new-task-form` or `#edit`). Project and status are readonly inputs without
-  `name` (no project move, status only via actions). The edit form's error re-render passes `edit_form` (title,
-  texts, prio, assignee, due, sprint, reviewer, model, and parent/dependencies when `structure` was sent) and
-  `error_section` (`tasks_ui._error_section`); an empty `model`/`sprint`/`reviewer` in `edit_form` falls back to the
-  stored value. "Discard changes" is a link back to `/tasks/<nr>` with `data-discard` (`form_guard.js` confirms when
-  the form is dirty or `data-discard="confirm"` on an error re-render) – not the task's "Cancel task".
+- Task detail (`task_detail.html`) is a read view by default (result card, rendered description, criteria checklist,
+  activity, properties sidebar with inline popovers). "Edit" opens the previous form: the new-task form's cards,
+  `_md_field.html` with `md_tabs` and `static/task_form.js` (it initialises `#new-task-form` or `#edit`). Project and
+  status are readonly inputs without `name` (no project move, status only via actions; humans override status under
+  "Admin: override status"). The edit form's error re-render passes `edit_form` (title, texts, prio, assignee, due,
+  sprint, reviewer, model, and parent/dependencies when `structure` was sent) and `error_section`
+  (`tasks_ui._error_section`); an empty `model`/`sprint`/`reviewer` in `edit_form` falls back to the stored value.
+  "Cancel" is a link back to `/tasks/<nr>` with `data-discard` (`form_guard.js` confirms when the form is dirty or
+  `data-discard="confirm"` on an error re-render) – not the task's "Cancel task". Sidebar property popovers post the
+  same edit endpoint and repeat title, description, criteria and the fields they do not change. The read view parses
+  acceptance criteria with the `criteria_view` filter (Markdown checkboxes; HTML is escaped).
 - Draft release check (`[data-release-check]`, `data-state` blocked/unassigned/ready) is rendered from the stored task
   and re-evaluated by `task_form.js` from the editor values; the release button is disabled only while description or
   criteria are empty (state machine rule), an unassigned draft only gets the confirm (`data-unassigned` on the publish
@@ -846,6 +1293,175 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   (e.g. a production host), `Path.exists()` raises `PermissionError` under Python 3.12 instead of returning `False`. `env_file()` checks
   the default and legacy files through `admin_config._exists`, which counts such a file as absent; tests point
   `DEFAULT_ENV_FILE`/`LEGACY_ENV_FILE` at `tmp_path` (`tests/test_admin_config.py`).
+- CI actions: `astral-sh/setup-uv` publishes no major tags since v8 (`@v8`, `@v9`, `@v10` do not exist), so the workflow
+  pins the full version (`@v10.3.0`). Check `git ls-remote --tags` for the tag before bumping, and keep Node 24 actions
+  (`runs.using: node24` in the action's `action.yml`).
+- Agent-native background features (Claude Code `run_in_background`, Codex background commands) end with the agent
+  session. A process the agent CLI starts lazily after its first minute (e.g. an LSP server of OpenCode) counts as a
+  job too and prevents parking – the thread comment lists it; such a session stays open like before parking existed.
+- Marketing and outreach material that names third-party accounts or people (e.g. `research/bekanntmachung-plan.md`)
+  belongs under `research/`, which `export-public.sh` excludes; sample posts there must not name internal project
+  keys – refer to tasks as "Task #<n>".
+- The binding promotion plan is `Marketing/Taskbridge_promo.md` (consolidates the plans of Task #84–#87; internal,
+  excluded from the public export). The four earlier plans all sit under `research/`; never link marketing or outreach
+  plans from `README.md` or put them in `docs/`, which is exported.
+- Privacy: `actors.runtime = local` only says where the agent process runs, not where its model runs – a local Claude Code/Codex agent still sends everything it reads to a cloud API. `actors.model_location` covers that, but only while `privacy_enforce_model_location` is on (decision 2026-10-16). Task attachments are committed to the project repo in Gitea (`app/services/attachments.py`), which cloud agents clone, so confidential files must never be attached. Docs for both (model location, data zones, runner, data store outside Gitea): `docs/data-zones.md`; design record `research/konzept-datenzonen.md`.
+- `tasks.merge_commit_sha` records the merged PR's SHA on approval, before brain/changelog follow-up commits; `result_commit_sha` remains the submitted SHA. Gitea's merge endpoint returns no SHA, so `GiteaClient.merge_pull` reads the merged PR and returns its `merge_commit_sha`. A retry can recover an already merged PR after a failed read. Historical done tasks retain NULL (no backfill). Background jobs all run in the app process (APScheduler in `app/scheduler.py`, uvicorn `--workers 1`); new periodic logic should be an idempotent, DB-locked function so it can also be triggered from a systemd timer. Docs for repeatable workflows (templates, runs, output contracts, scheduler with workday logic): `docs/workflows.md`; design record `research/konzept-workflows.md`.
+- DB tests: `ready_db` empties `app_settings`, so `privacy_enforce_model_location` is **on** (default) in every DB
+  test. The fixture gives the local test agents (`hermes`, `openclaw-agent`, `opencode`) `model_location = local`
+  so they keep access to `local_only` projects; tests that need the old rule store `false` themselves. A form test
+  that posts *Admin → Settings* must send the checkbox, or the save turns the setting off.
+- A new privacy check goes through `zones` (Python: `zones.check`/`may_handle`/`allowed_classes`; SQL:
+  `zones.sql_may_handle`/`sql_classes`), never a direct `project.privacy`/`actor.runtime` comparison – the two
+  forms must stay equal (`tests/test_model_location.py::test_agent_reviewed_sql_matches_helper`).
+- The attachment lock checks the file extension only (original name and the name after `safe_filename`, case-insensitive). It does not look at the bytes. `tbr-admin data scan-attachments` is a report; it does not rewrite Git history.
+- Parallel tasks must take the next free Alembic revision. Model location is `0020`; workflow stage 1 is `0021` (revises `0020`). Two scripts with the same revision id branch `heads` and `get_current_head()` fails.
+- WF 3 should extend `workflows.engine.render_step(session, run, step)` for parameter/output resolution; WF 2 only accepts literal task texts and pauses on unresolved placeholders. It stores parameters without validation. Activation sets `tasks.data_class` to the step class after `zones.check_class` with the template owner; a looser class than the project's pauses the run with `data_class_forbidden` unless the template owner is the project owner or an admin. Unsupported runner/script/gate steps and unsafe zone boundaries always pause, never auto-release. Template-wide auto-review settings, timers/retries, runner stopping and publishing validation belong to their later stages.
+- Rework of a merged workflow task clears its PR/result metadata before resubmission: otherwise `_submit` would reuse the merged PR, and `_approve` could recover its old merge SHA instead of merging the rework. Old PR links remain in task events. Reviewer-agent approvals work through review services; WF 4 must add task-kind-aware API/runner preparation for branchless approval jobs.
+- Task-level privacy decisions use the effective class: Python `zones.effective_class(project, task)`, SQL
+  `zones.sql_effective_class()` (`COALESCE(tasks.data_class, projects.privacy)`, needs `Task` and `Project` in the
+  query). Pass the task to `zones.check`/`members.check_privacy`/`reviews.check` wherever one exists; only project
+  membership without a task stays on `projects.privacy`. `zones.sql_may_handle` covers `sealed` too
+  (`tests/test_data_class.py::test_sql_rule_matches_helper_for_all_classes`).
+- The task edit form sends `data_class=inherit` to clear the own class; empty keeps it (FastAPI empty-form rule).
+- Alembic: data class per task is `0022` (revises `0021`); parallel tasks take the next free number.
+- The placeholder resolver is strict: an empty string does not fill `{{...}}` unless the placeholder uses `default("...")`. `\{{` is the only escape. Decimal outputs are JSON strings. A file output rendered without a filter becomes `path@` plus the first 7 characters of the commit SHA. `*` in `path_glob` does not cross `/`.
+- Approval steps pass `no_assignee_rule` when `reviewer_id` (or `reviewer: human:owner` in a definition dict) is set. The content-pipeline example assigns the project owner as reviewer, not as assignee.
+- `allow_auto_review` and `data_enabled` are arguments of `check_publish`, not columns. Data zones are off until the caller passes `data_enabled=True`, so `runner` / `gate` / `script` fail `runner_without_data_zones` by default. Input bindings are resolved and returned to the run engine; `task_data_refs` does not exist yet, so nothing is inserted there.
+- `smtplib.SMTPException` derives from `OSError`: catch order matters, and "is it a connection problem" must test
+  `SMTPServerDisconnected` or "not an `SMTPException`" (`mail.Connection.send`), otherwise every 4xx/5xx counts as a
+  lost connection.
+- Email tests use `tests/smtp_fake.FakeSmtp` (real sockets on 127.0.0.1, STARTTLS or implicit TLS with a self-signed
+  certificate, AUTH PLAIN, `fail_rcpt`/`fail_data` replies, `stop()` = refused connection) and patch
+  `mail.ssl_context_factory` with `smtp_fake.client_context`. Parsed bodies use CRLF line endings.
+- `tests/conftest.py:ready_db` also empties `email_verify_codes` and resets `email_verified_at`;
+  `test_schema_options_and_seed` counts 27 tables.
+- Alembic: email channel is `0023` (revises `0022`); parallel tasks take the next free number.
+- Admin → Settings is built from `settings_store.GROUPS` (`SettingGroup`: key, title, hint, rows of one or two keys,
+  optional `toggle` bool for the "off" pill); `SettingDef` has no `group` field any more and the API's `group` is the
+  group key (`GROUP_OF`). A new setting must go into exactly one row of one group –
+  `tests/test_settings_groups.py` fails otherwise. Cards are `id="settings-<key>"`; `static/settings.js` shows one
+  group per URL hash, counts unsaved changes and drives the secret fields; leaving is guarded by `form_guard.js`
+  (`data-guard="settings"`). The page gets secrets through `admin_settings.browser_view` (value always `None`, only
+  `is_set`/`source`); the API keeps the masked `…abcd` suffix. Value checks for mail settings are
+  `settings_store.MAIL_CHECKS` next to `SFTP_CHECKS`.
+- The dataset upload must not use `request.form()` or `csrf_protect`: Starlette spools larger files to a temporary
+  file (plaintext on disk). `data_ui.upload` parses `request.stream()` with `python_multipart.MultipartParser` and
+  checks the CSRF token and the upload right when the file part begins – the form keeps the file input last.
+- `data_audit` refuses DELETE through a trigger: `ready_db` uses `TRUNCATE TABLE data_audit` and resets
+  `data_audit_head`. Tests that drop a trigger must recreate it (`tests/test_data_store.py`).
+- A streamed query (`yield_per`) must be consumed before the next query on the same session – `data_audit.verify`
+  reads the head first.
+- Dataset ids are not reset between DB tests (DELETE keeps AUTO_INCREMENT): take the key from the upload redirect,
+  never assume `DS-0001`.
+- Alembic: the data store is `0024` (revises `0023`, email channel); parallel tasks take the next free number.
+- `tests/gitea_fake.FakeGitea` serves binary branch files (`put_branch_file` with bytes) and files at a commit SHA
+  (`commit_files[sha][path]`, read with `?ref=<sha>`); result-mail tests use both.
+- Alembic: result mails are `0025` (revises `0024`, data store); parallel tasks take the next free number.
+- DB tests that read rows the web UI just committed need `s.commit()` **and** `s.expire_all()` (the session factory
+  uses `expire_on_commit=False`, and MariaDB's repeatable read keeps the old snapshot). Engine helpers such as
+  `workflows.engine._latest` lock run steps `FOR UPDATE`; calling them from the test session before a UI control
+  request causes a lock wait timeout – look tasks up without locking (`tests/test_workflows_ui.py:first_task`).
+- systemd job unit (`deploy/systemd/taskbrigade-job@.service`, checked with systemd 255): `RuntimeMaxSec=` has **no
+  effect on `Type=oneshot`** – the limit is `TimeoutStartSec=` (result `timeout`). `StandardOutput=truncate:` is
+  applied again when `ExecStopPost` starts and empties the log; use `append:` on files the runner pre-creates
+  (owner `tbr-runner`, group `tbr-job`, 0660). Seccomp kills with SIGSYS unless `SystemCallErrorNumber=EPERM` is set.
+  The status for the runner comes from `ExecStopPost` (`$SERVICE_RESULT`, `$EXIT_CODE`, `$EXIT_STATUS` – written as
+  `$$` in the unit – and the cgroup's `memory.peak`); it runs after the job's processes are killed, and the runner
+  also requires `systemctl start` to succeed before it believes `success`. Files from the job are read with
+  `O_NOFOLLOW` + `S_ISREG` (a symlink in `out/` must not make the runner copy the KEK into quarantine).
+- Sandbox isolation tests: `deploy/sandbox-test/run.sh` (Docker, privileged systemd container, `--cgroupns=private`,
+  `--tmpfs /run`) – about 2 minutes, exit 0 only if every probe passes. `tbr-admin runner selftest` runs the same
+  probes on a real host as `tbr-runner`; `python3 -m app.runner.selftest` works from a checkout without the app venv
+  (stdlib only). `/tmp`, `/var/tmp` and `/dev/shm` are writable inside the sandbox but private to the job.
+- Alembic: the runner is `0028` (revises `0027`, workflow errors); parallel tasks take the next free number.
+  `tests/conftest.py:ready_db` empties `run_results`; `test_schema_options_and_seed` counts 37 tables.
+- Tests of the runner flow (`tests/test_runner_jobs.py`) drive `app.runner.service.Runner` against the in-process app
+  (`ApiAdapter` with the `cli.client.Client` interface) and replace the systemd launcher by a subprocess – the server
+  texts are German there (`UI_LANGUAGE=de`).
+- `AllowTcpForwarding no` (sshd) only refuses **remote** (`-R`) forwards; a local `-L` forward is a client-side
+  channel the server never sees. Do not use `-L` as a test for "forwarding is off" – check `-R` instead.
+- `authorized_keys` must be root-owned (`root:root 0644`) inside the chroot root (`root:root 0755`, not
+  group-writable), otherwise `sshd` refuses `StrictModes`. The `upload/` folder is owned by the deliverer
+  (`<user>:tbr-data 0730`), so the app can read the delivered file through the data group and the deliverer never
+  sees another user's files.
+- Ubuntu's `install` does **not** accept `-o user:group`; use `install -d -o <user> -g <group>` (the existing
+  `tm_ensure_dir` splits the owner string correctly – pass `user:group` to it, not to `install`).
+- Planning board query count: `tests/test_planning.py::test_dependency_hint_and_constant_queries` counts statements
+  with a `before_cursor_execute` listener on `db.engine`. `tasks._names` skips its query when no task is assigned,
+  so both measured boards need at least one assignee; dependency hints come from one `task_dependencies` join
+  (`planning_ui.waiting_for`). Tests that expect a sprint to appear on the board must name the filter it is shown
+  under (`filter=planned|active|closed`); the default is `all` with closed hidden.
+- Alembic: task data refs are `0034` (revises `0033`); parallel tasks take the next free number.
+  `tests/conftest.py:ready_db` empties `task_data_refs`; `test_schema_options_and_seed` counts 42 tables.
+- `cli/locales/de.json` is written with `json.dumps(..., ensure_ascii=False, indent=2)` plus trailing newline (not
+  `indent=1` as noted above); the wrong indent rewrites the whole file.
+- Every released output-gate result now gets an "Interpret result" draft as follow-up of its run task (also for run
+  tasks created by hand); tests that count `follow_ups` of a run task must expect it.
+- Pico styles every `[role=group]` as a full-width joined button bar (children `flex: 1`, inner radii 0) and every
+  `nav` as `justify-content: space-between`; `ui.css` undoes it for `.ui-seg`/`.ui-chips`/`.ui-tabs`. Pico also adds
+  a search icon to `input[type=search]` (`background-image`) and transitions button backgrounds (~.2 s) – a
+  screenshot right after a click can still show the old segment as active.
+- Project page tabs (`project_detail.html`, `static/project_detail.js`) are panels on one page selected by the URL hash;
+  a hash of an element inside a panel (`#sprints`, `#mail-recipients`) selects that panel. Without JS all panels show.
+  Its settings form uses `form_guard.js` (`data-guard="project"`); `[data-dirty-indicator]` inside any guarded form is
+  shown while it has unsaved input. Page styles live in `static/project_detail.css` (`pd-*`) until the shared
+  components of the UI redesign exist.
+- Kanban route keyword clash: `app/web/tasks_ui.py::kanban` must not pass a value that `_view_ctx` already
+  returns in `**vctx`. Passing `view=view` next to `**vctx` (which holds `"view"`) raises
+  `TypeError: render() got multiple values for keyword argument 'view'` and breaks every `-m db` test that opens
+  `/kanban` (`test_i18n.py::test_pages_in_english_with_db`, `test_mobile_ui.py::test_kanban_status_tabs_and_col_parameter`,
+  `test_sprints_ui.py::test_sprint_filter_in_backlog_kanban_inbox`). Let `view` come from `**vctx` only, like
+  `workflow`/`owner`.
+- Sprint migrations are numbered by hand in parallel sprint tasks. Two waves merged migration `0039` twice
+  (`0039_sprint_moved_tasks.py` and `0039_notification_read.py`), which left
+  `main` with two alembic heads ("Multiple head revisions are present") and every `-m db` test erroring at setup.
+  Renumber a colliding revision (here `0039_notification_read.py` → `0040_notification_read.py`, `down_revision`
+  `0039`) so a single head remains – check `uv run alembic heads` before submitting.
+- Flex rows that switch to `flex-direction: column` on phones keep `align-items: flex-start` and their `flex-basis`
+  (e.g. `flex: 1 1 21rem`), which then shrink cards to their content width and turn the basis into a height. Set
+  `align-items: stretch` and `flex: none` on the children (task detail `.detail-grid`, inbox `.inbox-cols`).
+- Chromium keeps a date input as `document.activeElement` while focus sits in its internal day/month/year fields,
+  where neither `:focus` nor `:focus-visible` matches; the focus check skips such elements. Content of a closed
+  `<details>` still reports a box from `getBoundingClientRect` – layout checks must ignore it.
+- Pico styles `:where(input, select, textarea) + small` as a full-width block (form help text): a `<small>` directly
+  after a toolbar select wraps onto its own line – give it `width: auto; margin: 0` (Users & agents count).
+  Pico also gives `<details>` a bottom margin, which pushes inline popovers (`.prop-pop`) below their row label.
+- `ui.css` loads after `app.css`: a page rule with the same specificity as a `ui-*` component rule loses, also inside
+  a media query (`nav.detail-tabs` is needed to beat `.ui-tabs { flex-wrap: wrap }` on phones).
+- Ellipsis needs an element of its own: `text-overflow` does not apply to the anonymous text of an `inline-flex`
+  chip (`.agent`, `.actor-chip`, `.ui-actor`), so the name sits in `<span class="ui-actor-name">` and the chip gets
+  `min-width: 0; max-width: 100%`. In an auto-layout table (backlog) cap the chip itself – `max-width` on a `td` is
+  ignored.
+- Header and profile language choices include Default (EN/DE), which deletes `tm_lang`. Active entries use the normalized cookie, so an explicit choice equal to the admin default is still personal. Settings explain the override. Saving clears the local default cache; other workers may retain it for up to 30 seconds (see `docs/getting-started.md`).
+- Phone/tablet CSS: `app.css` below 960 px sets `:is(button, [role=button]):not(.menu-toggle) { display: inline-flex }`
+  (specificity 0,1,1) – a plain `.class { display: none }` on a button loses against it on tablets; hide with two
+  classes. A fixed sheet inside an element with `position: relative; z-index: 1` (kanban `.card-move`) stays in that
+  stacking context and ends up under the bottom tab bar (z-index 50): raise the open container, and park phone
+  sheets and sticky bars above the tab bar (`bottom: calc(66px + env(safe-area-inset-bottom))`). Flex tabs drop the
+  space between a label and its count span – use `gap`.
+- Full-page Playwright shots resize the viewport, which moves a mandatory snap-scroller (kanban on phones) to a varying
+  offset; `_shoot` therefore scrolls `.kanban-scroll` back to 0 first – baselines show the first column, the real start
+  column is asserted in `test_ui_mobile_flows.py`.
+- Header controls between 640 and 959 px get `min-height: 44px` from `app.css` (touch sizes); a fixed-height
+  header control (quick capture) needs its own 44 px rule there, otherwise text drawn over it (`.qc-project-key`)
+  ends up off-centre.
+- Segment controls built from links (`.ui-seg > a`, e.g. the profile language switch, which is a GET navigation) do
+  not get the phone touch floor `min-width: 44px` from `app.css` (that rule covers `button`, not `a`); add
+  `min-width: 44px` next to the segment `height: 44px` in `ui.css`'s phone block or the short "EN"/"DE" segments
+  fall under the 44 px tap-target check.
+- Jinja newstyle `_()` returns markup-safe text: `&` in a translated string reaches the HTML unescaped
+  (`Benutzer & Agenten`, not `&amp;`) – assert the raw text in UI tests.
+- Screenshot seed (`deploy/release/screenshot_seed.py`): a workflow step with a fixed `assignee` pauses the run with
+  `no_assignee` when the agent is at its parallel limit – every open task assigned to it counts, also `defined` and
+  `draft` ones. The seed raises `research-agent` to `max_parallel_tasks = 3` before starting the demo run. Fixed
+  actors must also be project members (`members.ensure_member`), approvals' human reviewers included.
+- `api.import_draft` takes the parsed document (`transfer.parse_yaml(text)`), not the YAML string; a string fails
+  with “Unknown field(s) in the document” listing single characters.
+- The README's minimal workflow YAML is the seed's `RELEASE_NOTES_YAML`: change both together, so the screenshot run
+  proves that the documented example still passes the publish checks.
+- `screenshots.py` crops only full-page shots at `MAX_HEIGHT`; phone viewport shots are 780×1688 px and must keep the
+  fixed bottom tab bar. Token prefixes (`tm_…`) are replaced by `tm_xxxxx` before every shot.
 
 ## Glossary
 
@@ -856,4 +1472,124 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
 
 ## Naming research
 
+## Known pitfalls
 
+- Workflow transports live in `app/api/workflows.py`, `app/services/workflows/api.py`, `cli/workflows.py` and `cli/workflow_mcp.py` (guide: `docs/workflows-api.md`). Draft PUT creates a template if needed; publishing freezes that version and later saves replace/create only a draft. Reads require project membership or human ownership/admin; outputs, defaults, traces and parameters are masked through `zones`.
+- Workflow engine activation and dry-run share `workflows.rendering`: typed parameters/defaults, the WF 3 placeholder resolver and input-binding checks. Preview never adds its transient run or reserves IDs/sequences; `<new-run>` marks future IDs and later outputs stay deferred. Dataset parameters fail closed until dataset access validation exists. Scheduler tick/operator commands explicitly report unavailable until WF 6; schedules are empty in stage 1.
+- Approval review jobs (`task_kind=approval`) prepare only `REVIEW.md` and use the review lease/decision lifecycle, without Git credentials, a checkout or PR. When credentials are missing, preparation first confirms a matching approval in `/agents/me/reviews` and claims that exact task; ordinary code tasks still fail before claim. The runner uses `APPROVAL_PROMPT` for these jobs.
+- Gitea data guards are opt-in filesystem installs (`tbr-admin data gitea-hook install --repo-root <Gitea repository ROOT>`); no production installation is automatic. Selection includes local-only projects, projects with explicit local-only/sealed tasks, and projects with datasets, independent of `data_enabled`. Rerun installation after project/task/dataset/repository changes and app upgrades; selection is an install-time snapshot. Uninstall includes all mapped repositories so former data-zone projects can be cleaned up; remove guards before deleting/remapping projects if needed. See `docs/operations.md`.
+- The standalone Python 3 guard (`app/services/hooks/pre_receive.py`, rendered by `app/services/gitea_hook.py`) shares `attachments.BLOCKED_EXTENSIONS`. It checks whole commit trees, including incoming history and peeled commit tags, preserves Git quarantine variables and fails closed on inspection errors/non-commit tags. Extension checks are not content detection; no historical cleanup occurs. Gitea 1.24 dispatches executable `hooks/pre-receive.d/*`; install only `taskbrigade-data-guard`, never replace Gitea's dispatcher or `gitea` file.
+- Data zones are provisioned by `deploy/install.sh`/`deploy/update.sh` only with `TBR_DATA_ZONES=1` (concept
+  docs/konzept-datenzonen.md §9); without it the scripts do not touch the system and only the database migrations
+  add the new tables/columns. The switch from the environment wins over a key set earlier with
+  `tbr-admin config set TBR_DATA_ZONES 1` (update.sh reads the key only when the variable is unset). `prereq.sh`
+  checks systemd ≥ 249 and polkit only while the switch is on.
+- The data store KEK (`TBR_DATA_KEY_FILE`, default `/etc/taskbrigade/data.key`, `root:tbr-data 0640`) is created by
+  the install scripts (or `tbr-admin init-data-key`) and **never** overwritten; `deploy/backup.sh` archives the
+  encrypted store only with `TBR_BACKUP_DATA=1` and never the KEK – without the key a leaked backup plus store is
+  harmless, with it everything opens. `taskbrigade.service` gets the data group and `ReadWritePaths=$TBR_DATA_DIR`
+  through the drop-in `/etc/systemd/system/taskbrigade.service.d/50-data-zones.conf`.
+- `tbr-admin config` knows four keys the app does not read: `TBR_DATA_ZONES`, `TBR_DATA_SFTP`, `TBR_RUNNER_VENV`,
+  `TBR_BACKUP_DATA` (all in `EXTRA_KEYS`, checked as 0/1 or absolute path). They belong in `.env.example` too
+  (`tests/test_deploy_prereq.py` checks `ENV_KEYS`).
+- The Gitea push guard and the data-zone runner sandbox are separate files (`deploy/polkit/…`,
+  `deploy/systemd/taskbrigade-job@.service`); the polkit rule lets `tbr-runner` start/stop only `taskbrigade-job@*`
+  units.
+- The `tbr doctor` email check is a **probe, not a test mail**: `mail.smtp_probe` opens one SMTP session
+  (EHLO + STARTTLS or implicit TLS + login) and closes it – no mail leaves the server and no address is
+  needed. `NOOP` alone would not exercise TLS or the login. Admin → Settings keeps its real
+  "send test mail" button.
+- The doctor email check **warns, it does not fail**: recurring failed deliveries (last `mail.LOG_WINDOW`
+  = 10 log rows) produce a warning line but exit 0 – the TaskBrigade server itself is still healthy. The
+  check only errors when the probe endpoint is unavailable (`GET /agents/me/email-status`).
+- `smtp_probe` raises 404 `email_disabled` when the channel is **off** (`mail.enabled()` = switch
+  `email_enabled` plus host and from-address set); without the switch the check is unreachable, so
+  `tbr doctor` simply omits the email line then.
+- A failing probe (connect, TLS, login) answers **404 vs 502**: channel off → 404 `email_disabled`;
+  the SMTP server failing → 502 `bad_gateway` with the plain MailError text (`errors.ProbeFailed`).
+  Never let a `MailError` escape `smtp_probe` – it is no `AppError` and would end as a generic 500.
+- `failures_in_a_row` counts the failed/retrying rows at the **end of the delivery log** – a successful
+  probe does not clear it; the warning in `tbr doctor` stays until new deliveries succeed or the rows
+  age out of the log.
+- The probe endpoint answer contains **no credentials**, only host, security mode, last delivery time and
+  status/error from the log (no message contents; the log keeps 30 days).
+- The SMTP probe opens a fresh connection on every doctor run (no caching) – fine at doctor frequency,
+  but mind the provider's connection rate limit if doctor or the Settings page is polled aggressively.
+- Workflow scheduling uses `workflows.tick.tick(session, now)` and `workflows.schedule` for all date calculations. Tick owns commits; pass a clean session. Its MariaDB named lock stays on a separate connection across per-slot commits. Both runs and fires enforce unique schedule/UTC-slot keys. Migration `0026` follows `0025`; parallel tasks take the next free revision. The schema test now counts 36 tables (excluding alembic_version).
+- Queued runs pin their version, resolved parameters and `schedule_timezone` at creation; `started_by` is NULL for schedule runs. Paused runs count as active for overlap. Manual starts need `queue=True` to enqueue or human-admin `force_parallel=True` to bypass an active run. Existing tests that deliberately start concurrently must choose explicitly.
+- WF 6 exposes `/workflows/schedules` and `/workflows/{project}/{key}/schedules`; WF 5 can link to these from its template page. Shared calendars and exceptions are managed by `tbr-admin workflows calendar add/day/check`. Calendar exception changes reset affected schedule cursors to now. Cron weekday numbers follow CronTrigger (Monday=0); use weekday names.
+- `TBR_WORKFLOW_TICK=timer|app|off` selects the app trigger (Docker image: app, native: timer); workflows_enabled stays false by default pending WF 7 installation onboarding. WF 7 owns systemd units/install/update/doctor. WF 8 owns timeouts/retries/reminders; WF 6 reconciles terminal tasks and activates queued runs only.
+- Workflow error handling is `workflows.errors` (guide `docs/workflow-errors.md`), migration `0027` after `0026`. Work clocks count only `in_progress`, default agent/script limits 24/48 hours; clocks and reminder timestamps persist on run-step attempts. Existing active clocks begin at migration time. The tick must include paused runs for running-task timeouts, while retries/reminders defer during manual pauses.
+- Agent automatic retry reuses the task via `reset_for_reassignment`, but creates a fresh run-step attempt and moves `tasks.workflow_run_step_id`. Flush the step-to-task link before setting the reverse relationship to avoid SQLAlchemy circular-dependency errors. `assignee_id` on attempts preserves retry candidate history. Failed attempts are excluded from task claims, including named/direct claims, until recovery; cancelling a task during backoff removes its pending retry.
+- Workflow reminders use `workflow_wait_reminder` (owner/starter, first after step `wait_reminder_hours` default 24, then daily) and `workflow_claim_reminder` (owner, once per defined interval after `claim_reminder_hours` default 4). `workflow_paused_max_days` default 30 only adds a history/detail warning, never automatically terminates a human wait. Step config `reassign_on_idle: true` tries one eligible alternative without incrementing the attempt. Runner activation/stopping and exit-code/schema mapping remain with WF 10/11; recovery creates a fresh runner attempt through normal activation.
+- Migration `0030` follows `0029` and adds `dataset_profiles`; schema tests count 40 tables. Until DZ 9 adds `task_data_refs`, `dataset_profiles.code_task_id` restricts released-profile API reads to the assigned agent of that active code task. The approved schema/sample are inline in the draft description; original names remain local in `aliases_json` and runner-only job specifications.
+- Profile samples exclude all nonempty original cells (normalizing numeric/date representations), including permitted category values. This deliberately strengthens the concept's category sampling rule. Fingerprints ignore distribution/PII role changes and include ordered names/types/precision; aliases change the fingerprint. Header aliases are applied inside the sandbox to a private temporary input copy, never by the web parser.
+- Profile release enforces a second human for sealed uploads (uploader cannot release). It uses the output gate's effective setting `output_gate.four_eyes()` (`projects.data_four_eyes`, NULL = admin
+  setting `data_four_eyes`, default on) – never read the column directly, NULL would count as "off"; local-only profiles allow the uploader to release. Alias mappings use MEDIUMTEXT for wide workbooks. Cloud task descriptions inline at most 60,000 bytes; larger handoffs point to the same scoped profile API.
+- Alembic: the output gate is `0032` (revises `0031`, task usage); parallel tasks take the next free number.
+- Runner tests now see two launcher runs per successful job (`<job>` and `<job>-gate`); a fake launcher must run the
+  probe's `script/entry.py` like any job or return a failure (then the gate fails checks 4/5 – fail closed).
+- The default runner test dataset (`tests/test_data_store.CSV`) has two rows per account; `renv` uploads it with
+  *Min. group size* 2, otherwise the output gate refuses every per-account result with k = 5.
+- `runner_jobs.record_result`: `profile` jobs return after `dataset_profiles.ingest` and never reach the output gate
+  checks (their result stays `quarantine`); only `run` jobs are checked.
+- Email notify steps (`workflows.email`, `config.channel=email`) file result-mail requests on the latest preceding task; notify has no task of its own. `workflow_run_steps.output_json.mail_id` points to the request. Step success means the request was accepted, not SMTP delivery; approval and delivery remain in the task's Emails section/Inbox.
+- `result:<id>` email attachments export only `run_results.released_json` as Markdown with JSON; never quarantine output or logs. Local-only project/task/notify mail requires only released result attachments and separate human approval (`on_approve` is disabled), sealed mail is refused. Migration `0033` after `0032` stores the request class on outgoing_mails; approval/delivery use the stricter stored/current class and recheck result status and hashes.
+- WF 10 maps runner/gate steps through `workflows.data_steps` (guide `docs/workflow-engine.md`). A runner attempt succeeds when the job passes checks, while its task stays `for_review`; the following taskless gate watches that same result. Task transitions must reach the hook even after the runner attempt succeeded. Gates require human output-gate release; rejection/keeping sealed pauses. Without a gate, `keep_sealed_by_system` completes the task without releasing any data. Profile runner steps wait for the separate profile release. Script pins/repair remain WF 11.
+- Workflow zone checks inspect actual placeholder reads, including config and bindings, using the strictest recorded/current producer class. Sealed summaries/values never cross; task-number/status references need no gate, released profiles use profile approval, and results need a directly following succeeded gate plus a still-released result. Dataset parameters are project-scoped numeric IDs validated with the template owner's data rights. Runner bindings currently populate the existing run fields; DZ 9 owns `task_data_refs`.
+- Workflow agent consumers receive only released profile/schema samples or released aggregate JSON inline (60,000-byte limit, otherwise API links). Engine-written `input_profiles`/`input_results` IDs on the consumer attempt scope large profile reads to the assigned active task until DZ 9 adds shared reference rows. Never materialize `aliases_json`, quarantine artifacts or runner logs.
+- Runner heartbeats stop the active sandbox (including the gate probe) when the task is cancelled, restarted or assigned elsewhere. Manual workflow pauses leave jobs running and defer successors. Workflow `timeout_minutes` can shorten the admin sandbox timeout; transient execution retries always create a new runner task/job/result.
+- WF 11 script steps live in `workflows.scripts` (guide `docs/workflow-scripts.md`), migration `0035` after `0034`; schema tests count 43 tables. Pins are template/key/path scoped, record the human-reviewed merge SHA and profile ID, and survive matching template versions. Every engine mutation locks template before run to serialize pins and cross-run repair checks.
+- A profile runner preceding its configured script step can complete locally without releasing its generated profile, provided no intervening consumer needs the profile contents. Matching pins skip the code task; mismatches/repairs wait for ordinary human profile release. Approved aliases are reused only against the exact original headers plus matching aliased fingerprint. The runner uses the run's precise pinned profile/aliases, not an unrelated latest release. Workflow profile release must not create an ad-hoc draft as well.
+- Exit 3 and failed output checks restart at the producing script with fresh downstream attempts, preserving prior outputs. At most one open repair per pin and `config.max_repairs_per_run` automatic repairs (default 1); only explicit human manual repair bypasses the latter. Repair tasks carry only released schemas/samples and numbered check statuses. Completing a profile internally does not release any data; later explicit profile decisions still wake its waiting workflow.
+- Workflow YAML transport is `app/services/workflows/transfer.py` (guide `docs/workflows-api.md → Export and import`). The canonical export writes only fields with a value and is stable (re-export is byte-identical); import accepts a subset and always stores an **unpublished** draft via `workflows.api.import_draft` (never publishes). `pyyaml` is an explicit dependency now. The `draft_workflow` MCP tool and `tbr workflow export|import` are thin clients of the export/import endpoints; the UI upload posts `multipart/form-data` (`action=save|publish`) to `/workflows/{project}/{key}/import`.
+- Import checks reuse `workflows.publish.check_publish` with `role_candidates` built from a transient (never added) `WorkflowRun`/`WorkflowStep` probe, like `api.publish`; blocking issues raise `workflow_import_invalid` and nothing is stored. `assignee`/`reviewer` in a document are actor names or ids (no `human:owner` resolution at import time – use an id/name).
+- The canonical export omits a field only when it equals the editor/API default (`StepDraft`, `app/api/workflows.py`): `retry_backoff_s` default 300, `max_retries` default 2 for `runner` steps and 0 otherwise. A non-default value – including `retry_backoff_s=0` and a runner's `max_retries=0` – is always written, so the round trip is lossless (`transfer.DEFAULT_RETRY_BACKOFF_S`, `transfer.DEFAULT_MAX_RETRIES`). Boolean document fields (`optional`, `required`) are read through `transfer._boolean`, which refuses non-boolean values instead of coercing by truthiness (`optional: no` is an import error, not `True`).
+- Compose: every fixed-name volume the app mounts must be renamed in the smoke-test and screenshot overrides
+  (`deploy/release/screenshots.py:DATA_VOLUMES`), otherwise their `down -v` deletes the real stack's data or key –
+  `tests/test_docker_runner.py::test_test_stacks_rename_every_app_volume` checks it. Their runner network uses
+  `172.31.253.0/24`; new subnets also go into the IP allow list of `deploy/release/export-public.sh` and
+  `tests/test_deploy_prereq.py`.
+- Containers without capabilities: root without `CAP_FSETID` silently loses the set-group-id bit on `chmod` of a
+  directory whose group it is not in (SFTP container needs `FSETID`); root without `CAP_DAC_OVERRIDE` cannot read a
+  0640 file of another user (the SFTP spool is 0644). sshd with `UsePAM no` refuses accounts with a locked (`!`)
+  password even for keys – `useradd --password '*'`.
+- Job containers under `network_mode: none` with Docker's default seccomp profile may create `AF_INET`/`AF_NETLINK`
+  sockets (only the empty own namespace); the self-test's network probe checks "loopback only" there instead of
+  refused families (`selftest.probes(docker=True)`). Exit codes above 128 are reported as `signal`.
+- `docker compose down` of a kept test stack needs the same required variables (`TBR_DB_PASSWORD`, …) as `up`;
+  without them it fails silently in scripts and the next run meets the old MariaDB volume (unhealthy app).
+- Claims only take tasks of `active` projects, and an `active` project needs a Gitea repository – throwaway e2e
+  stacks without Gitea create the project as `idea` and set the status directly (`deploy/docker/data-zones-e2e.py`).
+- Workflow event triggers are delivered once. Clearing `processed_at` does not start another run for the same
+  trigger, and editing a trigger does not replay events that were already processed. A paused template does
+  not fire, but the tick still marks the event processed. `workflow_failed` means the run was paused by a
+  final step failure, not that its status column is `failed`.
+- DZ 13 output policies live in `gate_privacy` and `datasets.gate_policy_json` (migration `0038` after `0037`). Only human owners/admins change them through the CSRF-protected dataset page. Noise is off and limits unlimited by default; blank limits mean unlimited, zero blocks release. Positive epsilon/sensitivity are paired; epsilon limits require noise. Decimal parameters have six places. Sensitivity is a human-reviewed **whole-output L1 bound under add/remove-one-person adjacency**, after rounding/helper removal, not an observed-data estimate or per-cell bound. See `docs/data-store.md → Noise and query budgets` for contribution bounds, fixed public labels/shape and the limits of the guarantee.
+- `output_gate.decide` locks result/task, then `gate_privacy.release` locks and refreshes the dataset row before charging persistent `released_count`/`epsilon_spent`. No independent commits: artifact, usage, audit and task transition roll back together. Policy changes and artifact deletion never reset counters. Existing releases are counted on upgrade; old exact releases have no epsilon charge. Accounting is per dataset ID, not across duplicate uploads/versions.
+- Noise is OS-random four-uniform Laplace at scale sensitivity/epsilon over all numeric cells (including counts and metrics), rounded to cents. Helper columns never leave. The release requires confirmation and the current policy token; `released_json` is sampled once and reused by all downstream readers. `release_policy_json` preserves parameters/usage on the result and in the audit. Earlier noisy counts cannot support the differencing heuristic: check 8 warns instead of treating them as exact history. Gate checks, labels, profiles and raw access are outside the noise mechanism; do not claim whole-system differential privacy.
+- Workflow role bindings (`workflow_role_bindings`) have no UI, API or CLI; a step with `agent_role` pauses with
+  `no_assignee` until an operator inserts rows (project, role, actor, rank). Docs say so in `docs/workflows.md`.
+- Gaps of the data zones against the concept (documented in `docs/data-zones.md`): no automatic expiry of
+  quarantined run outputs (`data_quarantine_days`), no warning for CSV-like text in `cloud_ok` descriptions, no KEK
+  rotation.
+- Backlog HTMX updates target `backlog-content` so filter counts, status chips and row versions refresh together. `status_set=1` distinguishes an explicitly empty status selection from the default statuses; older `all=1` links still work. Bulk edits use `POST /backlog/bulk` with task numbers and row versions, one transaction per task, and ordinary task update/transition rules without implicit overrides.
+- Admin users overview uses `?detail=<actor>` for its side panel; existing full forms remain at `/admin/users/<actor>` for advanced settings. Panel POSTs use `?panel=1`; the compact `/summary` endpoint changes only role, runtime, owner and parallel-task limit. API tokens cannot be recovered from their hashes: panel copying is available only immediately after rotation, in a masked password field with a `no-store` response. Revoke clears token metadata without deactivating the actor.
+- Workflows page start templates live in `app/services/workflows/starters.py` (plain data for `api.Draft`, role-based agent/approval/notify steps only, so they publish without data zones; `tests/test_workflows_redesign.py` runs `check_publish` on each). `/workflows/new?starter=<id>` prefills the form and the hidden `starter` field makes `POST /workflows/new` store the example steps; schedules and triggers are not created, the starter's `next_step` hint is shown after creation. Tab counts come from `workflows.ui.tab_counts`, passed as `wf_counts` to the pages that include `_workflow_tabs.html` (pages without it show no counts).
+- The Projects ownership notice uses `owner_hint`, computed from ownership across all projects before status/search filters. `own_only` is only the display preference and does not mean the user owns no projects. Progress tracks exclude cancelled tasks, remain empty without tasks and use green/amber/navy for done/review/in progress.
+- `.task-title` at 24px belongs only on the task-page `h1`. Backlog and other tables reuse the class on the title cell; a font-size on the bare class makes those titles 24px. List task titles (Backlog link, Planning `.plan-title`, Kanban `.card-title`) take their font from the shared `.ui-task-title` in `ui.css` (14px/600, line-height 1.35); `.card-title` alone only sets the margin, and the 15px inbox card title is scoped to `.action-card .card-title`.
+- Inbox notices default to unread deliveries; `?notices=all` includes read history. `POST /inbox/notices/read` takes explicit IDs or `all` with the rendered UTC `until` and sprint filter; `/inbox/notices/unread` takes IDs. The rendered `max_id` ceiling additionally protects same-second arrivals despite MariaDB timestamp precision. Both use UI CSRF/origin protection and scope every mutation to the signed-in actor. Read responses return only changed IDs for undo. Simultaneous copies across notification channels share one feed item with multiple IDs; repeated events at different times remain separate.
+- No automatic hyphenation: `app.css` sets `html { hyphens: manual }` and `tests/test_ui_kit.py` fails on any `hyphens: auto` in `app/static/*.css` (it split "Gesamtbericht"/"tablet" on cards). Long words use `overflow-wrap: anywhere`. Rendered Markdown headings (`.md h1`–`h6`) are 16/14px so they stay below the 24px page title.
+- Pico draws a chevron as `summary::after` on every `<details>`; icon-only summaries (kanban card "⋯" menu, planning
+  row menu) need `summary::after { content: none }`, otherwise a stray "ˎ" appears next to the icon.
+- Kanban on phones opens on the first column (`KANBAN_DEFAULT_COLUMN` = first key of `KANBAN_COLUMNS`) unless `?col=`
+  names one; `?col=` beats the stored scroll position, and `static/kanban.js` keeps the filter form's hidden `col`
+  on the column in view. Tests that cut the done column out of the HTML must match `class="kanban-col"
+  data-column="done"` – the phone status tab carries `data-column="done"` too and comes first.
+- Inbox notice origin checks use browser-controlled `Sec-Fetch-Site: same-origin` when present, alongside the mandatory session CSRF token. Tailscale terminates HTTPS while the backend deliberately uses `--no-proxy-headers`, so comparing the browser's HTTPS Origin with the backend's HTTP base URL rejects valid requests. Other Fetch Metadata site values are refused; clients without Fetch Metadata retain the strict Origin comparison. Regression tests use real password login cookies and rendered CSRF headers for both admin and member actors.
+- Pico gives `section`, `li` and `details` a bottom margin (≈30px, ≈3px, ≈15px). Inside a flex/grid container with
+  its own `gap` (planning cards, task rows, `ui-stack`) these margins add on top of the gap and double the spacing –
+  reset them on the component (`margin: 0`, as `.plan-sprint`, `.plan-row`, `.plan-move`, `.ui-stack > section` do)
+  instead of shrinking the gap. Measure in the browser (`getComputedStyle(el).marginBottom`); the CSS file alone
+  does not show it.
+- Workflow overview mutations live in `workflows.actions`: deletion archives under the template lock shared with starts, blocks all nonterminal runs, and disables schedules/triggers. Archived templates are hidden from `visible_templates` by default; `include_archived=True` keeps their run counts available. Duplication copies the latest version via API models rather than the editor form, preserving JSON and enum values containing commas; automation and script pins are not copied.

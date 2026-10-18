@@ -12,6 +12,7 @@ import logging
 import os
 from functools import lru_cache
 from ipaddress import ip_address, ip_network
+from typing import Literal
 from pathlib import Path
 
 from pydantic import Field, field_validator, model_validator
@@ -133,6 +134,24 @@ class Settings(BaseSettings):
     notify_telegram_chat_id: str = ""
 
     scheduler_enabled: bool = True
+    tbr_workflow_tick: Literal["timer", "app", "off"] = "timer"
+
+    # Data store (docs/data-store.md): encrypted datasets below this directory (only ciphertext is stored there)
+    # and the key encryption key, kept apart from master.key. Used only while the admin setting `data_enabled` is on.
+    tbr_data_dir: Path = Path("/srv/taskbrigade-data")
+    tbr_data_key_file: Path = Path("/etc/taskbrigade/data.key")
+    # Native SFTP inbox (concept §4, phase 2): chroot root per deliverer, `…/<user>/upload`. Read by the app
+    # (`app/services/data_sftp.py`, `data_import.py`) and by the deploy scripts.
+    tbr_sftp_dir: Path = Path("/srv/taskbrigade-sftp")
+    # Docker (compose profile data-sftp): `spool` writes the deliverer accounts into TBR_SFTP_SPOOL for the SFTP
+    # container instead of running useradd (`app/services/data_sftp.py`); `system` = native.
+    tbr_sftp_provision: Literal["system", "spool"] = "system"
+    tbr_sftp_spool: Path = Path("/var/lib/taskbrigade-sftp/accounts.json")
+    # SFTP import trigger: `timer` (native systemd path unit), `app` (APScheduler job `data_import`, Docker), `off`.
+    tbr_data_import: Literal["timer", "app", "off"] = "timer"
+    # Docker: the internal network of the runner container (compose.yaml, profile data). Its peers may use the
+    # API with tokens like API_NETWORKS; nothing else is reachable from that network.
+    tbr_runner_networks: str = ""
 
     @model_validator(mode="after")
     def _legacy_state_dir(self):
@@ -143,7 +162,7 @@ class Settings(BaseSettings):
             self.tbr_state_dir = LEGACY_STATE_DIR
         return self
 
-    @field_validator("lan_ui_networks", "trusted_peer_networks", "api_networks")
+    @field_validator("lan_ui_networks", "trusted_peer_networks", "api_networks", "tbr_runner_networks")
     @classmethod
     def _valid_networks(cls, value: str) -> str:
         """Fail at startup on a typo instead of answering every request with 500."""
@@ -162,7 +181,7 @@ class Settings(BaseSettings):
 
     @property
     def api_client_networks(self) -> list:
-        return parse_networks(self.api_networks)
+        return parse_networks(self.api_networks) + parse_networks(self.tbr_runner_networks)
 
     def is_trusted_peer(self, host: str) -> bool:
         """Loopback or a TRUSTED_PEER_NETWORKS address (the direct socket peer, never a forwarded header)."""
@@ -170,9 +189,14 @@ class Settings(BaseSettings):
         return addr is not None and (addr.is_loopback or any(addr in net for net in self.trusted_networks))
 
     def is_api_peer(self, host: str) -> bool:
-        """An API_NETWORKS address: UI and API with tokens, but no loopback trust."""
+        """An API_NETWORKS (or TBR_RUNNER_NETWORKS) address: UI and API with tokens, but no loopback trust."""
         addr = _peer_address(host)
         return addr is not None and any(addr in net for net in self.api_client_networks)
+
+    def is_runner_peer(self, host: str) -> bool:
+        """A TBR_RUNNER_NETWORKS address (Docker: the host-internal network of the runner container)."""
+        addr = _peer_address(host)
+        return addr is not None and any(addr in net for net in parse_networks(self.tbr_runner_networks))
 
     @property
     def allowed_logins(self) -> set[str]:

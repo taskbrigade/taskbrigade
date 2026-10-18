@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Event triggers") }} · {{ template.name }}{% endblock %}
+{% block content %}
+<p><a href="/workflows/triggers">{{ _("Event triggers") }}</a> / {{ template.project.project_key }}/{{ template.workflow_key }}</p>
+{{ ui.page_header(_("Event triggers") ~ " · " ~ template.name) }}
+<p>{{ _("Event triggers start a run when a dataset is ready or another workflow ends. The scheduler tick delivers each event once.") }}</p>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+<nav><ul>{% for trigger in triggers %}<li><a href="?trigger_id={{ trigger.id }}">{{ trigger.kind }} #{{ trigger.id }}</a></li>{% endfor %}<li><a href="/workflows/{{ template.project.project_key }}/{{ template.workflow_key }}/triggers">{{ _("New trigger") }}</a></li></ul></nav>
+<form method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+{% if row.id %}<input type="hidden" name="trigger_id" value="{{ row.id }}">{% endif %}
+<fieldset {% if not can_edit %}disabled{% endif %}>
+<label>{{ _("Kind") }}<select name="kind">{% for kind in kinds %}<option value="{{ kind }}" {% if row.kind == kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}</select></label>
+<label><input type="checkbox" name="enabled" value="true" {% if row.enabled %}checked{% endif %}>{{ _("Enabled") }}</label>
+<label>{{ _("Filter (JSON)") }}<textarea name="filter_json">{{ filter_text or '{}' }}</textarea></label>
+<small>{{ _("Filter keys: project, sftp_account, name_glob, supersedes, workflow. An empty filter matches every event of this kind in the template project.") }}</small>
+<label>{{ _("Parameters (JSON)") }}<textarea name="params_json">{{ params_text or '{}' }}</textarea></label>
+<small>{{ _("Map event fields into parameters: event.dataset, event.filename_date, event.run.params.name and event.run.steps.key.output.name.") }}</small>
+<button type="submit">{{ _("Save trigger") }}</button>
+</fieldset></form>
+<h2>{{ _("Recent trigger deliveries") }}</h2>
+<table><thead><tr><th>{{ _("Event") }}</th><th>{{ _("Outcome") }}</th><th>{{ _("Run") }}</th></tr></thead>
+<tbody>{% for fire in fires %}<tr><td>{{ fire.event_id }}</td><td>{{ _(outcome_labels[fire.outcome]) }}</td><td>{{ fire.run_id or '–' }}</td></tr>{% endfor %}</tbody></table>
+{% endblock %}

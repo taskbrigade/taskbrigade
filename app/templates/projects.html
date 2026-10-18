@@ -1,33 +1,170 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}{{ _("Projects") }} – TaskBrigade{% endblock %}
+{# Projects overview: page header, toolbar and a list (default) or card view.
+   Every number comes from `projects.overview` (task counts, last activity, agent count; aggregated, no query per
+   row). List is the default view and the first segment; the card view applies only while `?view=cards` is in the
+   URL (nothing is remembered). On the phone the table becomes a card list (table.ui-table-cards) and the view
+   switch is hidden, so the phone always uses the list. #}
+{% block head %}
+<script>
+(function () {
+  // Phone (< 640 px): the view switch is hidden, so cards are unreachable – a shared `?view=cards` link still opens
+  // the list (the list is the default). Desktop keeps cards only while `?view=cards` is in the URL.
+  if (window.matchMedia("(max-width: 639px)").matches) {
+    var params = new URLSearchParams(location.search);
+    if (params.get("view") === "cards") {
+      params.delete("view");
+      var query = params.toString();
+      location.replace(location.pathname + (query ? "?" + query : ""));
+    }
+  }
+  // The view toggle submits its own `view`; drop the hidden carry-over so the URL never gets a duplicate
+  // `?view=cards&…&view=list` (the hidden input only preserves the view for the other filters).
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("form.ui-toolbar button[name=view]");
+    if (btn) {
+      btn.form.querySelectorAll('input[type=hidden][name=view]').forEach(function (el) { el.remove(); });
+    }
+  });
+})();
+</script>
+{% endblock %}
+{% macro project_url(key) %}/projects/{{ key }}{% endmacro %}
+{% macro repo_link(p) %}{% if p.gitea_repo %}<a class="ui-mono" href="{{ p.gitea_url }}" target="_blank" rel="noopener">{{ p.gitea_owner }}/{{ p.gitea_repo }} ↗</a>{% else %}<span class="ui-muted">–</span>{% endif %}{% endmacro %}
+{% macro progress(numbers, p) %}{% set c = numbers[p.id]["counts"] %}{% set total = c.values() | sum - c.get("cancelled", 0) %}
+  {#- Stacked bar: done (green), review (amber), in progress (navy); open tasks stay in the track colour. -#}
+  <span class="ui-progress" role="img" aria-label="{{ _('Progress: %(done)d done, %(review)d review, %(progress)d in progress of %(total)d tasks', done=c.get('done', 0), review=c.get('for_review', 0), progress=c.get('in_progress', 0), total=total) if total else _('no tasks yet') }}">
+    {% if total %}
+    <span class="ui-progress-done" style="width: {{ 100 * c.get('done', 0) / total }}%"></span>
+    <span class="ui-progress-review" style="width: {{ 100 * c.get('for_review', 0) / total }}%"></span>
+    <span class="ui-progress-progress" style="width: {{ 100 * c.get('in_progress', 0) / total }}%"></span>
+    {% endif %}
+  </span>
+{% endmacro %}
+{% macro project_cell(numbers, p) %}
+  <span class="ui-pill ui-pill-mono">{{ p.project_key }}</span>
+  <a href="{{ project_url(p.project_key) }}">{{ p.name }}</a>
+  {% if p.id in current_ids %}<span class="ui-pill ui-pill-count" title="{{ _('Project preselected in the quick capture field') }}">{{ _("Current") }}</span>{% endif %}
+  {% if p.privacy == "local_only" %}{{ ui.zone(p.privacy) }}{% endif %}
+  {% if p.id in mixed %}<span class="ui-muted" title="{{ _('Some tasks have their own data class') }}">{{ _("mixed") }}</span>{% endif %}
+{% endmacro %}
 {% block content %}
-<div class="headline"><h2>{{ _("Projects") }}</h2>{% if can_create %}<a href="/projects/new" role="button" class="small">{{ _("New project") }}</a>{% endif %}</div>
-{% if own_only %}{% if not items %}{% include "_own_projects_hint.html" %}{% else %}
-<p class="muted">{{ _("Only your own projects are shown.") }} <a href="/profile#display">{{ _("Show all projects") }}</a></p>{% endif %}{% endif %}
-<div class="overflow-auto">
-<table class="striped">
-  <thead><tr><th>{{ _("Key") }}</th><th>{{ _("Name") }}</th><th>{{ _("Owner") }}</th><th>{{ _("Status") }}</th><th>{{ _("Privacy") }}</th><th>{{ _("Repo") }}</th><th>{{ _("Open tasks") }}</th></tr></thead>
-  <tbody>
-  {% for p in items %}
-    {% set c = counts.get(p.id, {}) %}
-    <tr>
-      <td><a href="/projects/{{ p.project_key }}"><strong>{{ p.project_key }}</strong></a></td>
-      <td>{{ p.name }}</td>
-      {% set o = owners.get(p.owner_id) %}
-      <td>{{ o.name if o else "–" }}{% if o and not o.is_active %} <span class="badge st-cancelled" title="{{ _('Owner is deactivated – transfer the project') }}">{{ _("deactivated") }}</span>{% endif %}</td>
-      <td>{{ project_status_label(p.status) }}</td>
-      <td>{{ _("local only") if p.privacy == "local_only" else _("cloud ok") }}</td>
-      <td>{% if p.gitea_url %}<a href="{{ p.gitea_url }}" target="_blank" rel="noopener">{{ p.gitea_owner }}/{{ p.gitea_repo }} ↗</a>{% else %}–{% endif %}</td>
-      <td>
-        {% for st in ("defined", "in_progress", "questions", "for_review", "changes_requested") if c.get(st) %}
-          <a href="/backlog?project={{ p.project_key }}&status={{ st }}">{% with status=st %}{% include "_status.html" %}{% endwith %} {{ c[st] }}</a>
-        {% else %}<span class="muted">–</span>{% endfor %}
-      </td>
-    </tr>
+<div class="ui-page ui-stack">
+  {% call ui.page_header(_("Projects"), subtitle) %}
+    {% if can_create %}<a class="ui-btn" href="/projects/new">+ {{ _("New project") }}</a>{% endif %}
+  {% endcall %}
+
+  {% if owner_hint %}{% include "_own_projects_hint.html" %}{% endif %}
+
+  {# The toolbar is one GET form; selects submit on change, the segments submit their value. Hidden inputs keep
+     the filter state that the clicked control does not carry (mine/view), so no click drops a filter. #}
+  <form class="ui-toolbar" method="get" action="/projects" role="search" onchange="this.submit()">
+    {% if view != "list" %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
+    {#- Mine is not carried by the segment buttons alone: with the "Show all projects" switch on the user may be in
+        the mine scope, and every submit that does not click that button (view/status/sort/search) would fall back
+        to all. The hidden input travels first; the clicked mine button's value wins because it comes later. -#}
+    {% if mine == "mine" and not own_only %}<input type="hidden" name="mine" value="mine">{% endif %}
+    {{ ui.segmented([("mine", _("My projects"), none), ("all", _("All projects"), none)], mine, _("Project scope"),
+                    name="mine") }}
+    {{ ui.search("q", _("Search key, name or repo"), q, _("Search key, name or repo …")) }}
+      <select class="ui-select" name="status" aria-label="{{ _('Status') }}">
+        {% for key in status_choices | map('first') %}<option value="{{ key }}"{% if key == status %} selected{% endif %}>{% if key == "all" %}{{ _("All") }}{% else %}{{ project_status_label(key) }}{% endif %}</option>{% endfor %}
+      </select>
+      <select class="ui-select" name="sort" aria-label="{{ _('Sort') }}">
+        <option value="activity"{% if sort == "activity" %} selected{% endif %}>{{ _("Sort: last activity") }}</option>
+        <option value="key"{% if sort == "key" %} selected{% endif %}>{{ _("Sort: key") }}</option>
+        <option value="open"{% if sort == "open" %} selected{% endif %}>{{ _("Sort: open tasks") }}</option>
+      </select>
+    <span class="ui-only-desktop ui-toolbar-view">{{ ui.segmented([("list", _("List"), none), ("cards", _("Cards"), none)], view, _("View"), name="view") }}</span>
+  </form>
+
+  {% if not items %}
+    {% call ui.empty(_("No projects found.")) %}{% if can_create %}<a class="ui-btn" href="/projects/new">+ {{ _("New project") }}</a>{% endif %}{% endcall %}
+  {% elif view == "cards" %}
+  <div class="ui-card-grid">
+    {# The project marked "Current" (quick capture) leads the grid and stays out of the loop below. #}
+    {% set current = items | selectattr("id", "in", current_ids) | first %}
+    {% set listed = items | rejectattr("id", "in", current_ids) | list %}
+    {% if current %}
+    <article class="ui-card ui-project-card ui-card-current">
+      <div class="ui-card-head">
+        <div class="ui-row">{{ project_cell(numbers, current) }}</div>
+        {{ ui.status(current.status, kind="project") }}
+      </div>
+      <div class="ui-card-body ui-stack">
+        <div>{{ repo_link(current) }}</div>
+        <div>{{ progress(numbers, current) }}</div>
+        {% set c = numbers[current.id]["counts"] %}
+        {% set meta = numbers[current.id] %}
+        <div class="ui-project-counts">
+          <span>{{ _("Open") }} <strong>{{ open_count(c) }}</strong></span>
+          <span>{{ _("In progress") }} <strong>{{ c.get("in_progress", 0) }}</strong></span>
+          <span>{{ _("Review") }} <strong>{{ c.get("for_review", 0) }}</strong></span>
+          <span>{{ _("Done") }} <strong>{{ c.get("done", 0) }}</strong></span>
+        </div>
+        <p class="ui-card-footer ui-row">
+          <span class="ui-muted">{{ meta["agents"] }} {{ _("agents") }} · {{ meta["last_activity"] | reltime }}</span>
+          <a href="/kanban?project={{ current.project_key | urlencode }}">{{ _("Kanban") }}</a>
+          <a href="/backlog?project={{ current.project_key | urlencode }}">{{ _("Backlog") }}</a>
+        </p>
+      </div>
+    </article>
+    {% endif %}
+    {% for p in listed %}
+    <article class="ui-card ui-project-card">
+      <div class="ui-card-head">
+        <div class="ui-row">{{ project_cell(numbers, p) }}</div>
+        {{ ui.status(p.status, kind="project") }}
+      </div>
+      <div class="ui-card-body ui-stack">
+        <div>{{ repo_link(p) }}</div>
+        <div>{{ progress(numbers, p) }}</div>
+        {% set c = numbers[p.id]["counts"] %}
+        {% set pmeta = numbers[p.id] %}
+        <div class="ui-project-counts">
+          <span>{{ _("Open") }} <strong>{{ open_count(c) }}</strong></span>
+          <span>{{ _("In progress") }} <strong>{{ c.get("in_progress", 0) }}</strong></span>
+          <span>{{ _("Review") }} <strong>{{ c.get("for_review", 0) }}</strong></span>
+          <span>{{ _("Done") }} <strong>{{ c.get("done", 0) }}</strong></span>
+        </div>
+        <p class="ui-card-footer ui-row">
+          <span class="ui-muted">{{ pmeta["agents"] }} {{ _("agents") }} · {{ pmeta["last_activity"] | reltime }}</span>
+          <a href="/kanban?project={{ p.project_key | urlencode }}">{{ _("Kanban") }}</a>
+          <a href="/backlog?project={{ p.project_key | urlencode }}">{{ _("Backlog") }}</a>
+        </p>
+      </div>
+    </article>
+    {% endfor %}
+    {% if can_create %}<a class="ui-card ui-project-new" href="/projects/new">+ {{ _("New project") }}</a>{% endif %}
+  </div>
   {% else %}
-    <tr><td colspan="7" class="muted">{{ _("You do not own any projects.") if own_only else _("No projects yet.") }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+  <div class="ui-card ui-card-flush">
+    <div class="ui-table-scroll">
+      <table class="ui-table ui-table-cards">
+        <thead><tr>
+          <th scope="col">{{ _("Project") }}</th>
+          <th scope="col">{{ _("Repo") }}</th>
+          <th scope="col">{{ _("Progress") }}</th>
+          <th scope="col" class="ui-num">{{ _("Open") }}</th>
+          <th scope="col" class="ui-num">{{ _("Review") }}</th>
+          <th scope="col">{{ _("Last activity") }}</th>
+        </tr></thead>
+        <tbody>
+        {% for p in items %}{% set c = numbers[p.id]["counts"] %}
+          <tr>
+            <td class="ui-card-title" data-label="{{ _('Project') }}">{{ project_cell(numbers, p) }}</td>
+            <td data-label="{{ _('Repo') }}">{{ repo_link(p) }}</td>
+            <td data-label="{{ _('Progress') }}">{{ progress(numbers, p) }}</td>
+            <td class="ui-num" data-label="{{ _('Open') }}">{{ open_count(c) }}</td>
+            <td class="ui-num" data-label="{{ _('Review') }}">{{ c.get("for_review", 0) }}</td>
+            <td data-label="{{ _('Last activity') }}">{% if numbers[p.id]["last_activity"] %}<span class="ui-muted">{{ numbers[p.id]["last_activity"] | reltime }}</span>{% else %}<span class="ui-muted">{{ _("no activity yet") }}</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

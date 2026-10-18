@@ -231,6 +231,185 @@ Run 'tailscale up', or omit TAILSCALE_SERVE and configure serve later."
   fi
 }
 
+# --- Data zones (research/konzept-datenzonen.md §9) ------------------------------------------------------
+# Opt-in switch: `TBR_DATA_ZONES=1` during install/update, or `tbr-admin config set TBR_DATA_ZONES 1` followed by
+# `deploy/update.sh`. Without it every data-zone routine below is a no-op and only the database migrations run.
+# Defaults of the paths the scripts create; the app reads TBR_DATA_DIR/TBR_DATA_KEY_FILE itself (app/config.py).
+tbr_data_zones_enabled() {
+  [[ "${TBR_DATA_ZONES:-}" == "1" ]]
+}
+
+tbr_data_dir_path() {
+  printf '%s\n' "${TBR_DATA_DIR:-/srv/taskbrigade-data}"
+}
+
+tbr_data_key_path() {
+  printf '%s\n' "${TBR_DATA_KEY_FILE:-/etc/taskbrigade/data.key}"
+}
+
+# True when /run/systemd/system exists (a real systemd host); tests set TBR_FAKE_SYSTEMCTL to skip probing.
+tm_has_systemd() {
+  [[ -d /run/systemd/system ]]
+}
+
+# systemd version of the *running* systemd, e.g. 255. Empty when it cannot be determined.
+tm_systemd_version() {
+  local ver
+  ver="$(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}')" || true
+  printf '%s\n' "${ver%%[^0-9]*}"
+}
+
+# Create a system user/group with a stable name when it does not exist yet. Idempotent.
+# tm_system_user NAME [home] – the shell is always nologin (these are service accounts).
+tm_system_user() {
+  local name="$1" home="${2:-/nonexistent}"
+  if ! getent group "$name" >/dev/null 2>&1; then
+    groupadd --system "$name"
+  fi
+  if ! id "$name" >/dev/null 2>&1; then
+    useradd --system --home "$home" --shell /usr/sbin/nologin --gid "$name" "$name"
+  fi
+}
+
+# Create a system group when it is missing.
+tm_system_group() {
+  local name="$1"
+  getent group "$name" >/dev/null 2>&1 || groupadd --system "$name"
+}
+
+# Add a user to a supplementary group (idempotent).
+tm_add_to_group() {
+  local user="$1" group="$2"
+  id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx "$group" || usermod -aG "$group" "$user"
+}
+
+# install -d with owner:group and mode, tolerating an existing directory (rights are enforced every run).
+tm_ensure_dir() {
+  local path="$1" owner="$2" mode="$3"
+  install -d -o "${owner%%:*}" -g "${owner##*:}" -m "$mode" "$path"
+}
+
+# Group that owns the data store root: tbr-data (native). Overridable for tests.
+tbr_data_group() {
+  printf '%s\n' "${TBR_DATA_GROUP:-tbr-data}"
+}
+
+# --- Prerequisite checks for the opt-in data zones ---------------------------------------------------
+# Returns 0 and prints a short report when the host can run the data zones; exits with a concrete message
+# otherwise. Only call this while TBR_DATA_ZONES=1.
+tm_require_data_zone_host() {
+  tm_require_systemd
+  local ver
+  ver="$(tm_systemd_version)"
+  if [[ -n "$ver" ]] && ! tm_version_ge "$ver" "249"; then
+    tm_die "TBR_DATA_ZONES=1 needs systemd >= 249 for the sandbox unit (ProtectProc=invisible,
+RestrictAddressFamilies in a template). This host runs systemd ${ver:-unknown}.
+Update the distribution, or leave TBR_DATA_ZONES unset to keep the data zones off."
+  fi
+  command -v polkitd >/dev/null 2>&1 || [[ -d /etc/polkit-1 ]] || tm_die "TBR_DATA_ZONES=1 needs policykit (polkit) for the sandbox rule /etc/polkit-1/rules.d/60-taskbrigade-runner.rules.
+On Ubuntu 24.04: apt-get install -y polkitd
+Or leave TBR_DATA_ZONES unset to keep the data zones off."
+  echo "Data zones: systemd ${ver:-unknown}, polkit OK" >&2
+}
+
+# Install the data-zone runner units with this host's paths and the sandbox limits drop-in (concept §5/§9).
+# tbr_install_runner_units SRC BASE DATA_DIR RUNNER_VENV LIMITS – LIMITS is the drop-in text from
+# `tbr-admin runner limits`; empty keeps an existing drop-in (the unit's own values apply without one).
+# taskbrigade-runner.service is only (re)started when it is enabled (`tbr-admin runner join` enables it).
+tbr_install_runner_units() {
+  local src="$1" base="$2" data_dir="$3" venv="$4" limits="$5" unit dropin
+  for unit in taskbrigade-runner.service taskbrigade-job@.service; do
+    sed -e "s|/opt/taskbrigade|$base|g" -e "s|$base/runner-venv|$venv|g" -e "s|/srv/taskbrigade-data|$data_dir|g" \
+      "$src/deploy/systemd/$unit" > "/etc/systemd/system/$unit.new"
+    chmod 0644 "/etc/systemd/system/$unit.new"
+    mv "/etc/systemd/system/$unit.new" "/etc/systemd/system/$unit"
+  done
+  dropin=/etc/systemd/system/taskbrigade-job@.service.d
+  install -d -o root -g root -m 0755 "$dropin"
+  if [[ -n "$limits" ]]; then
+    printf '%s\n' "$limits" > "$dropin/50-limits.conf.new"
+    chmod 0644 "$dropin/50-limits.conf.new"
+    mv "$dropin/50-limits.conf.new" "$dropin/50-limits.conf"
+  fi
+}
+
+# SFTP inbox (concept §4, phase 2) – only checked when TBR_DATA_SFTP=1 requests it.
+tm_require_sftp() {
+  command -v sshd >/dev/null 2>&1 || tm_die "TBR_DATA_SFTP=1 but sshd was not found.
+On Ubuntu 24.04: apt-get install -y openssh-server
+Or leave TBR_DATA_SFTP unset."
+  local ver
+  ver="$(sshd -V 2>&1 | awk 'NR==1 {for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+/) {print $i; exit}}')"
+  if [[ -n "$ver" ]] && ! tm_version_ge "$ver" "8.0"; then
+    tm_die "TBR_DATA_SFTP=1 needs OpenSSH >= 8 (this host has ${ver})."
+  fi
+  echo "SFTP inbox: OpenSSH ${ver:-unknown} OK" >&2
+}
+
+# chroot root of the native SFTP inbox (concept §4); overridable for tests.
+tbr_sftp_dir_path() {
+  printf '%s\n' "${TBR_SFTP_DIR:-/srv/taskbrigade-sftp}"
+}
+
+# Provision the native SFTP inbox (concept §4): the sshd drop-in, the group tbr-sftp, the chroot root and the
+# systemd path/service units. Every step is idempotent; sshd is reloaded only when `sshd -t` accepts the new
+# configuration. Only call this while TBR_DATA_SFTP=1 and TBR_DATA_ZONES=1. $1 = repo checkout (for deploy/ssh).
+tm_install_sftp_inbox() {
+  local app="${1:-${APP:-}}"
+  tm_require_sftp
+  local sftp_root
+  sftp_root="$(tbr_sftp_dir_path)"
+  tm_system_group tbr-sftp
+  tm_ensure_dir "$sftp_root" root:root 0755
+  # The app user needs group tbr-data (SupplementaryGroups) and read/write on the chroot tree for the import.
+  [[ -n "$app" && -f "$app/deploy/ssh/60-taskbrigade-sftp.conf" ]] \
+    || tm_die "tm_install_sftp_inbox needs the checkout path (deploy/ssh/60-taskbrigade-sftp.conf)."
+  # sshd drop-in: only install and reload when sshd accepts the whole configuration.
+  install -d -o root -g root -m 0755 /etc/ssh/sshd_config.d
+  local drop_in=/etc/ssh/sshd_config.d/60-taskbrigade-sftp.conf
+  local candidate
+  candidate="$(mktemp)"
+  sed "s|/srv/taskbrigade-sftp|$sftp_root|g" "$app/deploy/ssh/60-taskbrigade-sftp.conf" > "$candidate"
+  if [[ -f "$drop_in" ]] && cmp -s "$candidate" "$drop_in"; then
+    echo "SFTP inbox: sshd drop-in already installed" >&2
+  else
+    install -o root -g root -m 0644 "$candidate" "$drop_in"
+    if command -v sshd >/dev/null 2>&1 && sshd -t 2>/dev/null; then
+      # `systemctl reload ssh` (Ubuntu) and `sshd.service` (other units) both work.
+      systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || tm_warn_sftp_reload
+      echo "SFTP inbox: sshd drop-in installed and sshd reloaded" >&2
+    else
+      rm -f "$drop_in"
+      tm_die "The sshd drop-in failed 'sshd -t'; it was removed again. Check /etc/ssh/sshd_config.d for conflicts."
+    fi
+  fi
+  rm -f "$candidate"
+  # Path/service units for the import (the checkout ships them with /opt/taskbrigade; substitute the prefix).
+  local base="${TBR_BASE:-/opt/taskbrigade}"
+  local unit
+  for unit in taskbrigade-data-import.service taskbrigade-data-import.path; do
+    sed "s|/opt/taskbrigade|$base|g; s|/srv/taskbrigade-sftp|$sftp_root|g" \
+      "$app/deploy/systemd/$unit" > "/etc/systemd/system/$unit"
+    chmod 0644 "/etc/systemd/system/$unit"
+  done
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl enable --now taskbrigade-data-import.path 2>/dev/null || tm_warn_sftp_units
+  echo "SFTP inbox ready: root $sftp_root, import unit taskbrigade-data-import.path" >&2
+}
+
+# Reloading sshd failed: the drop-in is correct, the running daemon still needs a reload by hand.
+tm_warn_sftp_reload() {
+  cat >&2 <<'MSG'
+SFTP inbox: the sshd drop-in was installed but sshd did not reload. Check the unit name and run:
+  sudo sshd -t && sudo systemctl reload ssh    # or: sudo systemctl reload sshd
+MSG
+}
+
+# Enabling the path unit failed (e.g. a container without systemd): the timer/CLI still works.
+tm_warn_sftp_units() {
+  echo "SFTP inbox: taskbrigade-data-import.path could not be enabled now; run 'systemctl enable --now taskbrigade-data-import.path' later, or import from a timer with 'tbr-admin data sftp-user import'." >&2
+}
+
 # Set or replace KEY=value in a systemd EnvironmentFile. No-op when value is empty.
 # Uses TBR_PY (a Python 3.12 interpreter). Values are written raw; no shell quoting.
 tm_env_set() {

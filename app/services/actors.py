@@ -14,7 +14,7 @@ from app.auth import hash_password
 from app.config import get_settings
 from app.errors import Conflict, NotFound, Unprocessable
 from app.models import AGENT_KINDS, ROLES, Actor, Task
-from app.services import model_choice, settings_store
+from app.services import model_choice, settings_store, zones
 from app.services.gitea import GiteaError
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,49}$")
@@ -22,10 +22,10 @@ TOKEN_PREFIX = "tm_"
 OPEN_STATUSES = ("draft", "defined", "in_progress", "questions", "aborted", "for_review", "changes_requested")
 
 # Fields editable by PATCH (name is immutable).
-EDITABLE = {"display_name", "role", "runtime", "agent_kind", "lease_minutes", "max_parallel_tasks",
+EDITABLE = {"display_name", "role", "runtime", "model_location", "agent_kind", "lease_minutes", "max_parallel_tasks",
             "notes", "email", "tailscale_login", "owner", "is_public"}
 HUMAN_ONLY = {"email", "tailscale_login"}
-AGENT_ONLY = {"owner", "is_public"}  # Owner (a human, by name) and "public": who may assign the agent (`access`).
+AGENT_ONLY = {"owner", "is_public", "model_location"}  # Owner (a human, by name) and "public": who may assign the agent (`access`).
 MODEL_FIELDS = {"model_default", "model_tiers", "models_allowed"}  # Agents only (`model_choice`)
 
 
@@ -108,9 +108,14 @@ def _validate(actor: Actor) -> None:
                               "entered reviewer)"))
     if actor.runtime not in ("local", "cloud"):
         raise Unprocessable(_( "Runtime must be 'local' or 'cloud'" ))
+    zones.check_model_location(actor)
     if actor.actor_type == "agent":
         if actor.agent_kind not in AGENT_KINDS:
             raise Unprocessable(_("Kind must be one of %(kinds)s", kinds=", ".join(AGENT_KINDS)))
+        if actor.agent_kind == "runner" and (actor.role != "worker" or actor.runtime != "local"):
+            # Runners execute sealed jobs on the TaskBrigade host: never reviewers, owners or cloud processes.
+            raise Unprocessable(_("A runner is a local worker: role 'worker', runtime 'local'"),
+                                code="invalid_runner")
         if actor.email or actor.tailscale_login or actor.password_hash:
             raise Unprocessable(_( 'Email, password, and Tailscale login are only available to humans' ))
     elif actor.actor_type == "human":
@@ -147,6 +152,7 @@ class Created:
 
 def create(session: Session, *, name: str, display_name: str, actor_type: str, role: str = "worker",
            runtime: str = "local", agent_kind: str | None = None, lease_minutes: int = 120,
+           model_location: str = "cloud",
            max_parallel_tasks: int = 2, notes: str | None = None, email: str | None = None,
            password: str | None = None, tailscale_login: str | None = None, issue_token: bool = True,
            owner: Actor | None = None, is_public: bool = False) -> Created:
@@ -154,10 +160,13 @@ def create(session: Session, *, name: str, display_name: str, actor_type: str, r
     Agents: `owner` (a human, usually the creating one) and `is_public` (default off: only the owner and admins see
     the agent in assignment choices)."""
     name = name.strip().lower()
+    if actor_type == "agent" and agent_kind == "runner":
+        model_location = "none"  # A runner runs no model (research/konzept-datenzonen.md §2).
     if session.scalar(select(Actor.id).where(Actor.name == name)):
         raise Conflict(_("Name '%(name)s' is already in use", name=name))
     actor = Actor(name=name, display_name=display_name.strip() or name, actor_type=actor_type, role=role,
                   runtime=runtime, agent_kind=agent_kind or None, lease_minutes=lease_minutes,
+                  model_location=model_location or "cloud",
                   max_parallel_tasks=max_parallel_tasks, notes=notes or None, email=email or None,
                   tailscale_login=(tailscale_login or "").strip().lower() or None, is_active=True)
     if actor_type == "agent":
@@ -193,8 +202,9 @@ def update(session: Session, actor: Actor, changes: dict) -> list[str]:
         changes["owner_id"] = owner.id if owner else None
     if "is_public" in changes:
         changes["is_public"] = bool(changes["is_public"])
-    if changes.get("runtime") == "cloud" and actor.runtime != "cloud":
-        _check_cloud_switch(session, actor)
+    if "model_location" in changes:
+        changes["model_location"] = (changes["model_location"] or "").strip() or actor.model_location
+    zones.check_switch(session, actor, changes)
     changed = []
     for key, value in changes.items():
         if isinstance(value, str):
@@ -206,6 +216,8 @@ def update(session: Session, actor: Actor, changes: dict) -> list[str]:
         if getattr(actor, key) != value:
             setattr(actor, key, value)
             changed.append(key)
+    if "email" in changed:  # A new address needs its own confirmation (`mail.create_verify_code`).
+        actor.email_verified_at = None
     if models:
         current = model_choice.settings(actor)
         changed += model_choice.set_agent_models(
@@ -216,21 +228,6 @@ def update(session: Session, actor: Actor, changes: dict) -> list[str]:
     _unique_check(session, actor)
     session.flush()
     return changed
-
-
-def _check_cloud_switch(session: Session, actor: Actor) -> None:
-    """Allow runtime=cloud only without local_only projects (otherwise code would leave the local environment)."""
-    from app.models import Project, ProjectMember
-
-    member_of = set(session.scalars(select(Project.project_key).join(ProjectMember, ProjectMember.project_id == Project.id)
-                                    .where(ProjectMember.actor_id == actor.id, Project.privacy == "local_only")))
-    tasks_in = set(session.scalars(select(Project.project_key).join(Task, Task.project_id == Project.id)
-                                   .where(Task.assigned_to == actor.id, Task.status.in_(OPEN_STATUSES),
-                                          Project.privacy == "local_only")))
-    if member_of or tasks_in:
-        raise Unprocessable(
-            _("'%(name)s' cannot switch to 'cloud': linked to local_only projects (%(projects)s) – reassign tasks and remove project access first", name=actor.name, projects=", ".join(sorted(member_of | tasks_in))),
-            code="privacy_violation")
 
 
 def _check_password(password: str) -> None:

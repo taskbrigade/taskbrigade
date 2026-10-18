@@ -9,6 +9,7 @@ Layout under WORK_ROOT (which also holds `.taskbrigade.toml` with the agent's id
     <KEY>/.worktrees/<NR>-review/   review job of a reviewer agent: detached checkout of the task branch with
                                     REVIEW.md (read only – the decision goes through `tbr review`)
 """
+import json
 import os
 import re
 import shutil
@@ -267,7 +268,7 @@ def instructions(task: dict, worktree: Path, tm: str, git_by_runner: bool = Fals
 - A `CHANGELOG.md` entry (if the repository has one) does **not** go directly into the file but into
   `changelog.d/%(nr)s.md` (Markdown bullet points); TaskBrigade adds it under „Unreleased“ on approval.
 - If it takes longer than 30 minutes: run `%(tm)s heartbeat %(nr)s` in between.
-- Long background job (nohup, model test …): write a log file, then run `%(tm)s heartbeat %(nr)s --waiting "<reason>" --for 2h --watch-file <log>` and repeat it before it ends (max. 24 h) – otherwise the runner reports a stall. Report progress with `%(tm)s comment`; `--done-waiting` ends the waiting state.
+- Long background job (model test, build …): start it **detached from your session**, with a log file – `setsid nohup <command> > <log> 2>&1 < /dev/null &` –, then run `%(tm)s heartbeat %(nr)s --waiting "<reason>" --for 2h --watch-file <log>` and repeat it before it ends (max. 24 h) – otherwise the runner reports a stall. **Do not** use your CLI's own background feature for it (e.g. Claude Code `run_in_background`, Codex background commands): such jobs end with your session, and the runner ends an idle waiting session (parking). Report progress with `%(tm)s comment`; `--done-waiting` ends the waiting state.
 
 End your run with **exactly one** of these steps:
 1. **Done:** commit, `git push -u origin %(branch)s`, then
@@ -281,7 +282,7 @@ End your run with **exactly one** of these steps:
    the thread – `%(tm)s comment %(nr)s "<what is done, where it is, next steps>"` –, then
    `%(tm)s release %(nr)s --reason "Continuation needed"`. The next run is a new session and only knows the thread;
    without this comment it starts from scratch.
-5. **Waiting for a long background job** (it keeps running after your run): report it with
+5. **Waiting for a long background job** (started detached as above, it keeps running after your run): report it with
    `%(tm)s heartbeat %(nr)s --waiting "<reason>" --for 2h --watch-file <log>`, write the current state with
    `%(tm)s comment %(nr)s "…"`, then end the run **without** `release`. The task stays in progress; the runner keeps
    it and starts a new run when the waiting ends (`--for` expired) or the log stops changing. Do not wait inside the
@@ -305,7 +306,7 @@ def runner_git_instructions(task: dict, worktree: Path, tm: str, tm_hint: str) -
 - A `CHANGELOG.md` entry (if the repository has one) does **not** go directly into the file but into
   `changelog.d/%(nr)s.md` (Markdown bullet points); TaskBrigade adds it under „Unreleased“ on approval.
 - If it takes longer than 30 minutes: run `%(tm)s heartbeat %(nr)s` in between.
-- Long background job (nohup, model test …): write a log file, then run `%(tm)s heartbeat %(nr)s --waiting "<reason>" --for 2h --watch-file <log>` and repeat it before it ends (max. 24 h) – otherwise the runner reports a stall. Report progress with `%(tm)s comment`; `--done-waiting` ends the waiting state.
+- Long background job (model test, build …): start it **detached from your session**, with a log file – `setsid nohup <command> > <log> 2>&1 < /dev/null &` –, then run `%(tm)s heartbeat %(nr)s --waiting "<reason>" --for 2h --watch-file <log>` and repeat it before it ends (max. 24 h) – otherwise the runner reports a stall. **Do not** use your CLI's own background feature for it (e.g. Claude Code `run_in_background`, Codex background commands): such jobs end with your session, and the runner ends an idle waiting session (parking). Report progress with `%(tm)s comment`; `--done-waiting` ends the waiting state.
 
 End your run with **exactly one** of these steps:
 1. **Done:** create the file `%(submit_file)s` in the working directory – first line the commit message, then an
@@ -318,7 +319,7 @@ End your run with **exactly one** of these steps:
 4. **Run is not enough** (step/time limit in sight, but the work is doable): **first** write the current state into
    the thread – `%(tm)s comment %(nr)s "<what is done, where it is, next steps>"` –, then
    `%(tm)s release %(nr)s --reason "Continuation needed"`. Your files stay in the working directory for the next run.
-5. **Waiting for a long background job** (it keeps running after your run): report it with
+5. **Waiting for a long background job** (started detached as above, it keeps running after your run): report it with
    `%(tm)s heartbeat %(nr)s --waiting "<reason>" --for 2h --watch-file <log>`, write the current state with
    `%(tm)s comment %(nr)s "…"`, then end the run **without** `release`. The task stays in progress; the runner keeps
    it and starts a new run when the waiting ends (`--for` expired) or the log stops changing. Do not wait inside the
@@ -339,6 +340,93 @@ The team's SFTP storage is available. Put results there **only when the task ask
 SFTP password – `%(tm)s sftp` fetches it itself. If the SFTP server is not reachable from where you run, say so in
 your summary instead of retrying.
 """, tm=tm, nr=task["task_nr"])
+
+
+def mail_note(task: dict, tm: str) -> str:
+    """TASK.md section when the task's project has allowed recipients for result mails."""
+    tm, _hint = tm_display(tm)
+    return _("""
+## Sending results by email
+
+This project has allowed email recipients (`%(tm)s mail recipients %(key)s`). Send a result by email **only when the
+task asks for it**: `%(tm)s mail send %(nr)s --to <address> --subject "…" --body-file <file.md> [--attach <ref>]`.
+The server checks the recipient list and data class and sends the mail after a human approved it (`--on-approve`:
+when the task is approved); you never get SMTP credentials. Attachments are references the server reads itself:
+`attachment:<id>` (task attachment), `branch:<path>` (file on your task branch – commit and push it first) or
+`merge:<path>`. Allowed types: pdf, docx, xlsx, pptx, csv, md, png, jpg (zip only with approval), at most 10 MB in
+total. `%(tm)s mail list %(nr)s` shows the status; mention the request in your summary.
+`result:<id>` attaches a released output-gate aggregate. Local-only mail accepts only these attachments and always
+needs separate human mail approval; sealed mail is refused.
+""", tm=tm, nr=task["task_nr"], key=(task.get("project_info") or {}).get("key") or task.get("project"))
+
+
+def script_contract_note() -> str:
+    """TASK.md section for code tasks whose script may run on confidential data in the runner sandbox
+    (research/konzept-datenzonen.md §5, server field `script_contract`)."""
+    return _("""
+## Script contract (data-zone runner)
+
+Code you write here may later run in the TaskBrigade runner sandbox on real data that you never see. A script for
+the runner must follow this contract, or the run fails:
+
+- **One file**, started as `python -I -B <script>` with Python 3.12. Only the standard library and the runner's
+  pinned packages are available: pandas, numpy, openpyxl, pyarrow, defusedxml. Nothing can be installed.
+- **Input only from `TBR_INPUT`** (environment variable: a directory with `data.xlsx`, `data.csv`, … – the
+  dataset's file type). **Output only `TBR_OUTPUT_DIR/result.json`**; no other files.
+- **No network, no subprocesses, no dynamic code** (`socket`, `urllib`, `requests`, `subprocess`, `ctypes`,
+  `importlib`, `exec`/`eval`, `os.system`, … are refused by a pre-check before the run; the sandbox has no network).
+- **Aggregates only**: never print or write data rows; stdout/stderr are kept but only shown to the people who
+  release results. Every table needs a count column; small groups are refused by the output gate.
+- **Fixed output format** (`result.json`):
+  `{"format": "tbr-aggregate/1", "tables": [{"name": "…", "columns": [...], "count_column": "n", "rows": [[...]]}],
+  "metrics": {...}}`
+- **Output gate** (before a human releases anything): every count must be a whole number ≥ k (default 5); cells
+  are plain values; metrics are numbers; no output string may equal a name, email, IBAN or other identifier of the
+  input; no output row may reproduce an input row. Numbers are rounded to two decimals on release. For sums, add a
+  column with the largest single contribution and declare the pair in the table:
+  `"max_contribution": {"<sum column>": "<max column>"}` – the gate checks dominance and removes that column.
+- **Exit codes**: 0 = success; **3 = the input does not match the schema the script expects** (check required
+  columns and types first and exit with 3 instead of a traceback); anything else = failure.
+- Test against the synthetic sample: `TBR_INPUT=./sample TBR_OUTPUT_DIR=./out python -I -B <script>`.
+""")
+
+
+def artifacts_note(client: Client, task: dict) -> str:
+    """TASK.md section with the released data artifacts the task references (profile schema + synthetic sample,
+    released result aggregates; DZ 9) – inline, so the agent needs no further access. Older servers: empty."""
+    if not task.get("data_refs"):
+        return ""
+    try:
+        items = client.get(f"/tasks/{task['task_nr']}/artifacts").get("items") or []
+    except ApiError:
+        return ""
+    parts = []
+    for item in items:
+        if item["type"] == "dataset":
+            continue  # Raw data never leaves zone R; the reference list names it.
+        head = f"### {item['label']} ({item['purpose']})"
+        if item.get("content") is None:
+            note = (_("Too large to inline – read it at `%(url)s` while you work on this task.", url=item["url"])
+                    if item.get("truncated") and item.get("url") else
+                    _("Not released (status %(status)s) – its content is not available to agents.",
+                      status=item["status"]))
+            parts.append(f"{head}\n\n{note}\n")
+            continue
+        content = item["content"]
+        if item["type"] == "profile":
+            body = (_("Schema (columns may carry aliases; the runner maps them to the real names):") + "\n\n```json\n"
+                    + json.dumps(content.get("schema"), indent=2, ensure_ascii=False) + "\n```\n\n"
+                    + _("Synthetic sample (not real data – test your script against it):") + "\n\n```csv\n"
+                    + (content.get("sample_csv") or "").rstrip("\n") + "\n```")
+        else:
+            body = (_("Released aggregate (output gate):") + "\n\n```json\n"
+                    + json.dumps(content, indent=2, ensure_ascii=False) + "\n```")
+        parts.append(f"{head}\n\n{body}\n")
+    if not parts:
+        return ""
+    return "\n" + _("## Approved data artifacts") + "\n\n" + _(
+        "Only released artifacts are shown; every read is recorded in the data audit. Do not copy them into the "
+        "repository beyond what the task needs.") + "\n\n" + "\n".join(parts)
 
 
 def sftp_available(client: Client) -> bool:
@@ -368,11 +456,21 @@ def prepare(client: Client, work_root: Path, task_nr: str | None = None,
     in progress for this agent (e.g. a new desktop chat). Raise PrepareError on failure; a newly
     claimed task is returned in that case. `reviews`: a reviewer agent may get a review job instead
     (`Prepared.review`, REVIEW.md in `<NR>-review`); a named task waiting for its review is always one."""
+    creds = None
     try:
         creds = client.get("/agents/me/git-credentials")
-    except ApiError as e:
-        raise PrepareError(_("No Git credentials for this agent (%(error)s) – add them in TaskBrigade under "
-                             "Admin → Users → Gitea", error=e)) from e
+    except ApiError as error:
+        # Only a known branchless approval may be claimed without Git prerequisites.
+        try:
+            jobs = client.get("/agents/me/reviews").get("items") or []
+        except ApiError:
+            jobs = []
+        approval = next((job for job in jobs if job.get("task_kind") == "approval" and (
+            task_nr is None or job["task_nr"] == task_nr)), None) if reviews else None
+        if approval is None:
+            raise PrepareError(_("No Git credentials for this agent (%(error)s) – add them in TaskBrigade under "
+                                 "Admin → Users → Gitea", error=error)) from error
+        task_nr = approval["task_nr"]
     resumed = False
     if task_nr:
         current = client.get(f"/tasks/{task_nr}")
@@ -390,6 +488,11 @@ def prepare(client: Client, work_root: Path, task_nr: str | None = None,
         if r.status_code == 204:
             return None
         task = r.json()
+    if task.get("job") == "review" and task.get("task_kind") == "approval":
+        return prepare_review(client, work_root, task, {})
+    if creds is None:
+        raise PrepareError(_("No Git credentials for this agent (%(error)s) – add them in TaskBrigade under "
+                             "Admin → Users → Gitea", error=_("Git credentials are required for code tasks")))
     if task.get("job") == "review":
         return prepare_review(client, work_root, task, creds)
     try:
@@ -411,6 +514,11 @@ def prepare(client: Client, work_root: Path, task_nr: str | None = None,
             behind = commits_behind(worktree, base)
             note = stale_base_note(base, behind) if behind else ""
         extra = sftp_note(task, tm_command()) if sftp_available(client) else ""
+        if task.get("mail_recipients"):
+            extra += mail_note(task, tm_command())
+        if task.get("script_contract"):
+            extra += script_contract_note()
+        extra += artifacts_note(client, task)
         (worktree / "TASK.md").write_text(task_markdown(task) + note + instructions(task, worktree, tm_command(),
                                                                                            git_by_runner) + extra)
         return Prepared(task, worktree, note)
@@ -521,6 +629,20 @@ def prepare_review(client: Client, work_root: Path, task: dict, creds: dict) -> 
     """Review job: clone, detached checkout of the task branch in `<NR>-review`, REVIEW.md. On failure the job is
     given back and PrepareError raised."""
     try:
+        if task.get("task_kind") == "approval":
+            from cli.tm import task_markdown
+
+            worktree = review_worktree(work_root, task)
+            worktree.mkdir(parents=True, exist_ok=True)
+            text = _("# TaskBrigade review job %(nr)s (already claimed for you)", nr=task["task_nr"]) + "\n\n"
+            text += task_markdown(task, footer=False)
+            text += "\n\n" + _("This is a workflow approval. Review the task and its linked predecessors. "
+                                 "Decide with `tbr review %(nr)s approve|reject --comment \"<reason>\"`, "
+                                 "or `tbr review %(nr)s release --reason \"<reason>\"`. "
+                                 "Approval records the decision and advances the workflow. No checkout or PR is required.",
+                                 nr=task["task_nr"])
+            (worktree / REVIEW_FILE).write_text(text)
+            return Prepared(task, worktree, review=True)
         pi = task["project_info"]
         if not pi.get("clone_url"):
             raise PrepareError(_("Project %(key)s has no Gitea repository", key=pi.get("key")))

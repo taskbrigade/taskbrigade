@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ _("New workflow") }} – TaskBrigade{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ _("New workflow") }}</h2></div>
+{% include "_workflow_tabs.html" %}
+{% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/workflows/new" class="form-card">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  {% if starter %}<input type="hidden" name="starter" value="{{ form.starter }}">
+  <p class="muted"><small>{{ _("Start template: %(name)s – %(count)s example steps are added to the draft.", name=_(starter.name), count=starter.steps | length) }}{% if starter.next_step %} {{ _(starter.next_step) }}{% endif %}</small></p>{% endif %}
+  <label>{{ _("Project") }}
+    <select name="project" required>
+      {% for key in choices %}<option value="{{ key }}"{% if form.project == key %} selected{% endif %}>{{ key }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>{{ _("Key") }}
+    <input name="key" required maxlength="40" pattern="[A-Za-z0-9_\-]+" value="{{ form.key }}" placeholder="monthly_report">
+    <small>{{ _("Used in the API and CLI as PROJECT/key; cannot be changed later.") }}</small>
+  </label>
+  <label>{{ _("Name") }}
+    <input name="name" maxlength="120" value="{{ form.name }}">
+  </label>
+  <div class="form-actions"><a href="/workflows" role="button" class="secondary">{{ _("Cancel") }}</a> <button type="submit">{{ _("Create and edit") }}</button></div>
+</form>
+{% endblock %}

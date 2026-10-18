@@ -12,14 +12,19 @@ from urllib.parse import urlparse
 import typer
 
 from cli.client import ApiError, Client, ConfigError, agent_config, explain, load_config, parse_due, patch_task
-from cli.client import BATCH_FORMAT, close_report, is_no_sprint, parse_batch, release_report, resolve_sprint
-from cli.client import heartbeat_task, sprint_line, version_warning, waiting_report
+from cli.client import BATCH_FORMAT, close_report, is_no_sprint, parse_batch, release_report, reopen_report
+from cli.client import resolve_sprint
+from cli.client import heartbeat_task, parse_usage, sprint_line, version_warning, waiting_report
 from cli.client import transition as do_transition
 from cli.client import agent_scope, duplicate_task, model_line, model_value, parse_tier, review_task
+from cli.client import data_class_line, data_refs_lines, parse_data_class, parse_depends_on
 from cli import sftp as sftp_lib
 from cli.i18n import _
+from cli.outputs import parse_output_args, required_outputs_lines, submitted_outputs_lines
+from cli.workflows import register as register_workflows
 
 app = typer.Typer(help=_("TaskBrigade CLI for agents"), no_args_is_help=True)
+register_workflows(app)
 EXIT_NO_TASK = 3
 
 JsonOpt = typer.Option(False, "--json", help=_("Output as JSON instead of Markdown"))
@@ -74,6 +79,8 @@ def task_markdown(t: dict, footer: bool = True) -> str:
              _("- Project: %(key)s (%(name)s), privacy %(privacy)s", key=pi.get("key", t.get("project")),
                name=pi.get("name", ""), privacy=pi.get("privacy", "?")),
              _("- Due: %(due)s", due=t.get("due_date") or "–")]
+    if data_class_line(t):
+        lines.append(data_class_line(t))
     if t.get("reviewer"):
         lines.append(_("- Reviewer: %(name)s", name=t["reviewer"]))
     if t.get("sprint_name"):
@@ -101,6 +108,9 @@ def task_markdown(t: dict, footer: bool = True) -> str:
                   t.get("sprint_goal") or "–"]
     lines += ["", _("## Description"), "", t.get("description") or "–", "",
               _("## Acceptance criteria"), "", t.get("acceptance_criteria") or "–"]
+    lines += required_outputs_lines(t)
+    lines += submitted_outputs_lines(t)
+    lines += data_refs_lines(t)
     if t.get("attachments"):
         lines += ["", _("## Attachments"), "",
                   _("Stored in the repo (branch `%(base)s`); in the working directory under:", base=base), ""]
@@ -501,17 +511,22 @@ def heartbeat(task_nr: str,
               duration: str = typer.Option(None, "--for", help=_("How long to wait, e.g. 90m or 2h (default 2h, max. 24h); "
                                                                  "call again before it ends to extend")),
               watch_file: str = typer.Option(None, "--watch-file", help=_("Log file of the run: a change counts as "
-                                                                          "activity, no change for the stall limit is "
-                                                                          "reported")),
-              done_waiting: bool = typer.Option(False, "--done-waiting", help=_("End the waiting state"))):
+                                                                           "activity, no change for the stall limit is "
+                                                                           "reported")),
+              done_waiting: bool = typer.Option(False, "--done-waiting", help=_("End the waiting state")),
+              usage: str = typer.Option(None, "--usage",
+                                        help=_("Token/cost usage: input=123,output=456,cost_cents=12,model=foo"))):
     try:
-        r = heartbeat_task(_client(), task_nr, waiting, duration, watch_file, done_waiting)
+        r = heartbeat_task(_client(), task_nr, waiting, duration, watch_file, done_waiting,
+                           parse_usage(usage))
     except ValueError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(2) from e
     except ApiError as e:
         _fail(e)
     typer.echo(waiting_report(r))
+    if r.get("budget_exceeded"):
+        typer.echo(_("The workflow budget is exhausted – finish the current step and stop."))
 
 
 @app.command(help=_("Review decision on a task in for_review: approve (merge), reject (comment required), conflict "
@@ -564,15 +579,33 @@ def submit(task_nr: str,
            summary: str = typer.Option(..., help=_("Summary for review/PR (Markdown)")),
            open_point: list[str] = typer.Option(None, "--open-point",
                                                 help=_("Open point for a follow-up task (repeatable; one point "
-                                                       "per option)"))):
+                                                       "per option)")),
+           output: list[str] = typer.Option(None, "--output",
+                                             help=_("Workflow output NAME=VALUE (repeatable; @file reads the value "
+                                                    "from a file)")),
+           output_json: Path = typer.Option(None, "--output-json",
+                                             exists=True, dir_okay=False, readable=True,
+                                             help=_("JSON object of workflow outputs; --output overrides the same name")),
+           usage: str = typer.Option(None, "--usage",
+                                     help=_("Token/cost usage: input=123,output=456,cost_cents=12,model=foo"))):
     try:
         branch = branch or _git("rev-parse", "--abbrev-ref", "HEAD")
         sha = sha or _git("rev-parse", "HEAD")
+        outputs = parse_output_args(output, output_json)
+        parsed_usage = parse_usage(usage)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         typer.echo(_("Give --branch/--sha (no Git repository in the current directory)"), err=True)
         raise typer.Exit(2) from e
-    r = _call("POST", f"/tasks/{task_nr}/submit", json={"branch_name": branch, "commit_sha": sha, "summary": summary,
-                                                        "open_points": [p for p in open_point or [] if p.strip()]})
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from e
+    body = {"branch_name": branch, "commit_sha": sha, "summary": summary,
+            "open_points": [p for p in open_point or [] if p.strip()]}
+    if outputs is not None:
+        body["outputs"] = outputs
+    if parsed_usage is not None:
+        body["usage"] = parsed_usage
+    r = _call("POST", f"/tasks/{task_nr}/submit", json=body)
     typer.echo(f"{r['task_nr']}: {r['status']} – PR: {r.get('pr_url') or '–'}")
 
 
@@ -679,7 +712,9 @@ def agents(as_json: bool = JsonOpt,
 def create(project: str = typer.Option(...), title: str = typer.Option(...),
            assign: str = typer.Option(None, help=_("Actor")), prio: int = typer.Option(3, min=1, max=5),
            description: str = typer.Option(None), acceptance: str = typer.Option(None, help=_("Acceptance criteria")),
-           parent: str = typer.Option(None, help=_("Parent task")), depends_on: list[str] = typer.Option(None),
+           parent: str = typer.Option(None, help=_("Parent task")),
+           depends_on: list[str] = typer.Option(None, "--depends-on", help=_("Task this one depends on (repeatable); "
+                                                                             "claimable once all are done")),
            draft: bool = typer.Option(False, "--draft", help=_("Create as draft (claimable only after publishing)")),
            due: str = typer.Option(None, "--due", help=_("Due date YYYY-MM-DD")),
            sprint: str = typer.Option(None, "--sprint", help=_("Sprint (id or name); in a sprint that is not "
@@ -690,10 +725,17 @@ def create(project: str = typer.Option(...), title: str = typer.Option(...),
            reviewer: str = typer.Option(None, "--reviewer", help=_("Reviewer: a human or an agent with role reviewer "
                                                                    "(default: the project's default reviewer; 'none' "
                                                                    "= the owner and admins)")),
+           data_class: str = typer.Option(None, "--data-class", help=_("Data class cloud_ok, local_only or sealed "
+                                                                       "(default: the project's privacy)")),
            as_json: bool = JsonOpt):
-    body = {"project": project, "title": title, "prio": prio, "assigned_to": assign, "description": description,
+    try:
+        deps = parse_depends_on(depends_on)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from e
+    body = {"data_class": _data_class(data_class),"project": project, "title": title, "prio": prio, "assigned_to": assign, "description": description,
             "reviewer": reviewer.strip() if reviewer else None,
-            "acceptance_criteria": acceptance, "parent_task_nr": parent, "depends_on": depends_on or [],
+            "acceptance_criteria": acceptance, "parent_task_nr": parent, "depends_on": deps,
             "status": "draft" if draft else "defined", "due_date": _due(due), "model_tier": _tier(tier),
             "model": model_value(model),
             "sprint": _sprint_id(project, sprint) if sprint and not is_no_sprint(sprint) else None}
@@ -739,6 +781,14 @@ def _tier(value: str | None) -> str | None:
         raise typer.Exit(2) from e
 
 
+def _data_class(value: str | None) -> str | None:
+    try:
+        return parse_data_class(value)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from e
+
+
 def _due(value: str | None) -> str | None:
     try:
         return parse_due(value)
@@ -772,10 +822,21 @@ def update(task_nr: str,
                                                              "removes it")),
            reviewer: str = typer.Option(None, "--reviewer", help=_("Reviewer (human or reviewer agent); 'none' "
                                                                    "removes it – the owner and admins review")),
+           data_class: str = typer.Option(None, "--data-class", help=_("Data class cloud_ok, local_only or sealed; "
+                                                                       "'inherit' takes the project's privacy")),
+           depends_on: list[str] = typer.Option(None, "--depends-on",
+                                                help=_("Task this one depends on (repeatable); replaces the list, "
+                                                       "'none' removes all – claimable once all are done")),
            version: int = typer.Option(None, "--version",
                                        help=_("Expected row_version (If-Match); default: the one just read")),
            as_json: bool = JsonOpt):
     changes = {}
+    if depends_on is not None:
+        try:
+            changes["depends_on"] = parse_depends_on(depends_on)
+        except ValueError as e:
+            typer.echo(str(e), err=True)
+            raise typer.Exit(2) from e
     if due is not None:
         changes["due_date"] = _due(due)
     if assign is not None:
@@ -794,6 +855,8 @@ def update(task_nr: str,
         changes["model"] = model_value(model)
     if reviewer is not None:
         changes["reviewer"] = None if reviewer.strip().lower() in ("none", "-", "") else reviewer.strip()
+    if data_class is not None and _data_class(data_class):
+        changes["data_class"] = _data_class(data_class)
     if sprint is not None:
         if is_no_sprint(sprint):
             changes["sprint"] = None
@@ -809,6 +872,7 @@ def update(task_nr: str,
         _dump(r)
         return
     shown = {**r, "sprint": r.get("sprint_name")}
+    shown["depends_on"] = ", ".join(d["task_nr"] for d in r.get("dependencies") or [])
     fields = [k if k in ("description", "acceptance_criteria") else f"{k}={shown.get(k) or '–'}" for k in changes]
     typer.echo(_("%(nr)s changed (version %(version)s): %(fields)s", nr=r["task_nr"], version=r["row_version"],
                  fields=", ".join(fields)))
@@ -850,8 +914,8 @@ def duplicate(task_nr: str,
 
 # --- Sprints ----------------------------------------------------------------------------------
 
-sprint_app = typer.Typer(help=_("Sprints of a project: list, show, create, release, close, batch creation. Sprints "
-                                "are addressed by id or name."), no_args_is_help=True)
+sprint_app = typer.Typer(help=_("Sprints of a project: list, show, create, update, release, close, reopen, "
+                                "batch creation. Sprints are addressed by id or name."), no_args_is_help=True)
 app.add_typer(sprint_app, name="sprint")
 ProjectOpt = typer.Option(..., "--project", "-p", help=_("Project key"))
 SprintArg = typer.Argument(..., help=_("Sprint id or name"))
@@ -871,6 +935,19 @@ def _iso_date(value: str | None, option: str) -> str | None:
     except ValueError as e:
         typer.echo(_("%(option)s '%(value)s' is invalid – format YYYY-MM-DD", option=option, value=value), err=True)
         raise typer.Exit(2) from e
+
+
+_UNSET = object()
+
+
+def _patch_date(value: str | None, option: str):
+    """A sprint date for PATCH: omitted stays unset, 'none' or '-' clears it, otherwise YYYY-MM-DD."""
+    if value is None:
+        return _UNSET
+    text = value.strip()
+    if text.lower() in ("none", "-"):
+        return None
+    return _iso_date(text, option)
 
 
 @sprint_app.command("list", help=_("List the sprints of a project."))
@@ -918,6 +995,40 @@ def sprint_create(project: str = ProjectOpt, name: str = typer.Option(..., "--na
     typer.echo(_("Sprint '%(name)s' created (id %(id)s, %(status)s).", name=r["name"], id=r["id"], status=r["status"]))
 
 
+@sprint_app.command("update", help=_("Edit a sprint's name, goal or dates (admins, orchestrators and the project "
+                                     "owner). Only the given fields change; the status stays as it is."))
+def sprint_update(sprint: str = SprintArg, project: str = ProjectOpt,
+                  name: str = typer.Option(None, "--name", help=_("New name")),
+                  goal: str = typer.Option(None, "--goal", help=_("New goal (Markdown); '-' reads from stdin, an "
+                                                                  "empty string clears the goal")),
+                  start: str = typer.Option(None, "--start", help=_("Start date YYYY-MM-DD; 'none' clears it")),
+                  end: str = typer.Option(None, "--end", help=_("End date YYYY-MM-DD; 'none' clears it")),
+                  as_json: bool = JsonOpt):
+    body: dict = {}
+    if name is not None:
+        body["name"] = name
+    if goal is not None:
+        body["goal"] = sys.stdin.read() if goal == "-" else goal
+    for option, key, value in (("--start", "start_date", start), ("--end", "end_date", end)):
+        parsed = _patch_date(value, option)
+        if parsed is not _UNSET:
+            body[key] = parsed
+    if not body:
+        typer.echo(_("Give at least one of --name, --goal, --start or --end."), err=True)
+        raise typer.Exit(2)
+    path = _sprint_path(project, sprint)
+    _orchestrate("tbr sprint update", lambda c: c.request("PATCH", path, json=body).json())
+    data = _call("GET", path)  # The patch payload has no tasks; show the sprint the same way as `sprint show`.
+    if as_json:
+        _dump(data)
+        return
+    typer.echo(sprint_line(data))
+    typer.echo(_("Goal: %(goal)s", goal=data.get("goal") or "–"))
+    for t in data["tasks"]:
+        typer.echo(f"  {t['task_nr']:<12} {t['status']:<18} P{t['prio']} {t.get('assigned_to') or '-':<12} "
+                   f"{t['title']}")
+
+
 @sprint_app.command("release", help=_("Release a sprint (admins and the project owner): every draft with description "
                                       "and acceptance criteria becomes defined, the others stay drafts and are "
                                       "listed. Run again after completing them."))
@@ -947,6 +1058,28 @@ def sprint_close(sprint: str = SprintArg, project: str = ProjectOpt,
         _dump(r)
         return
     typer.echo(close_report(r, move_to))
+
+
+@sprint_app.command("reopen", help=_("Reopen a closed sprint (admins and the project owner): status goes back to "
+                                     "released. With --restore-tasks (default) the tasks that were moved out when "
+                                     "it was closed return, their status unchanged; tasks moved elsewhere later or "
+                                     "finished are skipped and listed."))
+def sprint_reopen(sprint: str = SprintArg, project: str = ProjectOpt,
+                  restore_tasks: bool = typer.Option(True, "--restore-tasks/--no-restore-tasks",
+                                                     help=_("Move the tasks that were moved out when the sprint was "
+                                                            "closed back into it")),
+                  no_restore: bool = typer.Option(False, "--no-restore",
+                                                  help=_("Do not move those tasks back (same as --no-restore-tasks)")),
+                  as_json: bool = JsonOpt):
+    if no_restore:
+        restore_tasks = False
+    path = _sprint_path(project, sprint)
+    r = _orchestrate("tbr sprint reopen", lambda c: c.request(
+        "POST", f"{path}/reopen", json={"restore_tasks": restore_tasks}).json())
+    if as_json:
+        _dump(r)
+        return
+    typer.echo(reopen_report(r))
 
 
 @sprint_app.command("add-tasks", help=_("Create several tasks in a sprint at once from a file: one task per line, "
@@ -1147,3 +1280,64 @@ def git_credential(operation: str = typer.Argument(..., help="get | store | eras
 
 if __name__ == "__main__":
     app()
+
+
+mail_app = typer.Typer(help=_("Send work results by email through the server: the server checks the project's "
+                              "recipient list and data class, a human approves, the server sends. You never get SMTP "
+                              "credentials."), no_args_is_help=True)
+app.add_typer(mail_app, name="mail")
+
+
+@mail_app.command("send", help=_("File a send request for a task's result. Attachments are references the server "
+                                 "reads itself: attachment:<id> (task attachment), branch:<path> (file on the task "
+                                 "branch), merge:<path> (file in the merge commit)."))
+def mail_send(task_nr: str,
+              to: list[str] = typer.Option(..., "--to", help=_("Recipient (repeatable); only addresses on the "
+                                                                 "project's list")),
+              subject: str = typer.Option(..., "--subject", "-s", help=_("Subject")),
+              body: str = typer.Option(None, "--body", "-b", help=_("Text (Markdown)")),
+              body_file: Path = typer.Option(None, "--body-file", exists=True, readable=True,
+                                             help=_("Read the text from a file")),
+              cc: list[str] = typer.Option(None, "--cc", help=_("Copy recipient (repeatable)")),
+              attach: list[str] = typer.Option(None, "--attach", "-a", help=_("Attachment reference (repeatable)")),
+              on_approve: bool = typer.Option(False, "--on-approve", help=_("Send only when the task is approved")),
+              as_json: bool = JsonOpt):
+    from cli.client import email_report, send_email
+
+    text = body_file.read_text(encoding="utf-8") if body_file else body
+    if not (text or "").strip():
+        typer.echo(_("Give the text with --body or --body-file."), err=True)
+        raise typer.Exit(2)
+    try:
+        data = send_email(_client(), task_nr, to, subject, text, cc, attach, on_approve)
+    except ApiError as e:
+        _fail(e)
+    if as_json:
+        return _dump(data)
+    typer.echo(email_report(data))
+
+
+@mail_app.command("list", help=_("Show your email requests of a task with status, Message-ID and SMTP errors."))
+def mail_list(task_nr: str, as_json: bool = JsonOpt):
+    from cli.client import emails_report
+
+    try:
+        data = _client().get(f"/tasks/{task_nr.strip().upper()}/emails")
+    except ApiError as e:
+        _fail(e)
+    if as_json:
+        return _dump(data)
+    typer.echo(emails_report(data))
+
+
+@mail_app.command("recipients", help=_("Show the allowed email recipients of a project."))
+def mail_recipients(project: str, as_json: bool = JsonOpt):
+    from cli.client import recipients_report
+
+    try:
+        data = _client().get(f"/projects/{project.strip().upper()}/mail-recipients")
+    except ApiError as e:
+        _fail(e)
+    if as_json:
+        return _dump(data)
+    typer.echo(recipients_report(data))

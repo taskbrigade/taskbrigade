@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Schedule") }} · {{ template.name }}{% endblock %}
+{% block content %}
+<p><a href="/workflows/schedules">{{ _("Workflow schedules") }}</a> / {{ template.project.project_key }}/{{ template.workflow_key }}</p>
+{{ ui.page_header(_("Schedule") ~ " · " ~ template.name) }}
+{% if not enabled %}<p role="status">{{ _("Schedules are paused. Enable Workflows in Admin → Settings.") }}</p>{% endif %}
+{% if stale_tick %}<p role="status">{{ _("No workflow tick in the last five minutes. Check the scheduler trigger.") }}</p>{% endif %}
+<p>{{ _("Last tick") }}: {{ last_tick or '–' }} UTC</p>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+<nav><ul>{% for schedule in schedules %}<li><a href="?schedule_id={{ schedule.id }}">{{ schedule.name }}</a></li>{% endfor %}<li><a href="/workflows/{{ template.project.project_key }}/{{ template.workflow_key }}/schedules">{{ _("New schedule") }}</a></li></ul></nav>
+<form method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+{% if row.id %}<input type="hidden" name="schedule_id" value="{{ row.id }}">{% endif %}
+<fieldset {% if not can_edit %}disabled{% endif %}>
+<label>{{ _("Name") }}<input name="name" value="{{ row.name }}" required maxlength="80"></label>
+<label><input type="checkbox" name="enabled" value="true" {% if row.enabled %}checked{% endif %}>{{ _("Enabled") }}</label>
+<label>{{ _("Rule") }}<select name="kind"><option value="cron" {% if row.kind == 'cron' %}selected{% endif %}>{{ _("Cron") }}</option><option value="workday" {% if row.kind == 'workday' %}selected{% endif %}>{{ _("Workday") }}</option></select></label>
+<label>{{ _("Cron expression (minute hour day month weekday)") }}<input name="cron_expr" value="{{ row.cron_expr or '' }}" maxlength="100"></label>
+<small>{{ _("Use mon–sun for weekdays. Numeric weekdays start with Monday = 0.") }}</small>
+<fieldset><legend>{{ _("Workday rule") }}</legend>
+<label>{{ _("Count workdays or shift a calendar date") }}<select name="workday_mode"><option value="nth" {% if 'day' not in rule %}selected{% endif %}>{{ _("Nth workday") }}</option><option value="day" {% if 'day' in rule %}selected{% endif %}>{{ _("Day of month") }}</option></select></label>
+<label>{{ _("Workday number (negative counts from the end)") }}<input type="number" name="workday_nth" min="-92" max="92" value="{{ rule.get('nth',3) }}"></label>
+<label>{{ _("Period") }}<select name="workday_of">{% for value, label in [('week',_('Week')),('month',_('Month')),('quarter',_('Quarter'))] %}<option value="{{ value }}" {% if rule.get('of','month') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+<label>{{ _("Calendar day (day-of-month mode only)") }}<input type="number" name="workday_day" min="1" max="31" value="{{ rule.get('day',15) }}"></label>
+<label>{{ _("Shift a non-workday (day-of-month mode only)") }}<select name="workday_shift">{% for value, label in [('skip',_('Skip')),('next_workday',_('Next workday')),('prev_workday',_('Previous workday'))] %}<option value="{{ value }}" {% if rule.get('shift','next_workday') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+<label>{{ _("Local time") }}<input type="time" name="workday_time" value="{{ rule.get('time','07:00') }}" required></label>
+</fieldset>
+<label>{{ _("Calendar") }}<select name="calendar_id"><option value="">{{ _("None (workday rules use Monday–Friday)") }}</option>{% for cal in calendars %}<option value="{{ cal.id }}" {% if row.calendar_id == cal.id %}selected{% endif %}>{{ cal.name }} ({{ cal.country }}-{{ cal.subdivision or '' }})</option>{% endfor %}</select></label>
+<label>{{ _("Holiday shift (cron)") }}<select name="holiday_shift">{% for value, label in [('skip',_('Skip')),('next_workday',_('Next workday')),('prev_workday',_('Previous workday'))] %}<option value="{{ value }}" {% if row.holiday_shift == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+<label>{{ _("Time zone") }}<input name="timezone" value="{{ row.timezone }}" required maxlength="40"></label>
+<p role="note">{{ _("DST: times between 02:00 and 03:00 may shift. Missing times run at the first valid minute; repeated times run once at the first occurrence. Hourly cron follows UTC intervals (23 or 25 runs on switch days).") }}</p>
+<label>{{ _("Parameters (JSON)") }}<textarea name="params_json">{{ params_text or '{}' }}</textarea></label>
+<label>{{ _("If previous run is still active") }}<select name="overlap_policy"><option value="skip" {% if row.overlap_policy == 'skip' %}selected{% endif %}>{{ _("Skip") }}</option><option value="queue" {% if row.overlap_policy == 'queue' %}selected{% endif %}>{{ _("Queue (at most one waiting run)") }}</option></select></label>
+<label>{{ _("If missed") }}<select name="misfire_policy"><option value="run_late" {% if row.misfire_policy == 'run_late' %}selected{% endif %}>{{ _("Run the latest missed slot once") }}</option><option value="skip" {% if row.misfire_policy == 'skip' %}selected{% endif %}>{{ _("Skip") }}</option></select></label>
+<label>{{ _("Misfire grace (minutes)") }}<input type="number" name="misfire_grace_min" min="0" max="525600" value="{{ row.misfire_grace_min }}" required></label>
+<button name="action" value="preview">{{ _("Preview next runs") }}</button><button name="action" value="save">{{ _("Save schedule") }}</button>
+</fieldset></form>
+<h2>{{ _("Next runs") }}</h2><ol>{% for date in next_fires %}<li>{{ date }}</li>{% endfor %}</ol>
+<h2>{{ _("Recent schedule fires") }}</h2><table><thead><tr><th>{{ _("Scheduled for (UTC)") }}</th><th>{{ _("Outcome") }}</th><th>{{ _("Run") }}</th></tr></thead><tbody>{% for fire in fires %}<tr><td>{{ fire.scheduled_for }}</td><td>{{ _(outcome_labels[fire.outcome]) }}</td><td>{{ fire.run_id or '–' }}</td></tr>{% endfor %}</tbody></table>
+{% endblock %}

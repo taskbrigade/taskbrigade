@@ -1,125 +1,242 @@
 {% extends "base.html" %}
 {% block title %}{{ p.project_key }} – TaskBrigade{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/project_detail.css?v={{ static_v }}">
+  <script src="/static/project_detail.js?v={{ static_v }}" defer></script>
+{% endblock %}
+{#- Tabs are panels on one page, selected by the URL hash (static/project_detail.js); without JS all panels show. -#}
 {% block content %}
-<div class="headline"><h2>{{ p.project_key }} <small>{{ p.name }}</small></h2>
-  <span><a href="/backlog?project={{ p.project_key }}">{{ _("Backlog") }}</a> · <a href="/kanban?project={{ p.project_key }}">{{ _("Kanban") }}</a> ·
-  <a href="/tasks/new?project={{ p.project_key }}">{{ _("New task") }}</a></span></div>
-{% if request.query_params.msg %}<p class="banner ok">{{ request.query_params.msg }}</p>{% endif %}
-{% if request.query_params.err %}<p class="banner error">{{ request.query_params.err }}</p>{% endif %}
-{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+{% macro four_eyes_label(fe) -%}
+  {%- if fe == "default" %}{{ _("Admin default (%(state)s)", state=_("on") if four_eyes_default else _("off")) }}
+  {%- elif fe == "on" %}{{ _("on") }}{% else %}{{ _("off") }}{% endif -%}
+{%- endmacro %}
 
-<div class="detail-grid">
-<div>
-<article>
-  <header><strong>{{ _("Project") }}</strong></header>
-  {% if can_manage %}
-  <form method="post" action="/projects/{{ p.project_key }}/edit">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <label>{{ _("Name") }} <input name="name" value="{{ p.name }}" required></label>
-    <label>{{ _("Description") }} <textarea name="description" rows="3">{{ p.description or '' }}</textarea></label>
-    <label>{{ _("Owner") }} <select name="owner">{% for h in humans %}<option {% if owner and owner.name == h %}selected{% endif %}>{{ h }}</option>{% endfor %}
-      {% if owner and not owner.is_active %}<option selected value="">{{ _("%(name)s (deactivated)", name=owner.name) }}</option>{% endif %}</select></label>
-    <div class="grid">
-      <label>{{ _("Status") }} <select name="status">{% for s in ("idea", "active", "paused", "archived") %}<option value="{{ s }}" {% if p.status == s %}selected{% endif %}>{{ project_status_label(s) }}</option>{% endfor %}</select></label>
-      <label>{{ _("Privacy") }} <select name="privacy">
-        <option value="local_only" {% if p.privacy == "local_only" %}selected{% endif %}>{{ _("local agents only") }}</option>
-        <option value="cloud_ok" {% if p.privacy == "cloud_ok" %}selected{% endif %}>{{ _("cloud agents allowed") }}</option></select></label>
-    </div>
-    <label><input type="checkbox" name="serialize_reviews" value="1" {% if p.serialize_reviews %}checked{% endif %}>
-      {{ _("One review at a time per agent") }}
-      <small class="muted field-help">{{ _("An agent claims no new task in this project while one of its tasks waits for review – avoids parallel branches changing the same files.") }}</small></label>
-    <label>{{ _("Default reviewer") }} <select name="default_reviewer"><option value="none">{{ _("– owner and admins –") }}</option>
-      {% for r in reviewers %}<option value="{{ r.name }}" {% if info.default_reviewer == r.name %}selected{% endif %}>{{ r.name }}{% if r.kind == "agent" %} ({{ _("reviewer agent") }}){% endif %}</option>{% endfor %}
-      {% if info.default_reviewer and info.default_reviewer not in reviewers | map(attribute="name") %}<option value="{{ info.default_reviewer }}" selected>{{ info.default_reviewer }}</option>{% endif %}</select>
-      <small class="muted">{{ _("New tasks take this reviewer (changeable per task). The owner and admins can always approve.") }}</small></label>
-    <button type="submit">{{ _("Save") }}</button>
-  </form>
-  {% else %}
-  <p>{{ p.description or "" }}</p><p>{{ _("Owner") }} {{ owner.name if owner else "–" }} · {{ _("Status") }} {{ project_status_label(p.status) }} · {{ _("Privacy") }} {{ _("local only") if p.privacy == "local_only" else _("cloud ok") }}{% if info.default_reviewer %} · {{ _("Default reviewer") }} {{ info.default_reviewer }}{% endif %}</p>
-  {% endif %}
-  <h5>{{ _("Tasks") }}</h5>
-  <p>{% for st, n in counts.items() if n %}<a href="/backlog?project={{ p.project_key }}&status={{ st }}">{% with status=st %}{% include "_status.html" %}{% endwith %} {{ n }}</a> {% else %}<span class="muted">{{ _("none") }}</span>{% endfor %}</p>
-</article>
-
-<article id="sprints">
-  <header><strong>{{ _("Sprints") }}</strong> <small class="muted">{{ _("(optional – tasks without a sprint work as before)") }}</small></header>
-  {% if sprints %}
-  <div class="table-card">
-  <table>
-    <thead><tr><th>{{ _("Sprint") }}</th><th>{{ _("Status") }}</th><th>{{ _("Period") }}</th><th>{{ _("Progress") }}</th></tr></thead>
-    <tbody>
-    {% for x in sprints %}{% set c = sprint_counts.get(x.id, {}) %}
-      <tr>
-        <td class="task-title"><a href="/projects/{{ p.project_key }}/sprints/{{ x.id }}">{{ x.name }}</a></td>
-        <td><span class="badge sprint-{{ x.status }}">{{ sprint_status_label(x.status) }}</span></td>
-        <td class="date">{{ x.start_date or "…" }} – {{ x.end_date or "…" }}</td>
-        <td>{% for st, n in c.items() if n %}<a href="/backlog?project={{ p.project_key }}&sprint={{ x.id }}&status={{ st }}">{% with status=st %}{% include "_status.html" %}{% endwith %} {{ n }}</a> {% else %}<span class="muted">{{ _("no tasks yet") }}</span>{% endfor %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% else %}<p class="muted">{{ _("No sprints yet.") }}</p>{% endif %}
-  {% if can_plan and p.status != "archived" %}
-  <details>
-    <summary>{{ _("New sprint") }}</summary>
-    <form method="post" action="/projects/{{ p.project_key }}/sprints/new">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <label>{{ _("Name") }} <input name="name" required maxlength="120" placeholder="{{ _('Sprint 1') }}"></label>
-      <label>{{ _("Goal") }} <textarea name="goal" rows="2"></textarea></label>
-      <div class="grid">
-        <label>{{ _("Start") }} <input type="date" name="start_date"></label>
-        <label>{{ _("End") }} <input type="date" name="end_date"></label>
-      </div>
-      <small class="muted">{{ _("A new sprint is planned: its tasks stay drafts until you release the sprint.") }}</small>
-      <button type="submit">{{ _("Create sprint") }}</button>
-    </form>
-  </details>
-  {% endif %}
-</article>
-</div>
-
-<div>
-<article>
-  <header><strong>{{ _("Gitea") }}</strong></header>
+{% macro gitea_card() %}
+<section class="pd-card">
+  <div class="pd-card-head"><h2>{{ _("Gitea") }}</h2>
+    {% if not p.gitea_repo %}<span class="pd-pill">{{ _("Not linked") }}</span>
+    {% elif gitea_error %}<span class="pd-pill pd-pill-error">{{ _("Error") }}</span>
+    {% elif missing %}<span class="pd-pill pd-pill-warn">{{ _("Incomplete") }}</span>
+    {% else %}<span class="pd-pill pd-pill-ok">{{ _("Connected") }}</span>{% endif %}</div>
   {% if p.gitea_repo %}
-  <ul class="plain">
-    <li>{{ _("Repo:") }} <a href="{{ p.gitea_url }}" target="_blank" rel="noopener">{{ p.gitea_owner }}/{{ p.gitea_repo }} ↗</a></li>
-    <li>{{ _("Clone:") }} <code>{{ info.clone_url }}</code></li>
-    <li>{{ _("Default branch:") }} <code>{{ p.default_branch }}</code> · {{ _("Brain:") }} <code>{{ p.brain_path }}</code></li>
-  </ul>
+  <a href="{{ p.gitea_url }}" target="_blank" rel="noopener" class="pd-mono">{{ p.gitea_owner }}/{{ p.gitea_repo }} ↗</a>
+  <div class="pd-copy"><code class="pd-mono" title="{{ info.clone_url }}">{{ info.clone_url }}</code>
+    <button type="button" class="secondary pd-btn-sm" data-copy="{{ info.clone_url }}"
+            aria-label="{{ _('Copy clone URL') }}">{{ _("Copy") }}</button></div>
+  <div class="pd-meta">{{ _("Branch") }} <code class="pd-mono">{{ p.default_branch }}</code> · {{ _("Brain") }}
+    <code class="pd-mono">{{ p.brain_path }}</code></div>
   {% if gitea_error %}<p class="banner error">{{ _("Gitea: %(error)s", error=gitea_error) }}</p>{% endif %}
   {% if missing %}<p class="banner warn">{{ _("Missing in the repo: %(files)s", files=missing | join(", ")) }}</p>{% endif %}
   {% if can_manage %}
-  <form method="post" action="/projects/{{ p.project_key }}/gitea">
+  <form method="post" action="/projects/{{ p.project_key }}/gitea" class="pd-stack">
     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="mode" value="link">
-    <label><input type="checkbox" name="protect_branch" value="1"> {{ _("enable branch protection") }}</label>
-    <button type="submit" class="secondary small">{{ _("Repeat setup (add missing files)") }}</button>
+    <label class="pd-check"><input type="checkbox" name="protect_branch" value="1"> {{ _("enable branch protection") }}</label>
+    <button type="submit" class="secondary pd-btn-sm">{{ _("Repeat setup (add missing files)") }}</button>
   </form>
   {% endif %}
   {% else %}
   <p class="muted">{{ _("No repo linked.") }}</p>
   {% if can_manage %}
-  <form method="post" action="/projects/{{ p.project_key }}/gitea">
+  <form method="post" action="/projects/{{ p.project_key }}/gitea" class="pd-stack">
     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="mode" value="create">
     <input type="hidden" name="activate" value="1">
-    <label>{{ _("Repo name") }} <input name="gitea_repo" placeholder="{{ p.project_key | lower }}"></label>
-    <button type="submit">{{ _("Activate idea (create repo + status active)") }}</button>
+    <label class="pd-field"><span>{{ _("Repo name") }}</span> <input name="gitea_repo" placeholder="{{ p.project_key | lower }}"></label>
+    <button type="submit" class="pd-btn-sm">{{ _("Activate idea (create repo + status active)") }}</button>
   </form>
   {% endif %}
   {% endif %}
-</article>
+</section>
+{% endmacro %}
 
-<article>
-  <header><strong>{{ _("Members") }}</strong> <small class="muted">{{ _("(managed under Admin → Users)") }}</small></header>
-  <ul class="plain">
+{% macro members_card(full) %}
+<section class="pd-card">
+  <div class="pd-card-head"><h2>{{ _("Members") }}</h2>
+    {% if user and user.is_admin %}<a href="/admin/users" class="pd-small">{{ _("Manage") }}</a>{% endif %}</div>
+  {% if full %}<p class="muted pd-small">{{ _("Members are managed under Admin → Users & agents; TaskBrigade keeps their Gitea access in sync.") }}</p>{% endif %}
+  <ul class="pd-list">
   {% for pm, a in members %}
-    <li>{{ a.name }} · {{ pm.gitea_permission }}
+    <li><span class="pd-chip"><span class="pd-avatar pd-avatar-{{ a.agent_kind if a.actor_type == 'agent' and a.agent_kind else a.actor_type or 'human' }}"
+          aria-hidden="true">{{ a.name[:2] | upper }}</span>{{ a.name }}</span>
+      <span class="pd-small muted">{{ pm.gitea_permission }} ·
       {% if pm.sync_error %}<span class="badge st-cancelled" title="{{ pm.sync_error }}">{{ _("sync error") }}</span>
-      {% elif pm.gitea_synced_at %}<small class="muted">{{ _("synchronised") }}</small>{% else %}<small class="muted">{{ _("pending") }}</small>{% endif %}</li>
+      {% elif pm.gitea_synced_at %}{{ _("synchronised") }}{% else %}{{ _("pending") }}{% endif %}</span></li>
   {% else %}<li class="muted">{{ _("none") }}</li>{% endfor %}
   </ul>
-</article>
+</section>
+{% endmacro %}
+
+{% macro mail_hint() -%}
+  {{ _("Agents may send results only to these addresses; humans with an account and a confirmed address need no approval. At most %(num)s requests per day.", num=mail_limit or 20) }}{% if p.privacy != "cloud_ok" %} {{ _("Local-only tasks cannot send results by email yet.") }}{% endif %}
+{%- endmacro %}
+
+{% set fe = "default" if p.data_four_eyes is none else ("on" if p.data_four_eyes else "off") %}
+{% set recipient_count = mail_recipients | default([]) | length %}
+
+<nav aria-label="{{ _('Breadcrumb') }}" class="pd-breadcrumb"><a href="/projects">{{ _("Projects") }}</a> / {{ p.project_key }}</nav>
+<div class="pd-header">
+  <div>
+    <h1 class="ui-page-title"><span class="pd-key">{{ p.project_key }}</span>{{ p.name }}</h1>
+    <div class="muted">{{ _("Owner") }} {{ owner.name if owner else "–" }} · {{ project_status_label(p.status) }}{% if p.gitea_repo %} · {{ _("repo") }} {{ p.gitea_owner }}/{{ p.gitea_repo }}{% endif %}</div>
+  </div>
+  <div class="pd-actions">
+    <a href="/backlog?project={{ p.project_key }}" role="button" class="secondary pd-wide">{{ _("Backlog") }}</a>
+    <a href="/kanban?project={{ p.project_key }}" role="button" class="secondary pd-wide">{{ _("Kanban") }}</a>
+    <details class="pd-more">
+      <summary role="button" class="secondary" aria-label="{{ _('More actions') }}">⋯</summary>
+      <ul><li><a href="/backlog?project={{ p.project_key }}">{{ _("Backlog") }}</a></li>
+        <li><a href="/kanban?project={{ p.project_key }}">{{ _("Kanban") }}</a></li></ul>
+    </details>
+    <a href="/tasks/new?project={{ p.project_key }}" role="button">{{ _("+ New task") }}</a>
+  </div>
 </div>
+{% if request.query_params.msg %}<p class="banner ok">{{ request.query_params.msg }}</p>{% endif %}
+{% if request.query_params.err %}<p class="banner error">{{ request.query_params.err }}</p>{% endif %}
+{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+
+<nav class="pd-tabs" aria-label="{{ _('Project sections') }}"><ul>
+  <li><a href="#settings" data-tab="settings">{{ _("Settings") }}</a></li>
+  <li><a href="#members" data-tab="members">{{ _("Members") }}</a></li>
+  <li><a href="#gitea" data-tab="gitea">{{ _("Gitea") }}</a></li>
+  <li><a href="#recipients" data-tab="recipients">{{ _("Email recipients") }} <span class="pd-count">{{ recipient_count }}</span></a></li>
+  <li><a href="#data" data-tab="data">{{ _("Data & output gate") }}</a></li>
+</ul></nav>
+
+<div id="settings" class="pd-panel" data-tab-panel>
+<div class="pd-layout">
+<div class="pd-main">
+  {% if can_manage %}
+  <form method="post" action="/projects/{{ p.project_key }}/edit" data-guard="project" autocomplete="off" class="pd-main">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <section class="pd-card">
+      <h2>{{ _("General") }}</h2>
+      <label class="pd-field"><span>{{ _("Name") }}</span> <input name="name" value="{{ p.name }}" required></label>
+      <label class="pd-field"><span>{{ _("Description") }}</span> <textarea name="description" rows="3"
+        placeholder="{{ _('What is this project about? Shown to agents as context.') }}">{{ p.description or '' }}</textarea></label>
+      <div class="pd-row">
+        <label class="pd-field"><span>{{ _("Owner") }}</span> <select name="owner">{% for h in humans %}<option {% if owner and owner.name == h %}selected{% endif %}>{{ h }}</option>{% endfor %}
+          {% if owner and not owner.is_active %}<option selected value="">{{ _("%(name)s (deactivated)", name=owner.name) }}</option>{% endif %}</select></label>
+        <label class="pd-field"><span>{{ _("Status") }}</span> <select name="status">{% for s in ("idea", "active", "paused", "archived") %}<option value="{{ s }}" {% if p.status == s %}selected{% endif %}>{{ project_status_label(s) }}</option>{% endfor %}</select></label>
+      </div>
+    </section>
+    <section class="pd-card">
+      <h2>{{ _("Agents & review") }}</h2>
+      <div class="pd-row">
+        <label class="pd-field"><span>{{ _("Privacy") }}</span> <select name="privacy">
+          <option value="local_only" {% if p.privacy == "local_only" %}selected{% endif %}>{{ _("local agents only") }}</option>
+          <option value="cloud_ok" {% if p.privacy == "cloud_ok" %}selected{% endif %}>{{ _("cloud agents allowed") }}</option></select>
+          <small class="muted">{{ _("Default data class of new tasks:") }} {% with cls=p.privacy %}{% include "_data_class.html" %}{% endwith %}{% if mixed %} · <span title="{{ _('Some tasks have their own data class') }}">{{ _("mixed") }}</span>{% endif %}</small></label>
+        <label class="pd-field"><span>{{ _("Default reviewer") }}</span> <select name="default_reviewer"><option value="none">{{ _("– owner and admins –") }}</option>
+          {% for r in reviewers %}<option value="{{ r.name }}" {% if info.default_reviewer == r.name %}selected{% endif %}>{{ r.name }}{% if r.kind == "agent" %} ({{ _("reviewer agent") }}){% endif %}</option>{% endfor %}
+          {% if info.default_reviewer and info.default_reviewer not in reviewers | map(attribute="name") %}<option value="{{ info.default_reviewer }}" selected>{{ info.default_reviewer }}</option>{% endif %}</select>
+          <small class="muted">{{ _("New tasks take this reviewer (changeable per task). The owner and admins can always approve.") }}</small></label>
+      </div>
+      <div class="pd-field">
+        <label class="pd-check"><input type="checkbox" name="serialize_reviews" value="1" {% if p.serialize_reviews %}checked{% endif %}>
+          {{ _("One review at a time per agent") }}</label>
+        <small class="muted">{{ _("An agent claims no new task in this project while one of its tasks waits for review – avoids parallel branches changing the same files.") }}</small>
+      </div>
+      <label class="pd-field"><span>{{ _("Four-eyes rule for data releases") }}</span> <select name="data_four_eyes">
+        {% for v in ("default", "on", "off") %}<option value="{{ v }}" {% if fe == v %}selected{% endif %}>{{ four_eyes_label(v) }}</option>{% endfor %}</select>
+        <small class="muted">{{ _("Output gate: the person who releases a runner result must neither have created the run task nor merged its script.") }}</small></label>
+    </section>
+    <div class="pd-footer">
+      <span class="pd-pill pd-pill-warn" data-dirty-indicator hidden>{{ _("Unsaved changes") }}</span>
+      <a href="/projects/{{ p.project_key }}" role="button" class="secondary" data-discard{% if error %}="confirm"{% endif %}>{{ _("Discard") }}</a>
+      <button type="submit">{{ _("Save changes") }}</button>
+    </div>
+  </form>
+  {% else %}
+  <section class="pd-card">
+    <h2>{{ _("General") }}</h2>
+    {% if p.description %}<p>{{ p.description }}</p>{% endif %}
+    <dl class="pd-facts">
+      <dt>{{ _("Owner") }}</dt><dd>{{ owner.name if owner else "–" }}</dd>
+      <dt>{{ _("Status") }}</dt><dd>{{ project_status_label(p.status) }}</dd>
+      <dt>{{ _("Privacy") }}</dt><dd>{% with cls=p.privacy %}{% include "_data_class.html" %}{% endwith %}{% if mixed %} <small class="muted" title="{{ _('Some tasks have their own data class') }}">{{ _("mixed") }}</small>{% endif %}</dd>
+      {% if info.default_reviewer %}<dt>{{ _("Default reviewer") }}</dt><dd>{{ info.default_reviewer }}</dd>{% endif %}
+      <dt>{{ _("One review at a time per agent") }}</dt><dd>{{ _("on") if p.serialize_reviews else _("off") }}</dd>
+      <dt>{{ _("Four-eyes rule for data releases") }}</dt><dd>{{ four_eyes_label(fe) }}</dd>
+    </dl>
+  </section>
+  {% endif %}
+</div>
+
+<aside class="pd-aside">
+  {{ gitea_card() }}
+  {{ members_card(false) }}
+  <section class="pd-card">
+    <h2>{{ _("Email recipients") }}</h2>
+    {% if mail_recipients %}
+    <ul class="pd-list">{% for r in mail_recipients %}<li><code class="pd-mono">{{ r.address }}</code>
+      <span class="badge">{{ _(mail_modes[r.mode]) }}</span></li>{% endfor %}</ul>
+    {% else %}<p class="muted pd-small">{{ _("None yet.") }} {{ mail_hint() }}</p>{% endif %}
+    {% if can_manage %}<a href="#recipients" data-open="add-recipient" role="button" class="secondary pd-btn-sm">{{ _("+ Add recipient") }}</a>{% endif %}
+  </section>
+  <section class="pd-card">
+    <h2>{{ _("Tasks") }}</h2>
+    <p class="pd-counts">{% for st, n in counts.items() if n %}<a href="/backlog?project={{ p.project_key }}&status={{ st }}">{% with status=st %}{% include "_status.html" %}{% endwith %} {{ n }}</a> {% else %}<span class="muted">{{ _("none") }}</span>{% endfor %}</p>
+  </section>
+  <section class="pd-card" id="sprints">
+    <div class="pd-card-head"><h2>{{ _("Sprints") }}</h2>
+      {% if can_plan and p.status != "archived" %}<a href="/planning?project={{ p.project_key | urlencode }}" class="headline-link">{{ _("Open in planning") }}</a>{% endif %}</div>
+    <p class="muted pd-small">{{ _("(optional – tasks without a sprint work as before)") }}</p>
+    {% if sprints %}
+    <ul class="plain sprint-list">
+      {% for x in sprints %}{% set c = sprint_counts.get(x.id, {}) %}{% set total = c.values() | sum - c.get("cancelled", 0) %}
+      <li><a href="/projects/{{ p.project_key }}/sprints/{{ x.id }}">{{ x.name }}</a>
+        <span class="badge sprint-{{ x.status }}">{{ sprint_status_label(x.status) }}</span>
+        {% if total > 0 %}<progress value="{{ c.get('done', 0) }}" max="{{ total }}" class="sprint-progress"></progress>
+        <small>{{ c.get("done", 0) }}/{{ total }}</small>{% else %}<small class="muted">{{ _("no tasks yet") }}</small>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">{{ _("No sprints yet.") }}</p>{% endif %}
+  </section>
+</aside>
+</div>
+</div>
+
+<div id="members" class="pd-panel" data-tab-panel>{{ members_card(true) }}</div>
+
+<div id="gitea" class="pd-panel" data-tab-panel>{{ gitea_card() }}</div>
+
+<div id="recipients" class="pd-panel" data-tab-panel>
+<section class="pd-card" id="mail-recipients">
+  <h2>{{ _("Email recipients") }} <small class="muted">{{ _("(work results by email)") }}</small></h2>
+  <p class="muted pd-small">{{ mail_hint() }}</p>
+  <ul class="pd-list">
+  {% for r in mail_recipients %}
+    <li><span><code class="pd-mono">{{ r.address }}</code>{% if r.label %} · {{ r.label }}{% endif %} · <span class="badge">{{ _(mail_modes[r.mode]) }}</span></span>
+      {% if can_manage %}<form method="post" action="/projects/{{ p.project_key }}/mail-recipients/{{ r.id }}/delete" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" class="outline secondary pd-btn-sm">{{ _("Remove") }}</button></form>{% endif %}</li>
+  {% else %}<li class="muted">{{ _("none") }}</li>{% endfor %}
+  </ul>
+  {% if can_manage %}
+  <details id="add-recipient">
+    <summary>{{ _("Add recipient") }}</summary>
+    <form method="post" action="/projects/{{ p.project_key }}/mail-recipients" class="pd-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <label class="pd-field"><span>{{ _("Address") }}</span> <input type="email" name="address" required maxlength="200" placeholder="name@example.org"></label>
+      <div class="pd-row">
+        <label class="pd-field"><span>{{ _("Label") }}</span> <input name="label" maxlength="100"></label>
+        <label class="pd-field"><span>{{ _("Mode") }}</span> <select name="mode">{% for k, v in mail_modes.items() %}<option value="{{ k }}">{{ _(v) }}</option>{% endfor %}</select></label>
+      </div>
+      <button type="submit" class="secondary pd-btn-sm">{{ _("Add") }}</button>
+    </form>
+  </details>
+  {% endif %}
+</section>
+</div>
+
+<div id="data" class="pd-panel" data-tab-panel>
+<section class="pd-card">
+  <h2>{{ _("Data & output gate") }}</h2>
+  <dl class="pd-facts">
+    <dt>{{ _("Default data class of new tasks:") }}</dt><dd>{% with cls=p.privacy %}{% include "_data_class.html" %}{% endwith %}{% if mixed %} <small class="muted" title="{{ _('Some tasks have their own data class') }}">{{ _("mixed") }}</small>{% endif %}</dd>
+    <dt>{{ _("Four-eyes rule for data releases") }}</dt><dd>{{ four_eyes_label(fe) }}</dd>
+  </dl>
+  <p class="muted pd-small">{{ _("Output gate: the person who releases a runner result must neither have created the run task nor merged its script.") }}</p>
+  <p class="pd-links">{% if can_manage %}<a href="#settings">{{ _("Change in Settings") }}</a>{% endif %}
+    {% if show_data %}<a href="/data?project={{ p.project_key | urlencode }}">{{ _("Datasets of this project") }}</a>{% endif %}</p>
+</section>
 </div>
 {% endblock %}

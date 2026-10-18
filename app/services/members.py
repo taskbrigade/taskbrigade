@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.i18n import _
 from app.errors import Unprocessable
-from app.models import Actor, Project, ProjectMember
-from app.services import settings_store
+from app.models import Actor, Project, ProjectMember, Task
+from app.services import settings_store, zones
 from app.services.gitea import GiteaError
 
 log = logging.getLogger(__name__)
@@ -23,10 +23,10 @@ def utcnow():
     return _now()
 
 
-def check_privacy(project: Project, actor: Actor) -> None:
-    if project.privacy == "local_only" and actor.runtime == "cloud":
-        raise Unprocessable(
-            _("Project %(project)s is 'local_only' – cloud actor '%(actor)s' is not allowed (code and context would leave the local environment).", project=project.project_key, actor=actor.name), code="privacy_violation")
+def check_privacy(project: Project, actor: Actor, task: Task | None = None) -> None:
+    """The actor may work on the project – or on `task`, whose own data class may differ from the project's (data
+    zone rule in `zones`), else `privacy_violation`."""
+    zones.check(project, actor, task)
 
 
 def _sync(session: Session, pm: ProjectMember, project: Project, actor: Actor) -> None:
@@ -45,10 +45,13 @@ def _sync(session: Session, pm: ProjectMember, project: Project, actor: Actor) -
         log.warning("collaborator_sync_failed", extra={"project": project.project_key, "actor": actor.name})
 
 
-def set_member(session: Session, project: Project, actor: Actor, permission: str = "write") -> ProjectMember:
+def set_member(session: Session, project: Project, actor: Actor, permission: str = "write",
+               task: Task | None = None) -> ProjectMember:
+    """`task`: membership for working on (or reviewing) that task – its data class decides, so an owner can give a
+    cloud agent a `cloud_ok` task in a `local_only` project (rule 2, research/konzept-datenzonen.md §1)."""
     if permission not in ("read", "write"):
         raise Unprocessable(_( "Permission must be 'read' or 'write'" ))
-    check_privacy(project, actor)
+    check_privacy(project, actor, task)
     pm = session.get(ProjectMember, (project.id, actor.id))
     if pm is None:
         pm = ProjectMember(project_id=project.id, actor_id=actor.id, gitea_permission=permission)
@@ -60,12 +63,12 @@ def set_member(session: Session, project: Project, actor: Actor, permission: str
     return pm
 
 
-def ensure_member(session: Session, project: Project, actor: Actor) -> ProjectMember:
+def ensure_member(session: Session, project: Project, actor: Actor, task: Task | None = None) -> ProjectMember:
     """Create membership on assignment, preserving existing permission."""
     pm = session.get(ProjectMember, (project.id, actor.id))
     if pm is not None:
         return pm
-    return set_member(session, project, actor, "write")
+    return set_member(session, project, actor, "write", task)
 
 
 def remove_member(session: Session, project: Project, actor: Actor) -> None:

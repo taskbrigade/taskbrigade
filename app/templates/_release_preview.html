@@ -1,0 +1,30 @@
+{# Release preview of a sprint (`sprints.release_preview`) with the release button – sprint page and the planning
+   board's "Release…" dialog (loaded from /planning/<key>/sprints/<id>/release, `back` = "planning"). #}
+  {% if preview.released %}
+  <h6>{{ _("Will be released (%(count)d)", count=preview.released | length) }}</h6>
+  <ul class="plain">{% for t in preview.released %}<li><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a> {{ t.title }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if preview.blocked %}
+  <h6>{{ ngettext("Stays a draft (%(num)d)", "Stay drafts (%(num)d)", preview.blocked | length) }}</h6>
+  <ul class="plain blocked">{% for t in preview.blocked %}<li><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a> {{ t.title }}
+    <small class="missing">{{ _("missing: %(fields)s", fields=field_labels(t.missing)) }}</small></li>{% endfor %}</ul>
+  {% endif %}
+  {% if preview.waiting %}
+  <div class="banner warn release-waiting">
+  <h6>{{ ngettext("Will be released but waits for an unfinished task (%(num)d)", "Will be released but wait for unfinished tasks (%(num)d)", preview.waiting | length) }}</h6>
+  <ul class="plain">{% for t in preview.waiting %}<li><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a> {{ t.title }}
+    <small>{{ _("waits for") }} {% include "_late_deps.html" %}</small></li>{% endfor %}</ul>
+  <small>{{ _("Releasing is still possible; the agent can only start once the dependency is done.") }}</small>
+  </div>
+  {% endif %}
+  {% if not preview.released and not preview.blocked %}<p class="muted">{{ _("No drafts in this sprint.") }}</p>{% endif %}
+  {% if sprint.status == "planned" or preview.released %}
+  {% set question = ngettext('Release the sprint and %(num)d task?', 'Release the sprint and %(num)d tasks?', preview.released | length) %}
+  {% if preview.waiting %}{% set question = question ~ " " ~ ngettext('%(num)d of them waits for an unfinished task.', '%(num)d of them wait for unfinished tasks.', preview.waiting | length) %}{% endif %}
+  <form method="post" action="/projects/{{ p.project_key }}/sprints/{{ sprint.id }}/release"
+        onsubmit="return confirm({{ question | tojson | forceescape }})">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% if back %}<input type="hidden" name="back" value="{{ back }}">{% endif %}
+    <button type="submit">{% if sprint.status == "planned" %}{{ _("Release sprint") }}{% else %}{{ _("Release completed drafts") }}{% endif %}</button>
+  </form>
+  {% endif %}

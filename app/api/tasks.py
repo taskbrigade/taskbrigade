@@ -44,6 +44,14 @@ def get_task(task_nr: str, session: Session = SessionDep, _: Actor = Depends(cur
     return svc.payload(session, svc.get(session, task_nr))
 
 
+@router.get("/{task_nr}/artifacts")
+def task_artifacts(task_nr: str, session: Session = SessionDep, me: Actor = Depends(current_actor)):
+    """Released data artifacts the task references (DZ 9) – inlined into TASK.md by `tbr prepare`."""
+    from app.services import data_refs
+
+    return {"items": data_refs.artifacts(session, svc.get(session, task_nr), me)}
+
+
 @router.patch("/{task_nr}")
 def patch_task(task_nr: str, body: TaskPatch, if_match: str | None = Header(None),
                session: Session = SessionDep, me: Actor = Depends(current_actor)):
@@ -113,9 +121,17 @@ def heartbeat(task_nr: str, body: HeartbeatIn | None = None, session: Session = 
     body = body or HeartbeatIn()
     task = svc.heartbeat(session, me, svc.get(session, task_nr, for_update=True), body.waiting, body.for_minutes,
                          body.watch_file, body.done_waiting)
+    from app.services import usage
+
+    run, before = usage.record(session, me, task, body.usage.model_dump() if body.usage else None)
+    usage.enforce(session, run, before)
     if reviews.claimed_by(task, me):  # Review job of a reviewer agent: its own lease.
         return {"task_nr": task.task_nr, "lease_expires_at": task.review_lease_expires_at, "job": "review"}
-    return {"task_nr": task.task_nr, "lease_expires_at": task.lease_expires_at, "waiting": svc.waiting_info(task)}
+    result = {"task_nr": task.task_nr, "lease_expires_at": task.lease_expires_at,
+              "waiting": svc.waiting_info(task)}
+    if run is not None and run.status == "paused" and run.pause_reason == "budget_exceeded":
+        result["budget_exceeded"] = True
+    return result
 
 
 @router.post("/{task_nr}/model-used")

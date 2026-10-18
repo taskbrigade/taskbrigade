@@ -1,8 +1,8 @@
-{% import "_logo.html" as logo %}{% macro current(active) %}{% if active %} aria-current="page"{% endif %}{% endmacro %}<!doctype html>
+<!doctype html>
 <html lang="{{ current_language() }}" data-theme="light">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true}]}'>
   <title>{% block title %}TaskBrigade{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg?v={{ static_v }}">
@@ -11,6 +11,8 @@
   <meta name="theme-color" content="#FFFFFF">
   <link rel="stylesheet" href="/static/vendor/pico.min.css">
   <link rel="stylesheet" href="/static/app.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/ui.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/header.css?v={{ static_v }}">
   <script>document.documentElement.classList.add("js")</script>
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script type="application/json" id="tm-i18n">{{ js_messages() | tojson }}</script>
@@ -21,59 +23,8 @@
   {% block head %}{% endblock %}
 </head>
 <body{% block body_attrs %}{% endblock %}{% if user %} hx-headers='{"X-CSRF-Token": "{{ csrf }}"}'{% endif %}>
-  <header class="container-fluid topbar">
-    <nav aria-label="{{ _('Main navigation') }}">
-      <ul><li><a href="/" class="brand" aria-label="{{ _('TaskBrigade – home') }}">{{ logo.full(34, alt="") }}</a></li></ul>
-      {% if user %}
-      {# Phones and narrow windows: "+ Task" and the menu button replace the inline navigation (static/shell.js). #}
-      <div class="topbar-compact">
-        {% if db_ready and qc_projects %}<button type="button" class="small qc-toggle" aria-expanded="false" aria-controls="quick-capture"
-                data-toggle data-group="topbar">{{ _("+ Task") }}</button>
-        {% elif db_ready %}<a href="/tasks/new" role="button" class="small qc-toggle">{{ _("+ Task") }}</a>{% endif %}
-        <button type="button" class="secondary menu-toggle" aria-expanded="false" aria-controls="main-nav"
-                data-toggle data-group="topbar" aria-label="{{ _('Menu') }}"><span aria-hidden="true">☰</span></button>
-      </div>
-      {% endif %}
-      <ul id="main-nav"{% if user %} class="collapsible"{% endif %}>
-        {% if user %}
-        {% set path = request.url.path %}
-        {% if db_ready %}
-        <li><a href="/"{{ current(path == "/") }}>{{ _("Inbox") }}</a></li>
-        <li><a href="/backlog"{{ current(path.startswith("/backlog")) }}>{{ _("Backlog") }}</a></li>
-        <li><a href="/kanban"{{ current(path.startswith("/kanban")) }}>{{ _("Kanban") }}</a></li>
-        <li><a href="/projects"{{ current(path.startswith("/projects")) }}>{{ _("Projects") }}</a></li>
-        {% endif %}
-        {% if db_ready and user.actor_id %}<li><a href="/profile"{{ current(path.startswith("/profile")) }}>{{ _("Profile") }}</a></li>{% endif %}
-        {% if user.is_admin %}<li><a href="{{ '/admin/users' if db_ready else '/admin/database' }}"{{ current(path.startswith("/admin")) }}>{{ _("Admin") }}</a></li>{% endif %}
-        <li>
-          <form method="post" action="/logout" class="inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf }}">
-            <button class="secondary outline small" type="submit">{{ _("Log out %(name)s", name=user.name) }}</button>
-          </form>
-        </li>
-        {% endif %}
-        {% set here = request.url.path ~ ("?" ~ request.url.query if request.url.query else "") %}
-        {% for code, name in LANGUAGES.items() if code != current_language() %}
-        <li class="lang-switch"><a href="/language?lang={{ code }}&amp;next={{ here | urlencode }}" hreflang="{{ code }}"
-               lang="{{ code }}" title="{{ name }}">{{ code | upper }}</a></li>
-        {% endfor %}
-      </ul>
-    </nav>
-    {% if user and db_ready and qc_projects %}
-    <form class="quick-capture collapsible" id="quick-capture" method="post" action="/tasks/quick">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <input name="title" placeholder="{{ _('Quick capture: new task …') }}" required maxlength="200" aria-label="{{ _('Title') }}">
-      <select name="project" aria-label="{{ _('Project') }}">
-        {% for key, name in qc_projects %}<option value="{{ key }}">{{ key }} – {{ name }}</option>{% endfor %}
-      </select>
-      <button type="submit" class="small" aria-label="{{ _('Create') }}"><span aria-hidden="true">+</span><span class="qc-label" aria-hidden="true">{{ _("Create") }}</span></button>
-    </form>
-    {% endif %}
-    {% if not db_ready %}
-    <p class="banner warn">{{ _("Setup mode: no usable database connection. Only Admin → Database is available.") }}</p>
-    {% endif %}
-  </header>
-  <main class="container-fluid">
+  {% include "_app_header.html" %}
+  <main class="app-main">
     {% block content %}{% endblock %}
   </main>
 </body>

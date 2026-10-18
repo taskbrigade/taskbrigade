@@ -4,12 +4,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session
 
 from app.i18n import _
 from app.errors import Conflict, Forbidden, NotFound, Unprocessable
-from app.models import PROJECT_STATUSES, TASK_STATUSES, Actor, Project, Task
+from app.models import PROJECT_STATUSES, TASK_STATUSES, Actor, Project, ProjectMember, Task
 from app.services import access, members, settings_store
 from app.services.gitea import GiteaError
 
@@ -63,6 +63,36 @@ def task_counts(session: Session, project_ids: list[int] | None = None) -> dict[
     return out
 
 
+def overview(session: Session, project_ids: list[int]) -> dict[int, dict]:
+    """Per-project numbers of the projects overview in a fixed number of grouped queries (no per-row queries):
+    task counts per status, last activity and the number of active agent members.
+
+    `last_activity` is the newest task `updated_at` per project, `None` when the project has no tasks – the
+    project's own `updated_at` only moves on settings edits and would not show task work. `agents` counts the
+    active agents that are members of the project (the "agent count" of a card). Projects without tasks or
+    members get empty counts / zero, so the template needs no dict lookups.
+    """
+    counts: dict[int, dict] = {pid: {} for pid in project_ids}
+    activity: dict[int, object] = {}
+    agents: dict[int, int] = {}
+    if project_ids:
+        for pid, status, n in session.execute(
+                select(Task.project_id, Task.status, func.count()).where(Task.project_id.in_(project_ids))
+                .group_by(Task.project_id, Task.status)):
+            counts[pid][status] = n
+        for pid, last in session.execute(
+                select(Task.project_id, func.max(Task.updated_at)).where(Task.project_id.in_(project_ids))
+                .group_by(Task.project_id)):
+            activity[pid] = last
+        for pid, n in session.execute(
+                select(ProjectMember.project_id, func.count()).join(Actor, Actor.id == ProjectMember.actor_id)
+                .where(ProjectMember.project_id.in_(project_ids), Actor.actor_type == "agent",
+                       Actor.is_active.is_(True)).group_by(ProjectMember.project_id)):
+            agents[pid] = n
+    return {pid: {"counts": counts[pid], "last_activity": activity.get(pid), "agents": agents.get(pid, 0)}
+            for pid in project_ids}
+
+
 def _require_admin(actor: Actor) -> None:
     if actor.role != "admin":
         raise Forbidden(_( 'Only admins can create or edit projects' ))
@@ -111,6 +141,7 @@ def info(session: Session, project: Project) -> dict:
             "repo_url": project.gitea_url, "clone_url": _clone_url(session, project),
             "default_branch": project.default_branch, "brain_path": project.brain_path,
             "owner": owner_name(session, project), "serialize_reviews": bool(project.serialize_reviews),
+            "data_four_eyes": project.data_four_eyes,
             "default_reviewer": default_reviewer_name(session, project)}
 
 
@@ -221,6 +252,19 @@ def missing_files(session: Session, project: Project) -> list[str]:
             if not client.file_exists(project.gitea_owner, project.gitea_repo, f, project.default_branch)]
 
 
+def _pin_started_classes(session: Session, project: Project) -> None:
+    """Before a `local_only` project becomes `cloud_ok`: tasks whose work has started and that inherit the class
+    keep `local_only` as their own class – a class can only be made stricter once work began (rule 4,
+    research/konzept-datenzonen.md §1)."""
+    from sqlalchemy import or_, update as sql_update
+
+    from app.services import zones
+
+    session.execute(sql_update(Task).where(Task.project_id == project.id, Task.data_class.is_(None),
+                                           or_(Task.status.not_in(zones.NOT_STARTED), Task.claimed_at.is_not(None)))
+                    .values(data_class="local_only").execution_options(synchronize_session="fetch"))
+
+
 def update(session: Session, actor: Actor, project: Project, changes: dict) -> list[str]:
     access.require_manage_project(project, actor)
     changes = dict(changes)
@@ -238,7 +282,7 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
             reviews.check(project if "privacy" not in changes else Project(privacy=changes["privacy"],
                                                                            project_key=project.project_key),
                           reviewer, None)
-    allowed = {"name", "description", "status", "privacy", "serialize_reviews"}
+    allowed = {"name", "description", "status", "privacy", "serialize_reviews", "data_four_eyes"}
     if set(changes) - allowed:
         raise Unprocessable(_("Cannot change: %(fields)s", fields=", ".join(sorted(set(changes) - allowed))))
     if "status" in changes:
@@ -247,9 +291,12 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
         if changes["status"] == "active" and not project.gitea_repo:
             raise Unprocessable(_( 'Create or link a Gitea repository before activating' ))
     if changes.get("privacy") == "local_only" and project.privacy != "local_only":
+        from app.services import zones
+
+        cls = func.coalesce(Task.data_class, literal("local_only"))  # A task's own class stays (rule 2).
         cloud = session.scalar(select(func.count()).select_from(Task).join(Actor, Actor.id == Task.assigned_to)
                                .where(Task.project_id == project.id, Task.status.in_(OPEN_STATUSES),
-                                      Actor.runtime == "cloud"))
+                                      ~zones.sql_may_handle(Actor, cls, zones.enforced(session))))
         if cloud:
             raise Unprocessable(_("%(count)d open task(s) are assigned to cloud agents – reassign them first", count=cloud),
                                 code="privacy_violation")
@@ -257,9 +304,18 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
         raise Unprocessable(_( "Privacy must be 'local_only' or 'cloud_ok'" ))
     if "name" in changes and not (changes["name"] or "").strip():
         raise Unprocessable(_( 'Name must not be empty' ))
+    if changes.get("privacy") == "cloud_ok" and project.privacy == "local_only":
+        _pin_started_classes(session, project)
+    if "data_four_eyes" in changes and changes["data_four_eyes"] not in (None, True, False):
+        raise Unprocessable(_("data_four_eyes must be true, false or null (admin default)"))
     changed = []
     for k, v in changes.items():
         if getattr(project, k) != v:
+            if k == "data_four_eyes":  # Output gate rule: every change goes to the data audit
+                from app.services import data_audit
+
+                data_audit.append(session, "four_eyes_changed", "project", project.id, actor=actor,
+                                  detail={"project": project.project_key, "old": project.data_four_eyes, "new": v})
             setattr(project, k, v)
             changed.append(k)
     if reviewer_changed and (reviewer.id if reviewer else None) != project.default_reviewer_id:

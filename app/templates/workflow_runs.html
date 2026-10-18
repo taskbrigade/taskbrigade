@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Workflow runs") }} – TaskBrigade{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ _("Workflow runs") }}</h2></div>
+{% include "_workflow_tabs.html" %}
+<form method="get" action="/workflow-runs" class="filters" onchange="this.submit()">
+  <select name="project" aria-label="{{ _('Project') }}">
+    <option value="">{{ _("All projects") }}</option>
+    {% for key in projects %}<option value="{{ key }}"{% if project == key %} selected{% endif %}>{{ key }}</option>{% endfor %}
+  </select>
+  <select name="status" aria-label="{{ _('Status') }}">
+    <option value="">{{ _("All statuses") }}</option>
+    {% for st in statuses %}<option value="{{ st }}"{% if status == st %} selected{% endif %}>{{ run_status_label(st) }}</option>{% endfor %}
+  </select>
+  <noscript><button type="submit" class="small secondary">{{ _("Filter") }}</button></noscript>
+</form>
+<div class="table-card">
+<table class="cards">
+  <thead><tr><th>{{ _("Run") }}</th><th>{{ _("Workflow") }}</th><th>{{ _("Status") }}</th><th>{{ _("Progress") }}</th><th>{{ _("Trigger") }}</th><th>{{ _("Started") }}</th></tr></thead>
+  <tbody>
+  {% for run in runs %}
+    <tr>
+      <td class="task-nr"><a href="/workflow-runs/{{ run.id }}">#{{ run.run_seq }}</a></td>
+      <td class="task-title"><a href="/workflows/{{ run.project.project_key }}/{{ run.template.workflow_key }}">{{ run.template.name }}</a> <small class="muted">{{ run.project.project_key }} · v{{ run.version.version }}</small></td>
+      <td class="c2"><span class="badge wf-run-{{ run.status }}">{{ run_status_label(run.status) }}</span></td>
+      <td class="c2" data-label="{{ _('Progress') }}">{{ _("%(done)d of %(total)d steps", done=progress[run.id].done, total=progress[run.id].total) }}</td>
+      <td class="c2" data-label="{{ _('Trigger') }}">{{ wf_trigger_label(run.trigger_kind) }}</td>
+      <td class="date c3" data-label="{{ _('Started') }}">{{ (run.started_at or run.created_at) | localtime("short") }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="muted empty">{{ _("No runs match these filters.") }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -1,120 +1,294 @@
 {% extends "base.html" %}
-{% block title %}Inbox – TaskBrigade{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Inbox") }} – TaskBrigade{% endblock %}
+{% block head %}<script src="/static/inbox_notices.js?v={{ static_v }}" defer></script>{% endblock %}
 {% block content %}
-<div class="headline"><h2>{{ _("Inbox") }}</h2>
-  <form class="filters" method="get" action="/" onchange="this.submit()">{% include "_owner_filter.html" %}{% include "_sprint_filter.html" %}</form></div>
+{# Action cards (review + question) on the left, notices panel on the right (UI 3). #}
+{% macro question(t) %}
+    <article class="action-card question" id="q-{{ t.task_nr }}">
+      <div class="card-top">
+        <span class="pill pill-question">{{ _("Question") }}</span>
+        <a class="task-key" href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a>
+        <span class="prio prio-{{ t.prio }}" title="{{ _('Prio %(prio)s', prio=t.prio) }}">{{ t.prio }}</span>
+        {% include "_sprint_hint.html" %}{% include "_workflow_badge.html" %}
+        <span class="age">{{ t.updated_at | reltime }}</span>
+      </div>
+      <div class="card-title">{{ t.title }}</div>
+      <div class="card-detail">
+        {% if t.assigned_to %}<span class="actor-chip" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% endif %}
+        <span class="md">{{ t.last_question | markdown }}</span>
+      </div>
+      {% if user.is_admin or t.project in managed %}
+      <form class="card-actions" hx-post="/inbox/{{ t.task_nr }}/answer" hx-target="#q-{{ t.task_nr }}" hx-swap="innerHTML">
+        <textarea name="body" rows="1" placeholder="{{ _('Answer the agent …') }}" required aria-label="{{ _('Answer') }}"></textarea>
+        <button type="submit" class="small">{{ _("Send") }}</button>
+      </form>
+      {% endif %}
+    </article>
+{% endmacro %}
+{% macro review(t) %}
+    <article class="action-card review" id="r-{{ t.task_nr }}">
+      <div class="card-top">
+        <span class="pill pill-review">{{ _("Review requested") }}</span>
+        <a class="task-key" href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a>
+        <span class="prio prio-{{ t.prio }}" title="{{ _('Prio %(prio)s', prio=t.prio) }}">{{ t.prio }}</span>
+        {% include "_sprint_hint.html" %}{% include "_workflow_badge.html" %}
+        <span class="age">{{ t.updated_at | reltime }}</span>
+      </div>
+      <div class="card-title">{{ t.title }}</div>
+      <div class="card-detail">
+        {% if t.task_kind == "approval" %}<span class="actor-chip">{{ _("Approval") }}</span>
+        {% elif t.assigned_to %}<span class="actor-chip" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% endif %}
+        <span class="md">{% if t.result_summary %}{{ t.result_summary | markdown }}{% else %}{{ _("Ready for review") }}{% endif %}</span>
+      </div>
+      {% if t.on_approve_mails %}<p class="notice-box mail-on-approve">{{ _("Approving also sends the email requests listed under “Email approvals”.") }}</p>{% endif %}
+      {% if user.is_admin or t.project in managed or t.reviewer == user.name %}
+      <form class="card-actions" hx-target="#r-{{ t.task_nr }}" hx-swap="innerHTML">
+        <div class="action-buttons">
+          {% if t.task_kind == "approval" %}<button hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Approve %(nr)s?', nr=t.task_nr) }}">{{ _("Approve") }}</button>
+          {% else %}<button hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Merge %(nr)s?', nr=t.task_nr) }}">{{ _("Approve &amp; merge") }}</button>{% endif %}
+          {% if t.pr_url %}<a href="{{ t.pr_url }}" target="_blank" rel="noopener">{{ _("Open diff") }} ↗</a>{% endif %}
+        </div>
+        <details class="request-changes">
+          <summary>{{ _("Request changes") }}</summary>
+          <textarea name="body" rows="2" placeholder="{{ _('Review comment (required)') }}" aria-label="{{ _('Review comment (required)') }}" required></textarea>
+          <button type="submit" class="secondary" hx-post="/inbox/{{ t.task_nr }}/reject">{{ _("Submit changes request") }}</button>
+        </details>
+      </form>
+      {% endif %}
+    </article>
+{% endmacro %}
+{# Review by a reviewer agent: running/waiting (`for_review`) or sent back (`decision`). The owner and admins may
+   overrule a running review with the same actions as a human review. #}
+{% macro agent_review(t) %}
+    <article class="action-card review agent" id="ar-{{ t.task_nr }}">
+      <div class="card-top">
+        {% if t.decision %}<span class="pill pill-changes">{{ _("Conflict returned") if t.decision == "reject_conflict" else _("Changes requested") }}</span>
+        {% elif t.review_claimed %}<span class="pill pill-review">{{ _("Review running") }}</span>
+        {% else %}<span class="pill pill-review">{{ _("Waiting for reviewer agent") }}</span>{% endif %}
+        <a class="task-key" href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a>
+        <span class="prio prio-{{ t.prio }}" title="{{ _('Prio %(prio)s', prio=t.prio) }}">{{ t.prio }}</span>
+        {% include "_sprint_hint.html" %}{% include "_workflow_badge.html" %}
+        {% set since = t.decided_at or t.review_claimed_at or t.submitted_at or t.updated_at %}
+        <span class="age" title="{{ since | localtime }}">{{ since | reltime }}</span>
+      </div>
+      <div class="card-title">{{ t.title }}</div>
+      <div class="card-detail">
+        <span class="actor-chip reviewer-chip" title="{{ _('Reviewer') }}: {{ t.reviewer }}"><span class="ui-actor-name">{{ t.reviewer }}</span></span>
+        {% if t.decision %}<span class="md">{{ _("Decided by the reviewer agent – waiting for %(name)s to rework it.", name=t.assigned_to or "–") }}</span>
+        {% elif t.review_claimed %}<span class="md">{{ _("Review running – %(name)s, since %(date)s", name=t.reviewer, date=t.review_claimed_at | localtime("short")) }}</span>
+        {% elif t.result_summary %}<span class="md">{{ t.result_summary | markdown }}</span>{% endif %}
+      </div>
+      <form class="card-actions" hx-target="#ar-{{ t.task_nr }}" hx-swap="innerHTML">
+        <div class="action-buttons">
+          {% if not t.decision and (user.is_admin or t.project in managed) %}
+          {% if t.task_kind == "approval" %}<button hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Approve %(nr)s?', nr=t.task_nr) }}">{{ _("Approve") }}</button>
+          {% else %}<button hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Overrule the reviewer agent and merge %(nr)s?', nr=t.task_nr) }}">{{ _("Approve &amp; merge") }}</button>{% endif %}
+          {% endif %}
+          <a href="/tasks/{{ t.task_nr }}">{{ _("Open task") }}</a>
+          {% if t.pr_url %}<a href="{{ t.pr_url }}" target="_blank" rel="noopener">{{ _("Open diff") }} ↗</a>{% endif %}
+        </div>
+        {% if not t.decision and (user.is_admin or t.project in managed) %}
+        <details class="request-changes">
+          <summary>{{ _("Request changes") }}</summary>
+          <textarea name="body" rows="2" placeholder="{{ _('Review comment (required)') }}" aria-label="{{ _('Review comment (required)') }}" required></textarea>
+          <button type="submit" class="secondary" hx-post="/inbox/{{ t.task_nr }}/reject">{{ _("Submit changes request") }}</button>
+        </details>
+        {% endif %}
+      </form>
+    </article>
+{% endmacro %}
+{% macro aborted_row(t) %}
+        <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}{% include "_workflow_badge.html" %}</td>
+            <td class="c2">{% if t.assigned_to %}<span class="agent" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% else %}–{% endif %}</td><td class="date c2">{{ t.updated_at | reltime }}</td></tr>
+{% endmacro %}
+{% set wf_q, wf_r, wf_a = inbox.workflow_questions or [], inbox.workflow_review or [], inbox.workflow_aborted or [] %}
+{% set n_act = n_reviews + n_questions + inbox.aborted | length + wf_a | length + (mail_approvals or []) | length + (data_releases or []) | length %}
+{% set n_cards = wf_r | length + (inbox.for_review or []) | length + (inbox.agent_cards or []) | length + wf_q | length + (inbox.questions or []) | length %}
+
+{{ ui.page_header(_("Inbox"), ngettext("%(num)d item needs you · today", "%(num)d items need you · today", n_act)) }}
+
+<form class="inbox-filters" method="get" action="/" onchange="this.submit()">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  {% if not owner_locked %}{% include "_owner_filter.html" %}{% endif %}
+  <h2 class="inbox-action-title">{{ _("Needs your action") }} <span class="count-pill">{{ n_act }}</span></h2>
+  <div class="inbox-filter-right">
+    {% include "_sprint_filter.html" %}
+    <div class="ui-seg" role="group" aria-label="{{ _('Filter action cards') }}">
+      <button type="button" onclick="this.form.tab.value='all';this.form.submit()" aria-pressed="{{ 'true' if tab == 'all' else 'false' }}">{{ _("All") }}</button>
+      <button type="button" onclick="this.form.tab.value='reviews';this.form.submit()" aria-pressed="{{ 'true' if tab == 'reviews' else 'false' }}">{{ _("Reviews") }} {{ n_reviews }}</button>
+      <button type="button" onclick="this.form.tab.value='questions';this.form.submit()" aria-pressed="{{ 'true' if tab == 'questions' else 'false' }}">{{ _("Questions") }} {{ n_questions }}</button>
+    </div>
+  </div>
+</form>
 {% include "_owner_hint.html" %}
 
-{# What a human has to do now comes first; empty categories collapse into one "all done" line. Notices are folded
-   per category with their count, empty ones are left out. #}
-{% set n_act = inbox.questions | length + inbox.for_review | length + inbox.aborted | length %}
-{% set n_info = inbox.agent_review | length + inbox.unassigned | length + inbox.lease_expired | length %}
-<div class="inbox-group act">
-  <h3>{{ _("Needs your action") }} <small>({{ n_act }})</small></h3>
-  {% if not n_act %}
-  <p class="all-clear" role="status"><span aria-hidden="true">✓</span> <span><strong>{{ _("All done") }}</strong> – {{ _("no questions or tasks to review.") }}</span></p>
-  {% endif %}
-  {% if inbox.questions %}
-  <section>
-    <h4>{{ _("Questions") }} <span class="count-pill">{{ inbox.questions | length }}</span></h4>
-    {% for t in inbox.questions %}
-    <article id="q-{{ t.task_nr }}">
-      <header><a href="/tasks/{{ t.task_nr }}" class="task-nr">{{ t.task_nr }}</a> <strong>{{ t.title }}</strong>
-        <small class="muted">· {% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}–{% endif %} · {{ t.updated_at | localtime }}</small> {% include "_sprint_hint.html" %}</header>
-      <blockquote class="md">{{ t.last_question | markdown }}</blockquote>
-      {% if user.is_admin or t.project in managed %}
-      <form hx-post="/inbox/{{ t.task_nr }}/answer" hx-target="#q-{{ t.task_nr }}" hx-swap="innerHTML">
-        <textarea name="body" rows="2" placeholder="{{ _('Answer (Markdown)…') }}" required aria-label="{{ _('Answer') }}"></textarea>
-        <button type="submit" class="small">{{ _("Answer") }}</button>
-      </form>
-      {% endif %}
-    </article>
-    {% endfor %}
-  </section>
-  {% endif %}
-  {% if inbox.for_review %}
-  <section>
-    <h4>{{ _("For review") }} <span class="count-pill">{{ inbox.for_review | length }}</span></h4>
-    {% for t in inbox.for_review %}
-    <article id="r-{{ t.task_nr }}">
-      <header><a href="/tasks/{{ t.task_nr }}" class="task-nr">{{ t.task_nr }}</a> <strong>{{ t.title }}</strong>
-        <small class="muted">· {% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}–{% endif %}</small> {% include "_sprint_hint.html" %}
-        {% if t.pr_url %} · <a href="{{ t.pr_url }}" target="_blank" rel="noopener">{{ _("Pull request") }} ↗</a>{% endif %}</header>
-      <div class="md">{{ t.result_summary | markdown }}</div>
-      {% if user.is_admin or t.project in managed or t.reviewer == user.name %}
-      <form hx-target="#r-{{ t.task_nr }}" hx-swap="innerHTML">
-        <textarea name="body" rows="2" placeholder="{{ _('Review comment (required for “Reject”)') }}" aria-label="{{ _('Review comment (required for “Reject”)') }}"></textarea>
-        <div class="grid">
-          <button hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Merge %(nr)s?', nr=t.task_nr) }}">{{ _("Approve &amp; merge") }}</button>
-          <button hx-post="/inbox/{{ t.task_nr }}/reject" class="secondary">{{ _("Reject") }}</button>
-        </div>
-      </form>
-      {% endif %}
-    </article>
-    {% endfor %}
-  </section>
-  {% endif %}
-  {% if inbox.aborted %}
-  <section>
-    <h4>{{ _("Aborted – reassignment needed") }} <span class="count-pill">{{ inbox.aborted | length }}</span></h4>
-    <div class="table-card"><table class="cards">
-      <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Agent") }}</th><th>{{ _("Since") }}</th></tr></thead>
-      <tbody>{% for t in inbox.aborted %}
-        <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}</td>
-            <td class="c2">{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}–{% endif %}</td><td class="date c2">{{ t.updated_at | localtime }}</td></tr>
-      {% endfor %}</tbody>
-    </table></div>
-  </section>
-  {% endif %}
-</div>
+<div class="inbox-cols">
+  <section class="inbox-cards" aria-label="{{ _('Needs your action') }}">
+    {% if not n_cards %}
+    <div class="all-clear" role="status"><span aria-hidden="true">✓</span> <span>{{ _("All done – nothing to review.") }}</span></div>
+    {% endif %}
 
-<div class="inbox-group">
-  <h3>{{ _("Notices") }} <small>({{ n_info }})</small></h3>
-  {% if not n_info %}<p class="muted">{{ _("No notices.") }}</p>{% endif %}
-  {% if inbox.agent_review %}
-  <details class="notice agent-review" open data-fold-narrow>
-    <summary>{{ _("Review by agents") }} <span class="count-pill">{{ inbox.agent_review | length }}</span></summary>
-    <div class="notice-body">
-    <p class="muted">{{ _("A reviewer agent decides these reviews – you can still approve or reject in the task, e.g. to overrule it.") }}</p>
-    <div class="table-card"><table class="cards">
-      <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Agent") }}</th><th>{{ _("Reviewer") }}</th></tr></thead>
-      <tbody>{% for t in inbox.agent_review %}
-        <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}</td>
-            <td class="c2">{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}–{% endif %}</td>
-            <td class="c2"><span class="agent">{{ t.reviewer }}</span>{% if t.review_claimed %} <small class="muted">({{ _("reviewing") }})</small>{% endif %}</td></tr>
-      {% endfor %}</tbody>
-    </table></div>
+    {% for t in wf_r %}{{ review(t) }}{% endfor %}
+    {% for t in inbox.for_review %}{{ review(t) }}{% endfor %}
+    {% for t in inbox.agent_cards %}{{ agent_review(t) }}{% endfor %}
+    {% for t in wf_q %}{{ question(t) }}{% endfor %}
+    {% for t in inbox.questions %}{{ question(t) }}{% endfor %}
+
+    {% if data_releases %}
+    <div class="inbox-sub data-releases">
+      <h4>{{ _("Data releases") }} <span class="count-pill">{{ data_releases | length }}</span></h4>
+      <div class="table-card"><table class="cards">
+        <thead><tr><th>{{ _("Result") }}</th><th>{{ _("Task") }}</th><th>{{ _("Dataset") }}</th><th>{{ _("Checks") }}</th></tr></thead>
+        <tbody>{% for r in data_releases %}
+          <tr><td><a href="/data/results/{{ r.id }}">{{ _("Result #%(id)s", id=r.id) }}</a></td>
+            <td class="task-title"><a href="/tasks/{{ r.task_nr }}" class="task-nr">{{ r.task_nr }}</a> {{ r.title }}</td>
+            <td class="c2">{{ r.dataset or "–" }}</td>
+            <td class="c2">{% if r.warnings %}⚠ {{ ngettext("%(num)d warning", "%(num)d warnings", r.warnings) }}{% else %}✓ {{ _("no warnings") }}{% endif %}{% if r.blocked %} · <small>{{ _("needs a second person") }}</small>{% endif %}</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
     </div>
-  </details>
-  {% endif %}
-  {% if inbox.unassigned %}
-  <details class="notice unassigned" open data-fold-narrow>
-    <summary>{{ _("Released but not assigned to anyone") }} <span class="count-pill">{{ inbox.unassigned | length }}</span></summary>
-    <div class="notice-body">
-    <p class="muted">{{ _("No agent will pick up these tasks – choose an actor under <em>Assigned</em> in the task.") }}</p>
-    <div class="table-card"><table class="cards">
-      <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Project") }}</th><th>{{ _("Prio") }}</th><th>{{ _("Created") }}</th></tr></thead>
-      <tbody>{% for t in inbox.unassigned %}
-        <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}</td><td class="c2 meta">{{ t.project }}</td>
-            <td><span class="prio prio-{{ t.prio }}">{{ t.prio }}</span></td><td class="date c2">{{ t.created_at | localtime }}</td></tr>
-      {% endfor %}</tbody>
-    </table></div>
+    {% endif %}
+
+    {% if mail_approvals %}
+    <div class="inbox-sub mail-approvals">
+      <h4>{{ _("Email approvals") }} <span class="count-pill">{{ mail_approvals | length }}</span></h4>
+      {% for m in mail_approvals %}
+      <article id="m-{{ m.id }}" class="mail-card">
+        <header><a href="/tasks/{{ m.task_nr }}#mail-{{ m.id }}" class="task-nr">{{ m.task_nr }}</a> <strong>{{ m.subject }}</strong>
+          <small class="muted">· #{{ m.id }} · {{ m.requested_by }} · {{ m.created_at | localtime }}{% if m.on_approve %} · {{ _("sent when the task is approved") }}{% endif %}</small></header>
+        <p>{{ _("To") }}: {{ (m.to + m.cc) | join(", ") }}</p>
+        {% if m.attachments %}<ul class="plain mail-attachments">{% for a in m.attachments %}<li><code>{{ a.name }}</code> <small class="muted">· {{ a.size | filesize }} · SHA-256 <code title="{{ a.sha256 }}">{{ a.sha256[:16] }}…</code></small></li>{% endfor %}</ul>{% endif %}
+        <details class="mail-body"><summary>{{ _("Text") }}</summary><pre>{{ m.body }}</pre></details>
+        <form hx-target="#m-{{ m.id }}" hx-swap="innerHTML">
+          <input name="reason" placeholder="{{ _('Reason (optional)') }}" aria-label="{{ _('Reason (optional)') }}">
+          <div class="grid">
+            <button hx-post="/inbox/emails/{{ m.id }}/approve" hx-confirm="{{ _('Send this email?') }}">{{ _("Approve and send") }}</button>
+            <button hx-post="/inbox/emails/{{ m.id }}/reject" class="secondary">{{ _("Reject") }}</button>
+          </div>
+        </form>
+      </article>
+      {% endfor %}
     </div>
-  </details>
-  {% endif %}
-  {% if inbox.lease_expired %}
-  <details class="notice lease-expired" open data-fold-narrow>
-    <summary>{{ _("Expired leases (24 h)") }} <span class="count-pill">{{ inbox.lease_expired | length }}</span></summary>
-    <div class="notice-body">
-    <div class="table-card"><table class="cards">
-      <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Agent") }}</th><th>{{ _("Status") }}</th></tr></thead>
-      <tbody>{% for t in inbox.lease_expired %}
-        <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}</td>
-            <td class="c2">{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}–{% endif %}</td><td>{% with status=t.status %}{% include "_status.html" %}{% endwith %}</td></tr>
-      {% endfor %}</tbody>
-    </table></div>
+    {% endif %}
+
+    {% if inbox.aborted %}
+    <div class="inbox-sub">
+      <h4>{{ _("Aborted – reassignment needed") }} <span class="count-pill">{{ inbox.aborted | length }}</span></h4>
+      <div class="table-card"><table class="cards">
+        <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Agent") }}</th><th>{{ _("Since") }}</th></tr></thead>
+        <tbody>{% for t in inbox.aborted %}{{ aborted_row(t) }}{% endfor %}</tbody>
+      </table></div>
     </div>
-  </details>
-  {% endif %}
+    {% endif %}
+    {% if wf_a %}
+    <div class="inbox-sub">
+      <h4>{{ _("Workflow steps") }} · {{ _("Aborted – reassignment needed") }} <span class="count-pill">{{ wf_a | length }}</span></h4>
+      <div class="table-card"><table class="cards">
+        <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Agent") }}</th><th>{{ _("Since") }}</th></tr></thead>
+        <tbody>{% for t in wf_a %}{{ aborted_row(t) }}{% endfor %}</tbody>
+      </table></div>
+    </div>
+    {% endif %}
+  </section>
+
+  <aside class="inbox-notices" aria-label="{{ _('Notices') }}" data-notices
+         data-until="{{ notices_until }}" data-max-id="{{ notices_max_id }}" data-sprint="{{ sprint_filter or '' }}"
+         data-count-label="{{ _('%(count)s selected', count='%(count)s') }}"
+         data-read-label="{{ _('%(count)s notices marked read', count='%(count)s') }}">
+      <div class="notice-toast" role="status" hidden><span></span>
+        <button type="button" class="ui-btn ui-btn-secondary ui-btn-xs" data-notice-undo>{{ _("Undo") }}</button>
+      </div>
+    <details class="inbox-notices-body" open data-fold-narrow>
+      <summary class="inbox-notices-head">
+        <span class="inbox-notices-title">{{ _("Notices") }}</span>
+        <span class="inbox-notices-tools">
+          <button type="button" class="ui-btn ui-btn-secondary ui-btn-xs" data-notice-select-mode aria-pressed="false">{{ _("Select") }}</button>
+          <button type="button" class="ui-btn ui-btn-secondary ui-btn-xs" data-notice-read-all>{{ _("Mark all read") }}</button>
+          <a href="/profile#notifications">{{ _("Settings") }}</a>
+        </span>
+      </summary>
+      <div id="inbox-notices-msg" role="status"></div>
+      <div class="notice-selection" hidden>
+        <label><input type="checkbox" data-notice-select-all> {{ _("Select all") }}</label>
+        <div class="notice-bulk-bar">
+          <span data-notice-count></span> –
+          <button type="button" class="ui-btn ui-btn-secondary ui-btn-xs" data-notice-read-selected>{{ _("Mark as read") }}</button>
+          <button type="button" class="ui-btn ui-btn-secondary ui-btn-xs" data-notice-cancel>{{ _("Cancel") }}</button>
+        </div>
+      </div>
+
+    {% if notices %}
+    <ul class="inbox-notices-list">
+      {% for n in notices %}
+      <li class="inbox-notice-item{% if not n.read %} unread{% endif %}" data-notice-ids="{{ n.ids | default([]) | join(',') }}">
+        {% if not n.read %}<input type="checkbox" class="notice-checkbox" data-notice-select aria-label="{{ _('Select notice') }}" hidden>{% endif %}
+        <span aria-hidden="true" class="dot dot-{{ 'sprint' if n.event == 'sprint_done' else ('conflict' if n.event == 'conflict' else 'default') }}"></span>
+        <div class="inbox-notice-text">
+          <span>{{ n.label }}</span>
+          <span class="inbox-notice-meta">{% if n.key %}<a href="/tasks/{{ n.key }}">{{ n.key }}</a>{% if n.actor %} · {{ n.actor }}{% endif %}{% endif %}</span>
+        </div>
+        <span class="inbox-notice-time">{{ n.created_at | localtime("short") }}</span>
+        {% if not n.read %}<button type="button" class="notice-read ui-btn ui-btn-secondary ui-btn-xs" data-notice-read aria-label="{{ _('Mark as read') }}" title="{{ _('Mark as read') }}">✓</button>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% elif not (inbox.agent_review or inbox.unassigned or inbox.lease_expired) %}
+    <p class="muted">{{ _("No notices.") }}</p>
+    {% endif %}
+
+    {% if not notices_all %}<a href="{{ notices_more }}" class="small">{{ _("Show older") }}</a>{% endif %}
+
+    {% if inbox.agent_review or inbox.unassigned or inbox.lease_expired %}
+    <div class="inbox-notice-info">
+    {% if inbox.agent_review %}
+    <details class="notice agent-review" open data-fold-narrow>
+      <summary>{{ _("Review by agents") }} <span class="count-pill">{{ inbox.agent_review | length }}</span></summary>
+      <div class="notice-body">
+      <p class="muted">{{ _("A reviewer agent decides these reviews – you can still approve or reject in the task, e.g. to overrule it.") }}</p>
+      <div class="table-card"><table class="cards">
+        <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Agent") }}</th><th>{{ _("Reviewer") }}</th></tr></thead>
+        <tbody>{% for t in inbox.agent_review %}
+          <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}</td>
+              <td class="c2">{% if t.assigned_to %}<span class="agent" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% else %}–{% endif %}</td>
+              <td class="c2"><span class="agent" title="{{ t.reviewer }}"><span class="ui-actor-name">{{ t.reviewer }}</span></span>{% if t.review_claimed %} <small class="muted">({{ _("reviewing") }})</small>{% endif %}</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      </div>
+    </details>
+    {% endif %}
+    {% if inbox.unassigned %}
+    <details class="notice unassigned" open data-fold-narrow>
+      <summary>{{ _("Released but not assigned to anyone") }} <span class="count-pill">{{ inbox.unassigned | length }}</span></summary>
+      <div class="notice-body">
+      <p class="muted">{{ _("No agent will pick up these tasks – choose an actor under <em>Assigned</em> in the task.") }}</p>
+      <div class="table-card"><table class="cards">
+        <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Project") }}</th><th>{{ _("Prio") }}</th><th>{{ _("Created") }}</th></tr></thead>
+        <tbody>{% for t in inbox.unassigned %}
+          <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}</td><td class="c2 meta">{{ t.project }}</td>
+              <td><span class="prio prio-{{ t.prio }}">{{ t.prio }}</span></td><td class="date c2">{{ t.created_at | reltime }}</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      </div>
+    </details>
+    {% endif %}
+    {% if inbox.lease_expired %}
+    <details class="notice lease-expired" open data-fold-narrow>
+      <summary>{{ _("Expired leases (24 h)") }} <span class="count-pill">{{ inbox.lease_expired | length }}</span></summary>
+      <div class="notice-body">
+      <div class="table-card"><table class="cards">
+        <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Agent") }}</th><th>{{ _("Status") }}</th></tr></thead>
+        <tbody>{% for t in inbox.lease_expired %}
+          <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}</td>
+              <td class="c2">{% if t.assigned_to %}<span class="agent" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% else %}–{% endif %}</td><td>{% with status=t.status %}{% include "_status.html" %}{% endwith %}</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      </div>
+    </details>
+    {% endif %}
+    </div>
+    {% endif %}
+    </details>
+  </aside>
 </div>
 {% endblock %}

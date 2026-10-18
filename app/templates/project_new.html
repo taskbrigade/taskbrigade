@@ -1,9 +1,11 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}{{ _("New project") }} – TaskBrigade{% endblock %}
 {% block content %}
-<h2>{{ _("New project") }}</h2>
-{% if error %}<p class="banner error">{{ error }}</p>{% endif %}
-<form method="post" action="/projects/new">
+<div class="ui-page">
+{{ ui.page_header(_("New project")) }}
+{% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/projects/new" class="ui-card ui-form-card">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <div class="grid">
     <label>{{ _("Key (2–8 characters A-Z/0-9)") }} <input name="key" required pattern="[A-Za-z0-9]{2,8}" value="{{ form.key or '' }}" style="text-transform: uppercase"></label>
@@ -40,6 +42,7 @@
     <label><input type="checkbox" name="add_missing_files" value="1" checked> {{ _("add missing files (brain.md, AGENTS.md, CLAUDE.md) with a commit – existing files are never overwritten") }}</label>
     <label><input type="checkbox" name="protect_branch" value="1"> {{ _("enable branch protection on the default branch") }}</label>
   </div>
-  <button type="submit">{{ _("Create") }}</button>
+  <div class="ui-row"><button type="submit" class="ui-btn">{{ _("Create") }}</button></div>
 </form>
+</div>
 {% endblock %}

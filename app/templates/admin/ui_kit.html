@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Admin: UI kit") }} – TaskBrigade{% endblock %}
+{% block content %}
+<div class="ui-page ui-kit">
+  {% call ui.page_header(_("Admin: UI kit"), _("Shared tokens and components of the redesign. Pages build on these; this page only shows them.")) %}
+  <button type="button" class="ui-btn ui-btn-secondary">{{ _("Secondary") }}</button>
+  <button type="button" class="ui-btn">{{ _("Primary action") }}</button>
+  {% endcall %}
+  {% include "admin/_nav.html" %}
+
+  <section class="ui-card ui-stack" aria-labelledby="kit-colors">
+    <h2 class="ui-section-title" id="kit-colors">{{ _("Colours") }}</h2>
+    <ul class="ui-kit-swatches">
+      {% for token in ("bg", "surface", "text", "text-2", "text-3", "border", "divider", "input-border",
+                       "control-border", "track", "primary", "primary-hover", "primary-tint", "brand-orange", "danger") %}
+      <li><span class="ui-kit-swatch" style="background: var(--ui-{{ token }})"></span><code class="ui-token">--ui-{{ token }}</code></li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="ui-card ui-stack" aria-labelledby="kit-type">
+    <h2 class="ui-section-title" id="kit-type">{{ _("Typography") }}</h2>
+    <p class="ui-page-title">{{ _("Page title 26 px / 700") }}</p>
+    <p class="ui-section-title">{{ _("Section title 16 px / 600") }}</p>
+    <p class="ui-task-title">{{ _("Task title 14 px / 600 (Backlog, Planning, Kanban)") }}</p>
+    <p>{{ _("Body text 14 px in IBM Plex Sans; secondary text:") }} <span class="ui-muted">{{ _("updated 5 minutes ago") }}</span></p>
+    <p class="ui-label">{{ _("Small label") }}</p>
+    <p><span class="ui-mono">app/static/ui.css · --ui-primary</span></p>
+  </section>
+
+  <section class="ui-card ui-stack" aria-labelledby="kit-buttons">
+    <h2 class="ui-section-title" id="kit-buttons">{{ _("Buttons") }}</h2>
+    <div class="ui-row">
+      <button type="button" class="ui-btn">{{ _("Primary") }}</button>
+      <button type="button" class="ui-btn ui-btn-secondary">{{ _("Secondary") }}</button>
+      <button type="button" class="ui-btn ui-btn-sm">{{ _("Small") }}</button>
+      <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm">{{ _("Small") }}</button>
+      <button type="button" class="ui-btn ui-btn-xs">{{ _("Extra small") }}</button>
+      <button type="button" class="ui-btn ui-btn-secondary ui-btn-xs">{{ _("Extra small") }}</button>
+      <button type="button" class="ui-btn ui-btn-danger">{{ _("Delete") }}</button>
+      <a href="#kit-buttons" class="ui-btn ui-btn-secondary">{{ _("Link as button") }}</a>
+      <button type="button" class="ui-btn" disabled>{{ _("Disabled") }}</button>
+    </div>
+  </section>
+
+  <section class="ui-card ui-stack" aria-labelledby="kit-pills">
+    <h2 class="ui-section-title" id="kit-pills">{{ _("Pills and badges") }}</h2>
+    <div class="ui-row">{% for s in ("draft", "defined", "in_progress", "questions", "for_review", "changes_requested", "done", "aborted", "cancelled") %}{{ ui.status(s) }} {% endfor %}</div>
+    <div class="ui-row"><span class="ui-label">{{ _("Sprint") }}</span>{% for s in ("planned", "released", "closed") %}{{ ui.status(s, kind="sprint") }} {% endfor %}</div>
+    <div class="ui-row"><span class="ui-label">{{ _("Data class") }}</span>{{ ui.zone("cloud_ok") }} {{ ui.zone("local_only") }} {{ ui.zone("sealed") }}</div>
+    <div class="ui-row"><span class="ui-label">{{ _("Role / kind") }}</span>{{ ui.pill(_("Reviewer")) }} {{ ui.pill("claude_code", "mono") }} {{ ui.pill(_("complex"), "tier") }} {{ ui.pill("3", "count") }}</div>
+    <div class="ui-row"><span class="ui-label">{{ _("Priority") }}</span>{% for n in range(1, 6) %}{{ ui.prio(n) }} {% endfor %}</div>
+    <div class="ui-row"><span class="ui-label">{{ _("Task key") }}</span>{{ ui.key("DEMO-0042", href="#kit-pills") }}</div>
+    <div class="ui-row"><span class="ui-label">{{ _("Actors") }}</span>
+      {{ ui.actor("admin") }} {{ ui.actor("codex", "codex") }} {{ ui.actor("claude-code", "claude_code") }}
+      {{ ui.actor("opencode", "opencode") }} {{ ui.actor("openclaw-agent", "openclaw") }} {{ ui.actor("hermes", "hermes") }}
+      {{ ui.actor("runner", "runner") }} {{ ui.actor("Alex Doe", large=True, show_name=False) }}</div>
+    <div class="ui-row"><span class="ui-label">{{ _("Presence") }}</span>
+      <span class="ui-row"><span class="ui-dot ui-dot-online" aria-hidden="true"></span>{{ _("Online") }}</span>
+      <span class="ui-row"><span class="ui-dot ui-dot-idle" aria-hidden="true"></span>{{ _("Idle") }}</span>
+      <span class="ui-row"><span class="ui-dot" aria-hidden="true"></span>{{ _("Offline") }}</span></div>
+  </section>
+
+  <section class="ui-card ui-stack" aria-labelledby="kit-controls">
+    <h2 class="ui-section-title" id="kit-controls">{{ _("Controls") }}</h2>
+    <div class="ui-row">
+      {{ ui.segmented([("all", _("All"), None), ("reviews", _("Reviews"), 2), ("questions", _("Questions"), 1)], "all", _("Show")) }}
+      {{ ui.segmented([("list", _("List"), None), ("cards", _("Cards"), None)], "list", _("View"), small=True) }}
+    </div>
+    <div class="ui-chips" role="group" aria-label="{{ _('Filter by status') }}">
+      {{ ui.chip("kit_status", "in_progress", _("In progress"), checked=True, count=4) }}
+      {{ ui.chip("kit_status", "for_review", _("Review"), count=2) }}
+      {{ ui.chip("kit_status", "questions", _("Question"), count=1) }}
+    </div>
+    <div class="ui-row">
+      {{ ui.switch("kit_mail", _("Email notifications"), checked=True) }}
+      {{ ui.switch("kit_telegram", _("Telegram notifications")) }}
+      {{ ui.switch("kit_locked", _("Locked setting"), disabled=True) }}
+    </div>
+    <div class="ui-row ui-kit-bottom">
+      {{ ui.search("kit_q", _("Search tasks")) }}
+      {{ ui.select("kit_sprint", [("", _("All sprints")), ("none", _("Without sprint"))], "", _("Sprint")) }}
+      <label class="ui-field">{{ _("Title") }}<input class="ui-input" name="kit_title" value="{{ _('Example') }}"></label>
+    </div>
+  </section>
+
+  <section aria-labelledby="kit-tabs" class="ui-stack">
+    <h2 class="ui-section-title" id="kit-tabs">{{ _("Tabs") }}</h2>
+    {{ ui.tabs([("/admin/ui-kit", _("Overview")), ("/admin/ui-kit#kit-table", _("Table")), ("/admin/ui-kit#kit-empty", _("Empty state"))], "/admin/ui-kit", _("Sections")) }}
+  </section>
+
+  <section class="ui-card ui-card-flush" aria-labelledby="kit-table" id="kit-table-card">
+    <div class="ui-card-head"><h2 class="ui-section-title" id="kit-table">{{ _("Table") }}</h2>
+      <span class="ui-muted">{{ _("Wide tables scroll sideways; on phones rows become cards.") }}</span></div>
+    <div class="ui-table-scroll">
+      <table class="ui-table ui-table-cards">
+        <thead><tr><th scope="col">{{ _("Task") }}</th><th scope="col">{{ _("Title") }}</th><th scope="col">{{ _("Status") }}</th>
+          <th scope="col">{{ _("Priority") }}</th><th scope="col">{{ _("Assigned to") }}</th><th scope="col" class="ui-num">{{ _("Comments") }}</th></tr></thead>
+        <tbody>
+          <tr class="ui-group-row"><td colspan="6">{{ _("Sprint") }} · UI-Redesign</td></tr>
+          <tr><td data-label="{{ _('Task') }}">{{ ui.key("DEMO-0042", href="#kit-table") }}</td>
+            <td data-label="{{ _('Title') }}" class="ui-card-title">{{ _("Design tokens and components") }}</td>
+            <td data-label="{{ _('Status') }}">{{ ui.status("in_progress") }}</td><td data-label="{{ _('Priority') }}">{{ ui.prio(1) }}</td>
+            <td data-label="{{ _('Assigned to') }}">{{ ui.actor("claude-code", "claude_code") }}</td><td data-label="{{ _('Comments') }}" class="ui-num">3</td></tr>
+          <tr aria-selected="true"><td data-label="{{ _('Task') }}">{{ ui.key("DEMO-0043", href="#kit-table") }}</td>
+            <td data-label="{{ _('Title') }}" class="ui-card-title">{{ _("Header and navigation") }}</td>
+            <td data-label="{{ _('Status') }}">{{ ui.status("for_review") }}</td><td data-label="{{ _('Priority') }}">{{ ui.prio(2) }}</td>
+            <td data-label="{{ _('Assigned to') }}">{{ ui.actor("codex", "codex") }}</td><td data-label="{{ _('Comments') }}" class="ui-num">0</td></tr>
+          <tr><td data-label="{{ _('Task') }}">{{ ui.key("DEMO-0044", href="#kit-table") }}</td>
+            <td data-label="{{ _('Title') }}" class="ui-card-title">{{ _("Responsive QA pass") }}</td>
+            <td data-label="{{ _('Status') }}">{{ ui.status("draft") }}</td><td data-label="{{ _('Priority') }}">{{ ui.prio(4) }}</td>
+            <td data-label="{{ _('Assigned to') }}">{{ ui.actor("admin") }}</td><td data-label="{{ _('Comments') }}" class="ui-num">1</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="kit-empty" class="ui-stack">
+    <h2 class="ui-section-title" id="kit-empty">{{ _("Empty state") }}</h2>
+    {% call ui.empty(_("Nothing to do"), _("No questions or tasks waiting for your review.")) %}
+    <a href="#kit-empty" class="ui-btn ui-btn-secondary ui-btn-sm">{{ _("Show all tasks") }}</a>
+    {% endcall %}
+  </section>
+</div>
+{% endblock %}

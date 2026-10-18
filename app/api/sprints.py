@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import current_actor, SessionDep
 from app.logging_setup import audit
 from app.models import Actor, Project, Task
-from app.schemas import SprintBatch, SprintClose, SprintCreate, SprintPatch
+from app.schemas import SprintBatch, SprintClose, SprintCreate, SprintPatch, SprintReopen
 from app.services import projects, sprints
 from app.services import tasks as task_svc
 
@@ -70,6 +70,18 @@ def close_sprint(key: str, sprint_id: int, body: SprintClose, session: Session =
     _project, sprint = _sprint(session, key, sprint_id, for_update=True)
     result = sprints.close(session, me, sprint, body.move_to, body.detach)
     audit(me.name, "sprint_closed", project=key.upper(), sprint=sprint.id, moved_to=result["moved_to"])
+    return {"sprint": sprints.info(session, sprint), **result}
+
+
+@router.post("/{sprint_id}/reopen")
+def reopen_sprint(key: str, sprint_id: int, body: SprintReopen | None = None, session: Session = SessionDep,
+                  me: Actor = Depends(current_actor)):
+    """Reopen a closed sprint; with `restore_tasks` (default) the tasks moved out at close time return."""
+    _project, sprint = _sprint(session, key, sprint_id, for_update=True)
+    restore = True if body is None else body.restore_tasks
+    result = sprints.reopen(session, me, sprint, restore)
+    audit(me.name, "sprint_reopened", project=key.upper(), sprint=sprint.id, restored=len(result["restored"]),
+          skipped=len(result["skipped"]))
     return {"sprint": sprints.info(session, sprint), **result}
 
 

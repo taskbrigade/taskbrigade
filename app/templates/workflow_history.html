@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Runs") }} – {{ template.name }} – TaskBrigade{% endblock %}
+{% block content %}
+{# Run history as a pipeline (research/konzept-workflows.md §8.4): one row per run, one cell per step. A cell links to the
+   step's task, the run number to the run detail. #}
+<div class="headline"><h2>{{ _("Runs") }} · {{ template.name }}</h2><a href="{{ base }}" role="button" class="small secondary">{{ _("Workflow") }}</a></div>
+{% include "_workflow_tabs.html" %}
+<form method="get" action="{{ base }}/runs" class="filters" onchange="this.submit()">
+  <select name="status" aria-label="{{ _('Status') }}">
+    <option value="">{{ _("All statuses") }}</option>
+    {% for st in statuses %}<option value="{{ st }}"{% if status == st %} selected{% endif %}>{{ run_status_label(st) }}</option>{% endfor %}
+  </select>
+  <select name="trigger" aria-label="{{ _('Trigger') }}">
+    <option value="">{{ _("All triggers") }}</option>
+    {% for t in ("manual", "api", "schedule", "event", "workflow") %}<option value="{{ t }}"{% if trigger == t %} selected{% endif %}>{{ wf_trigger_label(t) }}</option>{% endfor %}
+  </select>
+  <noscript><button type="submit" class="small secondary">{{ _("Filter") }}</button></noscript>
+</form>
+<div class="overflow-auto">
+<table class="wf-history">
+  <thead><tr><th>{{ _("Run") }}</th><th>{{ _("Started") }}</th><th>{{ _("Trigger") }}</th><th>{{ _("Parameters") }}</th>
+    {% for col in columns %}<th class="wf-col"><code>{{ col }}</code></th>{% endfor %}<th>{{ _("Status") }}</th></tr></thead>
+  <tbody>
+  {% for run in runs %}
+    {% set cells = cells.get(run.id, {}) %}
+    <tr class="wf-run-row">
+      <td><a href="/workflow-runs/{{ run.id }}"><strong>#{{ run.run_seq }}</strong></a> <small class="muted">v{{ run.version.version }}</small></td>
+      <td class="date">{{ (run.started_at or run.created_at) | localtime("daytime") }}</td>
+      <td>{{ wf_trigger_label(run.trigger_kind) }}</td>
+      <td class="wf-params">{% set p = params.get(run.id) %}{% if p is none %}<span class="muted">***</span>{% else %}{% for k, v in p.items() %}<small><code>{{ k }}={{ v }}</code></small> {% endfor %}{% endif %}</td>
+      {% for col in columns %}<td class="wf-col">{% with c = cells.get(col) %}{% include "_workflow_cell.html" %}{% endwith %}</td>{% endfor %}
+      <td><span class="badge wf-run-{{ run.status }}">{{ run_status_label(run.status) }}</span>
+        {% if run.finished_at and run.started_at %}<small class="muted">{{ ((run.finished_at - run.started_at).total_seconds()) | int | wf_duration }}</small>{% endif %}
+        {% if run.pause_reason %}<small class="muted"><code>{{ run.pause_reason }}</code></small>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="{{ columns | length + 5 }}" class="muted empty">{{ _("No runs match these filters.") }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted wf-legend"><small>
+  {% for st in ("succeeded", "waiting", "active", "failed", "skipped", "cancelled", "pending") %}<span class="wf-cell wf-{{ st }}" aria-hidden="true">{{ {"succeeded": "✓", "waiting": "◷", "active": "●", "failed": "✗", "skipped": "–", "cancelled": "▫", "pending": "○"}[st] }}</span> {{ step_status_label(st) }}{% if not loop.last %} · {% endif %}{% endfor %}
+  · ↻ {{ _("repaired: the step failed once and succeeded on a later attempt") }}</small></p>
+{% endblock %}

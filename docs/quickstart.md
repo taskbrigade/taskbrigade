@@ -165,7 +165,7 @@ Back up `/var/lib/taskbrigade/master.key` somewhere that is not the database bac
 
 ## 6. Gitea in the UI
 
-**Admin → Settings:**
+**Admin → Settings** (group *Gitea*; the TaskBrigade URL is under *General*):
 
 - Gitea URL: `http://127.0.0.1:3001`
 - Gitea service token: the `taskbrigade` token from step 2
@@ -173,7 +173,7 @@ Back up `/var/lib/taskbrigade/master.key` somewhere that is not the database bac
 - Gitea admin token: the Gitea admin token from step 2
 - TaskBrigade URL: `http://127.0.0.1:8090` (or your `https://<name>.ts.net` if you enabled Tailscale). This is what shows up in pull-request links and in the install command for agents.
 
-Save, then **Test Gitea connection**. It should name the Gitea user that owns the token.
+Save settings, then **Test connection** in the Gitea group. It should name the Gitea user that owns the token.
 
 ## 7. Create the Claude Code agent in the UI
 

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Edit") }} – {{ template.name }} – TaskBrigade{% endblock %}
+{% block head %}<script src="/static/vendor/Sortable.min.js" defer></script><script src="/static/workflow_editor.js?v={{ static_v }}" defer></script>{% endblock %}
+{% block content %}
+{# Template editor (research/konzept-workflows.md §8.2): a linear, sortable step list – no graph editor. Each step row sends
+   every field once (`s_<field>`), parameters likewise (`p_<field>`); the order of the rows is the step order.
+   static/workflow_editor.js adds, removes and moves rows and fills the placeholder lists; the checks panel
+   re-runs the publish checks on the unsaved form after each change. #}
+{% macro opt(value, current, label) %}<option value="{{ value }}"{% if (current or "") == value %} selected{% endif %}>{{ label }}</option>{% endmacro %}
+{% macro step_row(s, n) %}
+<li class="wf-step" data-step>
+  <details{% if not s.key %} open{% endif %}>
+    <summary>
+      <span class="wf-handle" title="{{ _('Drag to reorder') }}" aria-hidden="true">⠿</span>
+      <span class="wf-pos" data-pos>{{ n }}</span>
+      <span class="badge wf-type" data-type-label>{{ wf_type_label(s.type) }}</span>
+      <code data-key-label>{{ s.key or "…" }}</code>
+      <span class="wf-step-title" data-title-label>{{ s.title }}</span>
+      <span class="wf-step-meta muted" data-meta-label>{% if s.role %}{{ _("role %(role)s", role=s.role) }}{% endif %}</span>
+    </summary>
+    <div class="wf-step-body">
+      <div class="form-row cols-3">
+        <label>{{ _("Key") }} <input name="s_key" value="{{ s.key }}" maxlength="40" pattern="[A-Za-z_][A-Za-z0-9_]*" data-field="key"></label>
+        <label>{{ _("Type") }} <select name="s_type" data-field="type">
+          {% for t in step_types %}{{ opt(t, s.type, wf_type_label(t)) }}{% endfor %}</select></label>
+        <label>{{ _("Data class") }} <select name="s_data_class">
+          {{ opt("", s.data_class, _("Project default")) }}{% for c in data_classes %}{{ opt(c, s.data_class, {"cloud_ok": _("Cloud ok"), "local_only": _("Local only"), "sealed": _("Sealed")}[c]) }}{% endfor %}</select></label>
+      </div>
+      <label>{{ _("Title") }} <input name="s_title" value="{{ s.title }}" maxlength="200" data-field="title" data-insert-target></label>
+      <label>{{ _("Description") }} <textarea name="s_description" rows="3" data-insert-target>{{ s.description }}</textarea></label>
+      <label>{{ _("Acceptance criteria") }} <textarea name="s_acceptance" rows="2" data-insert-target>{{ s.acceptance }}</textarea></label>
+      <details class="wf-insert">
+        <summary>{{ _("Insert placeholder") }}</summary>
+        <p class="muted"><small>{{ _("Parameters, run fields and outputs of earlier steps; inserted at the cursor of the last text field you used in this step.") }}</small></p>
+        <div class="wf-insert-list" data-insert-list></div>
+      </details>
+      <div class="form-row cols-2">
+        <label>{{ _("Role") }} <input name="s_role" value="{{ s.role }}" maxlength="40" data-field="role" placeholder="writer"></label>
+        <label>{{ _("or fixed actor") }} <select name="s_assignee">
+          {{ opt("", s.assignee, _("– none –")) }}{% for a in actors %}{{ opt(a.id | string, s.assignee, a.name) }}{% endfor %}</select></label>
+      </div>
+      <div class="form-row cols-3">
+        <label>{{ _("Review") }} <select name="s_review">
+          {% for m in ("manual", "agent", "auto") %}{{ opt(m, s.review, wf_review_label(m)) }}{% endfor %}</select></label>
+        <label>{{ _("Reviewer") }} <select name="s_reviewer">
+          {{ opt("", s.reviewer, _("Project default")) }}{% for a in actors %}{{ opt(a.id | string, s.reviewer, a.name) }}{% endfor %}</select></label>
+        <label>{{ _("Model tier") }} <select name="s_model_tier">
+          {{ opt("", s.model_tier, "–") }}{% for t in model_tiers %}{{ opt(t, s.model_tier, tier_label(t)) }}{% endfor %}</select></label>
+      </div>
+      <div class="form-row cols-3">
+        <label>{{ _("Timeout (minutes)") }} <input name="s_timeout" type="number" min="1" value="{{ s.timeout }}"></label>
+        <label>{{ _("Retries") }} <input name="s_retries" type="number" min="0" max="255" value="{{ s.retries or 0 }}"></label>
+        <label>{{ _("Optional") }} <select name="s_optional">{{ opt("", s.optional, _("no")) }}{{ opt("1", s.optional, _("yes")) }}</select></label>
+      </div>
+      <div class="form-row cols-2">
+        <label>{{ _("Parallel group") }} <input name="s_group" value="{{ s.group }}" maxlength="40" pattern="[A-Za-z_][A-Za-z0-9_-]*" placeholder="drafts"></label>
+        <label>{{ _("When") }} <input name="s_condition" value="{{ s.condition }}" maxlength="2000" data-insert-target placeholder='{{ "{{" }}params.mode{{ "}}" }}'></label>
+      </div>
+      <p class="muted"><small>{{ _("“When” skips the step when the value is empty or false; steps sharing a “Parallel group” start together and finish the group when all are done.") }}</small></p>
+      <div class="form-row cols-2">
+        <label>{{ _("Wait reminder (hours)") }} <input name="s_reminder" type="number" min="1" max="65535" value="{{ s.reminder }}" placeholder="24"></label>
+        <label>{{ _("Retry backoff (seconds)") }} <input name="s_backoff" type="number" min="0" value="{{ s.backoff if s.backoff is defined else 300 }}"></label>
+      </div>
+      <details class="wf-json"{% if s.outputs or s.inputs or s.config %} open{% endif %}>
+        <summary>{{ _("Outputs, inputs and settings (JSON)") }}</summary>
+        <label>{{ _("Outputs") }} <textarea name="s_outputs" rows="3" class="mono" data-field="outputs" placeholder='{"report": {"type": "file", "required": true, "path_glob": "reports/*.md"}}'>{{ s.outputs }}</textarea></label>
+        <label>{{ _("Input bindings") }} <textarea name="s_inputs" rows="2" class="mono" placeholder='[{"ref": "{{ "{{" }}steps.write.output.report{{ "}}" }}", "purpose": "input"}]'>{{ s.inputs }}</textarea></label>
+        <label>{{ _("Settings") }} <textarea name="s_config" rows="2" class="mono" placeholder='{"to": ["owner"], "on_reject": "rework:write"}'>{{ s.config }}</textarea></label>
+        <small class="muted">{{ _("Format: see docs/workflow-outputs.md and docs/workflow-engine.md.") }}</small>
+      </details>
+      <div class="wf-step-actions">
+        <button type="button" class="small secondary" data-move="-1">{{ _("Move up") }}</button>
+        <button type="button" class="small secondary" data-move="1">{{ _("Move down") }}</button>
+        <button type="button" class="small secondary wf-remove" data-remove>{{ _("Remove step") }}</button>
+      </div>
+    </div>
+  </details>
+</li>
+{% endmacro %}
+{% macro param_row(p) %}
+<tr data-param>
+  <td><input name="p_name" value="{{ p.name }}" maxlength="40" pattern="[A-Za-z_][A-Za-z0-9_]*" aria-label="{{ _('Name') }}" data-field="pname"></td>
+  <td><select name="p_type" aria-label="{{ _('Type') }}">{% for t in param_types %}{{ opt(t, p.type or "string", t) }}{% endfor %}</select></td>
+  <td><select name="p_required" aria-label="{{ _('Required') }}">{{ opt("1", p.required, _("required")) }}{{ opt("", p.required, _("optional")) }}</select></td>
+  <td><input name="p_default" value="{{ p.default }}" maxlength="200" aria-label="{{ _('Default') }}" placeholder="{{ '{{' }}run.period{{ '}}' }}"></td>
+  <td><input name="p_values" value="{{ p["values"] }}" aria-label="{{ _('Enum values (comma-separated)') }}"></td>
+  <td><input name="p_label" value="{{ p.label }}" maxlength="120" aria-label="{{ _('Label') }}"></td>
+  <td><input name="p_help" value="{{ p.help }}" maxlength="300" aria-label="{{ _('Help text') }}"></td>
+  <td><button type="button" class="small secondary" data-remove-param aria-label="{{ _('Remove parameter') }}">×</button></td>
+</tr>
+{% endmacro %}
+
+<div class="headline"><h2>{{ template.name }} · {% if draft %}{{ _("draft v%(version)s", version=draft.version) }}{% else %}{{ _("new draft") }}{% endif %}
+  <small class="muted">{% if template.current_version %}({{ _("published: v%(version)s", version=template.current_version.version) }}){% else %}({{ _("not published") }}){% endif %}</small></h2>
+  <span class="headline-actions">
+    {% if draft and template.current_version %}<a href="{{ base }}/diff" role="button" class="small secondary">{{ _("Diff vs v%(version)s", version=template.current_version.version) }}</a>{% endif %}
+    {% if template.current_version %}<a href="{{ base }}/export" role="button" class="small secondary">{{ _("Export YAML") }}</a>{% endif %}
+    {% if draft %}<a href="{{ base }}/export?version=draft" role="button" class="small secondary">{{ _("Export draft YAML") }}</a>{% endif %}
+    <a href="{{ base }}" role="button" class="small secondary">{{ _("Back") }}</a>
+  </span></div>
+{% include "_workflow_tabs.html" %}
+{% if request.query_params.msg %}<p class="banner ok" role="status">{{ request.query_params.msg }}</p>{% endif %}
+{% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+
+<form method="post" action="{{ base }}/edit" id="wf-form" data-guard="workflow" class="wf-editor"
+      data-placeholders="{{ placeholder_data }}" data-new-label="{{ _('new step') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <section class="form-card" aria-labelledby="wf-head">
+    <h3 id="wf-head" class="visually-hidden">{{ _("Workflow") }}</h3>
+    <div class="form-row cols-2">
+      <label>{{ _("Name") }} <input name="name" value="{{ values.name }}" maxlength="120" required></label>
+      <label>{{ _("Change note") }} <input name="change_note" value="{{ values.change_note }}" maxlength="300" placeholder="{{ _('What changes in this version?') }}"></label>
+    </div>
+    <label>{{ _("Description") }} <textarea name="description" rows="2">{{ values.description }}</textarea></label>
+  </section>
+
+  <section class="form-card" aria-labelledby="wf-params">
+    <h3 id="wf-params">{{ _("Parameters") }}</h3>
+    <div class="overflow-auto"><table class="wf-param-table">
+      <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Type") }}</th><th>{{ _("Required") }}</th><th>{{ _("Default") }}</th><th>{{ _("Enum values") }}</th><th>{{ _("Label") }}</th><th>{{ _("Help text") }}</th><th></th></tr></thead>
+      <tbody id="wf-param-rows">{% for p in values.params %}{{ param_row(p) }}{% endfor %}</tbody>
+    </table></div>
+    <button type="button" class="small secondary" id="wf-add-param">{{ _("+ Parameter") }}</button>
+  </section>
+
+  <section class="form-card" aria-labelledby="wf-steps-h">
+    <h3 id="wf-steps-h">{{ _("Steps") }} <small class="muted">{{ _("Drag ⠿ or use “Move up/down” to reorder.") }}</small></h3>
+    <ol id="wf-steps" class="wf-steps">{% for s in values.steps %}{{ step_row(s, loop.index) }}{% endfor %}</ol>
+    <div class="wf-add-step">
+      <label for="wf-new-type">{{ _("+ Step") }}</label>
+      <select id="wf-new-type" aria-label="{{ _('Type of the new step') }}">{% for t in step_types %}<option value="{{ t }}">{{ wf_type_label(t) }}</option>{% endfor %}</select>
+      <button type="button" class="small" id="wf-add-step">{{ _("Add step") }}</button>
+    </div>
+  </section>
+
+  <section class="form-card wf-checks" aria-labelledby="wf-checks-h">
+    <h3 id="wf-checks-h">{{ _("Checks") }}</h3>
+    <div id="wf-checks" aria-live="polite" hx-post="{{ base }}/check" hx-trigger="change from:#wf-form delay:400ms, wf-changed from:body delay:200ms" hx-include="#wf-form" hx-swap="innerHTML">{% include "_workflow_checks.html" %}</div>
+  </section>
+
+  <div class="form-actions wf-actions">
+    <button type="submit" name="action" value="save" class="secondary">{{ _("Save draft") }}</button>
+    <button type="submit" name="action" value="publish" data-confirm="{{ _('Publish this draft as the new current version? Running runs keep their version.') }}">{{ _("Publish") }}</button>
+  </div>
+</form>
+{% if draft %}
+<form method="post" action="{{ base }}/discard" class="inline wf-discard">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <button type="submit" class="small secondary" onclick="return confirm(this.dataset.confirm)" data-confirm="{{ _('Discard the draft? Published versions stay unchanged.') }}">{{ _("Discard draft") }}</button>
+</form>
+{% endif %}
+
+<section class="form-card wf-import" aria-labelledby="wf-import-h">
+  <h3 id="wf-import-h">{{ _("Import YAML") }}</h3>
+  {% if import_error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+  <p class="muted"><small>{{ _("A canonical YAML document (as from Export YAML) becomes the unpublished draft. It is validated with the same checks as the editor; a human publishes it.") }}</small></p>
+  <form method="post" action="{{ base }}/import" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label>{{ _("YAML file") }} <input type="file" name="file" accept=".yaml,.yml,application/yaml,text/yaml" required></label>
+    <div class="form-actions">
+      <button type="submit" name="action" value="save" class="secondary">{{ _("Import as draft") }}</button>
+      <button type="submit" name="action" value="publish" data-confirm="{{ _('Import and publish as the new current version? Running runs keep their version.') }}">{{ _("Import and publish") }}</button>
+    </div>
+  </form>
+</section>
+
+<template id="wf-step-template">{{ step_row({"key": "", "type": "agent", "title": "", "description": "", "acceptance": "", "assignee": "", "role": "", "review": "manual", "reviewer": "", "data_class": "", "model_tier": "", "timeout": "", "retries": "0", "optional": "", "group": "", "condition": "", "outputs": "", "inputs": "", "config": ""}, 0) }}</template>
+<template id="wf-param-template">{{ param_row({"name": "", "type": "string", "required": "1", "default": "", "values": "", "label": "", "help": ""}) }}</template>
+{% endblock %}

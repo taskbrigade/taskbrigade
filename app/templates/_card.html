@@ -1,11 +1,19 @@
 <article class="card" data-task="{{ t.task_nr }}" data-status="{{ t.status }}">
-  <div class="card-head"><a href="/tasks/{{ t.task_nr }}" class="card-link">{{ t.task_nr }}</a>
-    <span>{% include "_tier.html" %} <span class="prio prio-{{ t.prio }}" title="{{ _('Prio %(prio)s', prio=t.prio) }}">{{ t.prio }}</span></span></div>
+  <div class="card-head">
+    <span class="card-key">{% if t.task_kind in ("profile", "run") %} <span class="runner-mark" title="{{ _('Runner') }}">⚙<span class="visually-hidden"> {{ _('Runner') }}</span></span>{% endif %}
+    {% if t.data_class_effective != "cloud_ok" %}{% with cls=t.data_class_effective, compact=True, inherited=not t.data_class %}{% include "_data_class.html" %}{% endwith %}{% endif %}
+    <a href="/tasks/{{ t.task_nr }}" class="card-link">{{ t.task_nr }}</a></span>
+    <span class="card-tags">{% include "_tier.html" %} <span class="prio prio-{{ t.prio }}" title="{{ _('Prio %(prio)s', prio=t.prio) }}">{{ t.prio }}</span></span>
+  </div>
   {% if t.status in ("questions", "aborted") %}<span class="badge card-status st-{{ t.status }}">{{ status_label(t.status) }}</span>{% endif %}
-  <div class="card-title">{{ t.title }}</div>
+  <div class="card-title ui-task-title">{{ t.title }}</div>
+  {% include "_sprint_hint.html" %}
   {% if t.waiting %}<div class="card-waiting small muted" title="{{ t.waiting.reason }}">⏳ {{ _("Waiting for a background run: %(reason)s (until %(date)s)", reason=t.waiting.reason, date=t.waiting.until | localtime) }}</div>{% endif %}
-  <div class="card-meta">{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}<span class="agent none">{{ _("not assigned") }}</span>{% endif %}
-    <span>{{ t.project }}</span> {% include "_sprint_hint.html" %}</div>
-  <details class="card-move"><summary>{{ _("Move") }}<span class="visually-hidden"> {{ t.task_nr }}</span></summary>
+  <div class="card-foot">
+  <div class="card-meta">{% if t.assigned_to %}<span class="agent" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% else %}<span class="agent none">{{ _("not assigned") }}</span>{% endif %}
+    <span class="card-project">{{ t.project }}</span>{% include "_workflow_badge.html" %}</div>
+  {# Card menu: "⋯" icon button, the items (open, allowed moves) load on open (static/kanban.js). #}
+  <details class="card-move"><summary aria-label="{{ _('Actions') }}" title="{{ _('Actions') }} {{ t.task_nr }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></summary>
     <div class="card-move-list" aria-live="polite"></div></details>
+  </div>
 </article>

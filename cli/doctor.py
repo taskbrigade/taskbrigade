@@ -135,6 +135,50 @@ def sftp_check(client: Client) -> Check | None:
     return Check("ok", _("SFTP"), f"{data.get('host')}:{data.get('port')} – {detail}")
 
 
+def email_check(client: Client) -> Check | None:
+    """The server's outgoing email channel: SMTP reachability and login probed by the server (no credentials
+    travel to this machine) plus the delivery status from the log. Only shown when the channel is enabled."""
+    try:
+        d = client.get("/agents/me/email-status")
+    except ApiError as e:
+        if e.code == "email_disabled":
+            return None
+        return Check("error", _("Email SMTP"), str(e))
+    probe_msg = _("SMTP %(host)s reachable (login ok)", host=d.get("host"))
+    last = d.get("last_delivery") or {}
+    fails = d.get("failures_in_a_row") or 0
+    failed = last.get("last_status") == "failed" and last.get("last_error")
+    parts = []
+    if last.get("sent_at"):
+        parts.append(_("last successful delivery %(at)s", at=last["sent_at"].replace("T", " ")[:16] + " UTC"))
+    if failed:
+        parts.append(_("last delivery failed: %(error)s", error=last["last_error"]))
+    elif fails:
+        parts.append(_("%(num)s deliveries failed in a row (retrying)", num=fails))
+    if not parts:
+        parts.append(_("no delivery yet"))
+    status = "warn" if fails else "ok"
+    return Check(status, _("Email SMTP"), probe_msg + " – " + "; ".join(parts),
+                 _("email is enabled but deliveries keep failing; check the delivery log under Admin → Settings "
+                   "and the sender settings (rate limit, spam) or switch the channel off") if fails else "")
+
+
+def workflow_tick_check(client: Client) -> Check | None:
+    """The server's workflow scheduler: warn when it is enabled but the last tick is older than five minutes."""
+    try:
+        d = client.get("/agents/me/workflow-tick-status")
+    except ApiError as e:
+        return Check("error", _("Workflow tick"), str(e))
+    if not d.get("enabled"):
+        return None
+    last = d.get("last")
+    if d.get("stale"):
+        return Check("warn", _("Workflow tick"),
+                     _("no tick in the last five minutes (last: %(last)s UTC)", last=last or "–"),
+                     _("check the scheduler trigger on the server (TBR_WORKFLOW_TICK=timer or app)"))
+    return Check("ok", _("Workflow tick"), _("last tick %(last)s UTC", last=last))
+
+
 def runner_checks(path: Path, me: dict | None) -> tuple[list[Check], dict | None]:
     from cli.runner import RunnerError, git_by_runner
 
@@ -309,6 +353,12 @@ def doctor(work_root: Path | None = None, fix: bool = False) -> list[Check]:
     sftp = sftp_check(client)
     if sftp is not None:
         checks.append(sftp)
+    email = email_check(client)
+    if email is not None:
+        checks.append(email)
+    workflow_tick = workflow_tick_check(client)
+    if workflow_tick is not None:
+        checks.append(workflow_tick)
     if apps is not None:
         checks += apps  # Desktop app or Hermes/OpenClaw: no [runner] and no timer expected.
     else:

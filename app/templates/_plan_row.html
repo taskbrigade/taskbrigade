@@ -1,0 +1,20 @@
+{# Planning task row (`planning_ui._card`): key, title, assignee chip, status pill and a "Move to sprint …" menu as the
+   touch/keyboard fallback for drag and drop. `targets` (non-closed sprints) and `no_sprint` come from the board and
+   from the move answer (`POST /planning/move`), so the row keeps its menu after a move. #}
+{% set sid = sprint.id if sprint and sprint.id else t.sprint_id %}
+<li class="plan-row" data-task="{{ t.task_nr }}" data-status="{{ t.status }}">
+  <a href="/tasks/{{ t.task_nr }}" class="plan-key">{{ t.task_nr }}</a>
+  <span class="plan-title ui-task-title" title="{{ t.title }}">{{ t.title }}</span>
+  <span class="plan-assignee">{% if t.assigned_to %}<span class="agent" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% else %}<span class="agent none">{{ _("not assigned") }}</span>{% endif %}</span>
+  <span class="plan-status">{% with status=t.status %}{% include "_status.html" %}{% endwith %}</span>
+  <details class="plan-move">
+    <summary aria-label="{{ _('Move %(nr)s to another sprint', nr=t.task_nr) }}" title="{{ _('Move to sprint …') }}">…</summary>
+    <ul>
+      {% for y in targets if y.id != sid %}
+      <li><button type="button" data-move-sprint="{{ y.id }}" data-label="{{ y.name }}">{{ y.name }}</button></li>
+      {% endfor %}
+      {% if sid %}<li><button type="button" data-move-sprint="none" data-label="{{ _('No sprint') }}">{{ _("No sprint") }}</button></li>{% endif %}
+    </ul>
+  </details>
+  {% for nr in t.waits %}<span class="plan-waits"><span aria-hidden="true">⚠</span> <a href="/tasks/{{ nr }}">{{ _("waits for %(task_nr)s", task_nr=nr) }}</a></span>{% endfor %}
+</li>

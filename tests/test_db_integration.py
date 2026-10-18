@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 from app.db import db
+from app.models import Base
 from tests import conftest
 from tests.conftest import TEST_DB_URL, csrf_of, login, requires_db
 
@@ -58,7 +59,7 @@ def test_schema_options_and_seed(empty_test_db):
         rows = conn.execute(text(
             "SELECT table_name, engine, table_collation FROM information_schema.tables "
             "WHERE table_schema = DATABASE() AND table_name <> 'alembic_version'")).all()
-        assert len(rows) == 19 and {"task_attachments", "join_codes", "sprints"} <= {r.table_name for r in rows}
+        assert {r.table_name for r in rows} == set(Base.metadata.tables)
         assert all(r.engine == "InnoDB" and r.table_collation == "utf8mb4_unicode_ci" for r in rows)
         actors = conn.execute(text("SELECT name, actor_type, role FROM actors")).all()
         assert [tuple(a) for a in actors] == [("admin", "human", "admin")]  # No sample agents on a fresh install.
@@ -86,6 +87,35 @@ def test_existing_actors_survive_upgrade(empty_test_db):
         before = conn.execute(query).all()
         command.upgrade(cfg, "head")
         assert conn.execute(query).all() == before
+
+
+def test_output_budget_upgrade_counts_historical_releases(empty_test_db):
+    from alembic import command
+
+    from app.db import alembic_config
+
+    cfg = alembic_config()
+    with empty_test_db.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "0037")
+        conn.execute(text("INSERT INTO projects (project_key, name, created_by, owner_id) VALUES ('T', 't', 1, 1)"))
+        conn.execute(text("INSERT INTO datasets (dataset_key, project_id, name, uploaded_by) "
+                          "VALUES ('DS-0001', 1, 'sample', 1), ('DS-0002', 1, 'other', 1)"))
+        conn.execute(text("INSERT INTO tasks (task_nr, project_id, title, created_by) VALUES ('T-0001', 1, 't', 1)"))
+        conn.execute(text("INSERT INTO run_results (task_id, dataset_id, job_id, status, released_at) VALUES "
+                          "(1, 1, 'released', 'released', NULL), "
+                          "(1, 1, 'deleted', 'deleted', '2026-01-01 00:00:00'), "
+                          "(1, 1, 'sealed', 'kept_sealed', NULL), "
+                          "(1, 1, 'pending', 'pending_approval', NULL)"))
+        command.upgrade(cfg, "0038")
+        query = text("SELECT released_count, epsilon_spent, gate_policy_json FROM datasets ORDER BY id")
+        rows = conn.execute(query).all()
+        assert [tuple(r) for r in rows] == [(2, 0, None), (0, 0, None)]
+        assert conn.scalar(text("SELECT COUNT(*) FROM run_results WHERE release_policy_json IS NOT NULL")) == 0
+        command.downgrade(cfg, "0037")
+        assert conn.scalar(text("SELECT COUNT(*) FROM run_results")) == 4
+        command.upgrade(cfg, "0038")
+        assert conn.execute(query).all() == rows
 
 
 def test_existing_tasks_survive_sprint_migration(empty_test_db):

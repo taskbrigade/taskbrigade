@@ -1,26 +1,46 @@
 """Admin → Settings (spec section 11a.5)."""
 from fastapi import APIRouter, Depends, Form, Request
 
-from app.auth import UiUser, csrf_protect, require_admin
+from app.auth import UiUser, csrf_protect, current_user, require_admin
 from app.errors import AppError
 from app.i18n import gettext as _
 from app.logging_setup import audit
 from app.models import Actor
-from app.services import notifications, settings_store, telegram
+from app.services import mail, notifications, settings_store, telegram, zones
 from app.services.gitea import GiteaError
 from app.web.common import render, web_session
 
 router = APIRouter(prefix="/admin/settings", dependencies=[Depends(require_admin)])
 
 
+def browser_view(view: dict[str, dict]) -> dict[str, dict]:
+    """`public_view` without anything derived from a secret's value: the page only learns whether it is set and
+    where it comes from (the API keeps its masked suffix)."""
+    return {k: {**v, "value": None} if v["secret"] else v for k, v in view.items()}
+
+
+def group_view(view: dict[str, dict]) -> list[dict]:
+    """The cards of the page in navigation order: rows of (key, setting) pairs plus the group's on/off state."""
+    return [{"key": g.key, "title": g.title, "hint": g.hint,
+             "off": bool(g.toggle) and view[g.toggle]["value"] != "true",
+             "rows": [[(key, view[key]) for key in row] for row in g.rows]}
+            for g in settings_store.GROUPS]
+
+
 def _page(request: Request, status: int = 200, **ctx):
     with web_session() as s:
-        view = settings_store.public_view(s)
+        view = browser_view(settings_store.public_view(s))
         log = [(n, s.get(Actor, n.actor_id)) for n in notifications.recent_log(s, limit=30)]
         events = {e: _(label) for e, label in notifications.LOG_EVENTS.items()}
         statuses = {k: _(v) for k, v in notifications.STATUS_LABELS.items()}
-        return render(request, "admin/settings.html", status, settings=view, section="settings",
-                      notification_log=log, events=events, status_labels=statuses, **ctx)
+        channels = {k: _(v) for k, v in notifications.CHANNELS.items()}
+        from app.services.workflows.tick import status as tick_status
+        workflow_tick_status = tick_status(s)
+        me = s.get(Actor, user.actor_id) if (user := current_user(request)) and user.actor_id else None
+        return render(request, "admin/settings.html", status, groups=group_view(view), section="settings",
+                      notification_log=log, events=events, status_labels=statuses, channels=channels,
+                      workflow_tick_status=workflow_tick_status, admin_email=me.email if me else None,
+                      zone_findings=zones.findings(s), zone_enforced=zones.enforced(s), **ctx)
 
 
 @router.get("")
@@ -71,7 +91,12 @@ def test_gitea(request: Request):
                 msg = _("Gitea %(version)s reachable, but no service token set.", version=version)
             return render(request, "_flash.html", message=msg, kind="ok")
         except GiteaError as e:
-            return render(request, "_flash.html", message=str(e), kind="error")
+            # Gitea's own error text is shown as is; never let it echo the token back into the page.
+            msg = str(e)
+            for secret in (client.token, settings_store.get(s, "gitea_admin_token")):
+                if secret:
+                    msg = msg.replace(secret, "•••")
+            return render(request, "_flash.html", message=msg, kind="error")
 
 
 @router.post("/test-sftp", dependencies=[Depends(csrf_protect)])
@@ -116,3 +141,22 @@ def test_telegram(request: Request):
         if not telegram.enabled(s):
             msg += " " + _("The bot is switched off – enable it and save to send notifications.")
         return render(request, "_flash.html", message=msg, kind="ok")
+
+
+@router.post("/test-email", dependencies=[Depends(csrf_protect)])
+def test_email(request: Request, user: UiUser = Depends(require_admin), to: str = Form("")):
+    """Send a test mail with the stored SMTP settings (also while the channel is off); show the SMTP error as is."""
+    try:
+        address = mail.check_address(to)
+    except ValueError:
+        return render(request, "_flash.html", message=_("Invalid email address"), kind="error")
+    with web_session() as s:
+        try:
+            mail.send_test(s, address)
+        except mail.MailError as e:
+            return render(request, "_flash.html", message=str(e), kind="error")
+        msg = _("Test mail sent to %(to)s.", to=address)
+        if not mail.enabled(s):
+            msg += " " + _("Email notifications are switched off – enable them and save to send notifications.")
+    audit(user.name, "email_test_sent")
+    return render(request, "_flash.html", message=msg, kind="ok")

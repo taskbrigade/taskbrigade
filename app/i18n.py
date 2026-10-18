@@ -15,9 +15,11 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from functools import cache
 from http.cookies import SimpleCookie
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 LOCALES_DIR = Path(__file__).resolve().parent / "locales"
 SOURCE_LANGUAGE = "en"
@@ -179,6 +181,33 @@ def date_format(name: str) -> str:
 
 def decimal(value: float, digits: int = 1) -> str:
     return f"{value:.{digits}f}".replace(".", DECIMAL_SEPARATOR.get(get_language(), "."))
+
+
+def relative_time(value: datetime | None, now: datetime | None = None) -> str:
+    """Coarse relative time of a UTC timestamp in the current language ("today", "3 days ago").
+
+    Days are counted in TZ_DISPLAY: `now` defaults to the current time, so today/yesterday mean the viewer's day
+    boundaries. Values up to six days stay relative, older ones fall back to the locale date (`date_format`), so
+    nothing has to be recomputed later – callers render the page per request. `None` yields an em dash.
+    """
+    if value is None:
+        return "–"
+    from app.config import get_settings  # imported here like `_load_default` (module import order)
+
+    tz = ZoneInfo(get_settings().tz_display)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    reference = now or datetime.now(UTC)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+    days = (reference.astimezone(tz).date() - value.astimezone(tz).date()).days
+    if days <= 0:
+        return translate("today")
+    if days == 1:
+        return translate("yesterday")
+    if days < 7:
+        return translate("%(num)d days ago") % {"num": days}
+    return value.astimezone(tz).strftime(date_format("date"))
 
 
 # --- per-request language ------------------------------------------------------------------------------

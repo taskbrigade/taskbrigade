@@ -28,6 +28,11 @@ def _row(name: str):
         return conn.execute(text("SELECT * FROM actors WHERE name = :n"), {"n": name}).mappings().one()
 
 
+def _signed_in(html: str, name: str) -> bool:
+    """The header shows the signed-in name in the account menu and still offers logout."""
+    return f">{name}</strong>" in html and 'action="/logout"' in html
+
+
 # --- Token-Auth ----------------------------------------------------------------------
 
 def test_missing_and_invalid_token(api):
@@ -102,11 +107,11 @@ def test_human_password_login_and_tailscale_mapping(api, admin, monkeypatch):
         r = ui.post("/login", data={"username": "anna", "password": "sehr-geheim-123", "csrf_token": csrf},
                     follow_redirects=False)
         assert r.status_code == 303
-        assert "anna abmelden" in ui.get("/admin/users").text
+        assert _signed_in(ui.get("/admin/users").text, "anna")
 
     monkeypatch.setattr(get_settings(), "ui_allowed_logins", "anna@github")
     with TestClient(app, client=("127.0.0.1", 5000)) as ui:
-        assert "anna abmelden" in ui.get("/admin/users", headers={"Tailscale-User-Login": "anna@github"}).text
+        assert _signed_in(ui.get("/admin/users", headers={"Tailscale-User-Login": "anna@github"}).text, "anna")
 
 
 def test_bootstrap_admin_maps_to_admin_actor(api):
@@ -114,7 +119,7 @@ def test_bootstrap_admin_maps_to_admin_actor(api):
 
     with TestClient(app) as ui:
         assert login(ui).status_code == 303
-        assert "admin abmelden" in ui.get("/admin/users").text
+        assert _signed_in(ui.get("/admin/users").text, "admin")
 
 
 def test_rotate_token_invalidates_old(api, admin):

@@ -1,11 +1,8 @@
-<nav class="subnav">
-  <ul>
-    <li><a href="/admin/database" {% if section == 'database' %}aria-current="page"{% endif %}>{{ _("Database") }}</a></li>
-    {% if db_ready %}
-    <li><a href="/admin/users" {% if section == 'users' %}aria-current="page"{% endif %}>{{ _("Users &amp; agents") }}</a></li>
-    <li><a href="/admin/settings" {% if section == 'settings' %}aria-current="page"{% endif %}>{{ _("Settings") }}</a></li>
-    {% endif %}
-  </ul>
-</nav>
+{% import "_ui.html" as ui %}
+{%- set admin_tabs = [("/admin/database", _("Database"))] -%}
+{%- if db_ready -%}
+{%- set admin_tabs = admin_tabs + [("/admin/users", _("Users &amp; agents")), ("/admin/settings", _("Settings")), ("/admin/ui-kit", _("UI kit"))] -%}
+{%- endif -%}
+{{ ui.tabs(admin_tabs, {"database": "/admin/database", "users": "/admin/users", "settings": "/admin/settings", "ui_kit": "/admin/ui-kit"}.get(section), _("Admin sections")) }}
 {% if message %}<p class="banner ok">{{ message }}</p>{% endif %}
 {% if error %}<p class="banner error">{{ error }}</p>{% endif %}

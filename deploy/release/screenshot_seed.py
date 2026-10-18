@@ -12,7 +12,7 @@ texts are invented examples only – never real people, hosts or projects. Not i
 import base64
 import json
 import time
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ from app.config import get_settings
 from app.container import database_url
 from app.db import make_engine
 from app.models import Actor, Project
-from app.services import actors, onboarding, projects, settings_store, sprints, tasks
+from app.services import actors, members, onboarding, projects, settings_store, sprints, tasks
 from app.services.state_machine import transition
 
 ADMIN = "admin"
@@ -87,7 +87,8 @@ def seed(s: Session) -> dict:
     for name, display, kind, role, notes in AGENTS:
         if actor(s, name) is None:
             agent = actors.create(s, name=name, display_name=display, actor_type="agent", agent_kind=kind,
-                                  role=role, runtime="local", notes=notes).actor
+                                  role=role, runtime="local", notes=notes,
+                                  model_location="local" if kind == "opencode" else "cloud").actor
             onboarding.provision_gitea(s, agent)
     claude, codex, research, opencode = (actor(s, n) for n in ("claude-code", "codex", "research-agent", "opencode"))
     demo_agent = actor(s, "demo-agent")
@@ -100,6 +101,7 @@ def seed(s: Session) -> dict:
 
     project = projects.get(s, DEMO)
     project.name = "Demo shop"
+    project.privacy = "cloud_ok"  # Cloud-model agents work on it (`local_only` needs a local model).
     project.description = "Example web shop used to try TaskBrigade"
     today = date.today()
     sprint1 = sprints.create(s, admin, project, name="Sprint 1", goal="Checkout works end to end",
@@ -206,7 +208,95 @@ def seed(s: Session) -> dict:
     transition(s, t_img, "claim", opencode)
     transition(s, t_img, "abort", opencode, {"body": "The image library needs a system package that is missing "
                                                       "on this machine; please assign the task to another agent."})
-    return {"editor": f"/projects/{DEMO}/sprints/{sprint2.id}/editor"}
+    run = seed_workflows(s, admin, project, research)
+    seed_email(s, admin)
+    return {"editor": f"/projects/{DEMO}/sprints/{sprint2.id}/editor", "run": f"/workflow-runs/{run.id}"}
+
+
+# The minimal example of the README (section Workflows): it has to pass the publish checks.
+RELEASE_NOTES_YAML = """\
+name: Release notes
+description: An agent drafts the release notes, a human approves them, the owner is notified.
+params:
+  - {name: version, type: string, required: true, label: Version}
+steps:
+  - key: draft
+    type: agent
+    assignee: research-agent
+    title: "Release notes for {{params.version}}"
+    description: Summarise the merged changes since the last release in docs/release-notes.md.
+    acceptance: Every merged pull request is listed once.
+  - key: approve
+    type: approval
+    reviewer: admin
+    title: "Approve the release notes for {{params.version}}"
+  - key: announce
+    type: notify
+    title: "Release notes for {{params.version}} are ready: {{steps.draft.pr}}"
+    config: {to: [owner]}
+"""
+
+KPI_REPORT_YAML = """\
+name: Weekly KPI report
+description: Every Monday an agent collects the shop figures and writes the weekly report.
+steps:
+  - key: report
+    type: agent
+    assignee: codex
+    title: Weekly KPI report
+    description: Collect orders, revenue and returns of the last week and write reports/weekly.md.
+    acceptance: The report has a table per figure and a short summary.
+  - key: send
+    type: notify
+    title: "Weekly KPI report is ready: {{steps.report.pr}}"
+"""
+
+
+def seed_workflows(s: Session, admin: Actor, project: Project, research: Actor):
+    """Two published templates, a schedule and one run whose first step is merged and whose approval waits."""
+    from app.services.workflows import api, engine, schedules, transfer
+
+    settings_store.update(s, {"workflows_enabled": "true"}, admin.id)
+    for name in (ADMIN, "research-agent", "codex"):
+        members.ensure_member(s, project, actor(s, name))
+    # Its open tasks (also defined ones) count towards the parallel limit; a step is assigned only below it.
+    research.max_parallel_tasks = 3
+    templates = {}
+    for key, document in (("release-notes", RELEASE_NOTES_YAML), ("kpi-report", KPI_REPORT_YAML)):
+        template, _draft, _warnings = api.import_draft(s, admin, project, key,
+                                                         transfer.parse_yaml(document))
+        api.publish(s, admin, template)
+        templates[key] = template
+    schedules.save(s, admin, templates["kpi-report"], {"name": "Mondays 07:00", "cron_expr": "0 7 * * mon",
+                                                        "enabled": True})
+    run = engine.start(s, admin, templates["release-notes"], params={"version": "1.4.0"})
+    s.flush()
+    if not run_tasks(s, run):
+        raise SystemExit(f"Workflow run {run.id} created no task: {run.status} {run.pause_reason}")
+    step = run_tasks(s, run)[0]
+    transition(s, step, "claim", research)
+    submit(s, step, research, "docs/release-notes.md",
+           "# Release notes 1.4.0\n\n- Cart total including VAT\n- Rate-limited logins\n- CI workflow\n",
+           "Release notes for 1.4.0 in docs/release-notes.md: three merged pull requests, one line each.")
+    wait_mergeable(s, step)
+    transition(s, step, "approve", admin, {"body": "Thanks, approved."})
+    return run
+
+
+def run_tasks(s: Session, run) -> list:
+    from app.models import Task, WorkflowRunStep
+
+    return list(s.scalars(select(Task).join(WorkflowRunStep, WorkflowRunStep.task_id == Task.id)
+                          .where(WorkflowRunStep.run_id == run.id).order_by(WorkflowRunStep.position)))
+
+
+def seed_email(s: Session, admin: Actor) -> None:
+    """Email channel with a placeholder SMTP server (nothing is sent: no event follows) and a confirmed address."""
+    settings_store.update(s, {"smtp_host": "smtp.example.com", "smtp_port": "587", "smtp_security": "starttls",
+                              "mail_from_address": "taskbrigade@example.com", "mail_from_name": "TaskBrigade",
+                              "email_enabled": "true"}, admin.id)
+    admin.email = "admin@example.com"
+    admin.email_verified_at = datetime.now(UTC).replace(tzinfo=None)
 
 
 def main() -> None:

@@ -1,0 +1,2 @@
+{#- Hint below kanban/backlog while workflow tasks are hidden (research/konzept-workflows.md §8.6). -#}
+{% if workflow_filter == "hide" and workflow_hidden %}<p class="wf-hidden-hint muted"><small>{{ ngettext("%(num)d workflow task hidden", "%(num)d workflow tasks hidden", workflow_hidden) }} – <a href="{{ workflow_show_url }}">{{ _("show") }}</a></small></p>{% endif %}

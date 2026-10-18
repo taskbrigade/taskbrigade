@@ -1,0 +1,44 @@
+# TaskBrigade data-zone runner (research/konzept-datenzonen.md §2/§5, docs/operations.md → Data-zone runner).
+# Deterministic service without an LLM: claims run/profile tasks of its runner agent, starts sandbox jobs
+# (taskbrigade-job@<job>.service) and stores their outputs encrypted in the quarantine. Enabled by
+# `tbr-admin runner join <code>`; installed by deploy/install.sh/update.sh with TBR_DATA_ZONES=1 (paths substituted).
+[Unit]
+Description=TaskBrigade data-zone runner
+After=network-online.target taskbrigade.service
+Wants=network-online.target
+ConditionPathExists=/etc/taskbrigade/runner.toml
+
+[Service]
+Type=simple
+User=tbr-runner
+Group=tbr-runner
+# tbr-data: read the KEK and the store, write the quarantine; tbr-job: share the job directories with the sandbox
+SupplementaryGroups=tbr-data tbr-job
+Environment=TBR_RUNNER_CONFIG=/etc/taskbrigade/runner.toml
+ExecStart=/opt/taskbrigade/app/.venv/bin/tbr-admin runner serve
+Restart=on-failure
+RestartSec=10
+# Job directories (plaintext input only while a job runs) on tmpfs, removed when the service stops
+RuntimeDirectory=taskbrigade-runner
+RuntimeDirectoryMode=0750
+StateDirectory=taskbrigade-runner
+StateDirectoryMode=0700
+UMask=0027
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=-/srv/taskbrigade-data/quarantine
+InaccessiblePaths=-/var/lib/taskbrigade -/var/backups/taskbrigade
+
+[Install]
+WantedBy=multi-user.target

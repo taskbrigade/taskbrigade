@@ -207,6 +207,10 @@ def healthy(home, respx_mock, monkeypatch):
     respx_mock.get(f"{GITEA}/api/v1/user").mock(return_value=httpx.Response(200, json={"login": "claude-code"}))
     respx_mock.get(f"{API}/agents/me/sftp").mock(return_value=httpx.Response(404, json={
         "error": {"code": "sftp_disabled", "message": "SFTP storage is not enabled"}}))
+    respx_mock.get(f"{API}/agents/me/email-status").mock(return_value=httpx.Response(404, json={
+        "error": {"code": "email_disabled", "message": "Email notifications are not enabled"}}))
+    respx_mock.get(f"{API}/agents/me/workflow-tick-status").mock(return_value=httpx.Response(200, json={
+        "last": None, "stale": True, "enabled": False}))
     respx_mock.get(url__startswith=f"{API}/agents/me/tasks").mock(return_value=httpx.Response(200, json={
         "items": [{"task_nr": "KET-0001", "status": "defined"}], "total": 1}))
     root = work_dir(home, extra=setup_mod.RUNNER_SECTIONS["claude_code"])
@@ -336,6 +340,75 @@ def test_doctor_reports_old_tmux_windows(healthy, monkeypatch, respx_mock):
     r = _doctor(healthy)
     assert "tmux windows: 3 open in session taskbrigade, 1 finished, 1 with an agent still running" in r.stdout
     assert "(KET-0002)" in r.stdout and "tbr cleanup --work-root" in r.stdout and "--stale" in r.stdout
+
+
+# --- tbr doctor: email check ---------------------------------------------------------------------------
+
+def test_doctor_email_ok(healthy, respx_mock):
+    respx_mock.get(f"{API}/agents/me/email-status").mock(return_value=httpx.Response(200, json={
+        "ok": True, "host": "smtp.example.org", "security": "starttls", "failures_in_a_row": 0,
+        "last_delivery": {"sent_at": "2026-10-16T12:30:00", "last_status": "sent", "last_error": None}}))
+    r = _doctor(healthy)
+    assert r.exit_code == 0, r.output
+    assert ("Email SMTP: SMTP smtp.example.org reachable (login ok) – last successful delivery "
+            "2026-10-16 12:30 UTC") in " ".join(r.stdout.split())
+    assert "app-password" not in r.stdout and "tm_secret" not in r.output
+
+
+def test_doctor_email_failing(healthy, respx_mock):
+    respx_mock.get(f"{API}/agents/me/email-status").mock(return_value=httpx.Response(200, json={
+        "ok": True, "host": "smtp.example.org", "security": "starttls", "failures_in_a_row": 3,
+        "last_delivery": {"sent_at": "2026-10-16T12:30:00", "last_status": "failed",
+                          "last_error": "SMTP 535: login refused"}}))
+    r = _doctor(healthy)
+    assert r.exit_code == 0, r.output  # warning, no error: the TaskBrigade server itself is fine
+    out = " ".join(r.stdout.split())
+    assert "[warning] Email SMTP" in out
+    assert "last delivery failed: SMTP 535: login refused" in out
+    assert "[warning] Email SMTP" in out and "3 deliveries failed in a row" not in out  # failed replaces it
+    assert "delivery log under Admin" in out
+
+
+def test_doctor_email_disabled(healthy, respx_mock):
+    respx_mock.get(f"{API}/agents/me/email-status").mock(return_value=httpx.Response(404, json={
+        "error": {"code": "email_disabled", "message": "Email notifications are not enabled"}}))
+    r = _doctor(healthy)
+    assert r.exit_code == 0 and "Email SMTP" not in r.stdout
+
+
+def test_doctor_email_probe_refused(healthy, respx_mock):
+    respx_mock.get(f"{API}/agents/me/email-status").mock(return_value=httpx.Response(502, json={
+        "error": {"code": "bad_gateway",
+                  "message": "SMTP 535: login refused (…)"}}))
+    r = _doctor(healthy)
+    assert r.exit_code == 1 and "Email SMTP: 502 bad_gateway: SMTP 535" in " ".join(r.stdout.split())
+
+
+def test_doctor_workflow_tick_ok(healthy, respx_mock):
+    respx_mock.get(f"{API}/agents/me/workflow-tick-status").mock(return_value=httpx.Response(200, json={
+        "last": "2026-10-16T12:30:00", "stale": False, "enabled": True}))
+    r = _doctor(healthy)
+    assert r.exit_code == 0, r.output
+    out = " ".join(r.stdout.split())
+    assert "[ok] Workflow tick" in out and "last tick 2026-10-16T12:30:00 UTC" in out
+
+
+def test_doctor_workflow_tick_stale(healthy, respx_mock):
+    respx_mock.get(f"{API}/agents/me/workflow-tick-status").mock(return_value=httpx.Response(200, json={
+        "last": "2026-10-16T12:30:00", "stale": True, "enabled": True}))
+    r = _doctor(healthy)
+    assert r.exit_code == 0, r.output  # warning, not an error
+    out = " ".join(r.stdout.split())
+    assert "[warning] Workflow tick" in out
+    assert "no tick in the last five minutes (last: 2026-10-16T12:30:00 UTC)" in out
+    assert "TBR_WORKFLOW_TICK" in out
+
+
+def test_doctor_workflow_tick_disabled(healthy, respx_mock):
+    respx_mock.get(f"{API}/agents/me/workflow-tick-status").mock(return_value=httpx.Response(200, json={
+        "last": None, "stale": True, "enabled": False}))
+    r = _doctor(healthy)
+    assert r.exit_code == 0 and "Workflow tick" not in r.stdout
 
 
 def test_doctor_ignores_windows_of_other_agents(healthy, monkeypatch, respx_mock, tmp_path):

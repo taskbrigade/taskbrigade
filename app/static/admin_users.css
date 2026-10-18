@@ -1,0 +1,70 @@
+/* Users and agents: compact overview and an independent detail sheet. */
+.users-layout { display: flex; gap: 20px; align-items: flex-start; }
+.users-overview { flex: 1; min-width: 0; }
+.users-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.users-toolbar input[type=search] { flex: 1 1 200px; width: auto; }
+.users-toolbar :is(input, select) { height: 40px; margin: 0; padding: 6px 10px; font-size: 14px; }
+.users-toolbar select { width: auto; max-width: 160px; padding-right: 28px; }
+.users-toolbar small { color: var(--ui-text-2); }
+.users-toolbar .users-count { flex: none; width: auto; margin: 0 0 0 auto; font-size: 13px; white-space: nowrap; }  /* Pico: select + small is a full-width block */
+.users-table-wrap { border: 1px solid var(--ui-border); border-radius: 10px; overflow: hidden; background: var(--ui-surface); }
+.users-table { width: 100%; table-layout: fixed; margin: 0; font-size: 13px; }
+.users-table :is(td, th) { padding: 10px 8px; overflow-wrap: anywhere; background: transparent; }
+.users-table thead th { color: var(--ui-text-2); font-size: 12px; text-transform: uppercase; }
+.users-table th:first-child { width: 25%; }
+.users-table th:nth-child(2) { width: 12%; }
+.users-table th:nth-child(3) { width: 16%; }
+.users-table th:nth-child(4) { width: 13%; }
+.users-table th:nth-child(5) { width: 12%; }
+.users-table th:nth-child(6) { width: 17%; }
+.users-table th:last-child { width: 5%; }
+.users-table .users-group th { background: var(--ui-bg); font-weight: 600; }
+.users-group small { font-weight: 400; margin-left: 8px; color: var(--ui-text-2); }
+.users-table .user-name { display: flex; align-items: flex-start; gap: 8px; }
+.user-name > .ui-dot { margin-top: 6px; }
+.user-name > div { min-width: 0; }
+.user-name a { font-weight: 600; text-decoration: none; }
+.user-subline { margin-top: 3px; color: var(--ui-text-2); font-size: 12px; }
+.user-subline :is(.ui-pill, .ui-kind) { margin-bottom: 3px; }
+.user-runtime small, .user-panel section > small { display: block; color: var(--ui-text-2); }
+.user-access .ui-pill { margin: 2px 0; white-space: normal; }
+.user-load progress { display: block; height: 5px; margin: 5px 0 0; width: 100%; }
+.role-orchestrator { background: var(--ui-primary); color: var(--ui-on-primary); }
+.role-admin { background: var(--ui-text); color: var(--ui-on-primary); }
+.role-reviewer { background: var(--ui-st-questions-bg); color: var(--ui-st-questions-fg); }
+.user-row[aria-selected=true] { background: var(--ui-primary-tint); }
+.user-panel { flex: 0 0 380px; width: 380px; border: 1px solid var(--ui-border); border-radius: 10px; padding: 16px; background: var(--ui-surface); overflow-wrap: anywhere; }
+.user-panel:focus { outline: none; }
+.user-panel-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.user-panel-header > div { flex: 1; min-width: 0; }
+.user-panel-header h2 { margin: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-panel-header small { color: var(--ui-text-2); }
+.user-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.user-fields label { min-width: 0; }
+.user-panel label { font-size: 12px; color: var(--ui-text-2); }
+.user-panel :is(input:not([type=hidden]), select) { height: 36px; margin: 4px 0 0; padding: 4px 8px; font-size: 14px; }
+.user-panel select { padding-right: 24px; }
+.user-panel section, .user-panel footer { padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--ui-border); }
+.user-panel section p { margin-bottom: 8px; }
+.user-panel section h3 { margin-bottom: 8px; }
+.user-panel form { margin-bottom: 0; }
+.user-panel details { margin: 12px 0 0; }
+.user-panel footer { justify-content: space-between; }
+@media (min-width: 640px) and (max-width: 1100px) {
+  .users-layout { display: block; }
+  .user-panel { position: fixed; right: 12px; top: 12px; bottom: 12px; overflow-y: auto; z-index: 40; box-shadow: 0 4px 24px var(--ui-border); }
+}
+@media (max-width: 639px) {
+  .users-table, .users-table tbody { display: block; }
+  .users-table thead { display: none; }
+  .users-table tr.user-row { display: grid; grid-template-columns: 1fr auto; padding: 12px; gap: 8px; border-bottom: 1px solid var(--ui-border); }
+  .users-table .user-row td { border: 0; padding: 0; }
+  .users-table .user-name, .users-table .user-access { grid-column: 1 / -1; }
+  .users-table .user-runtime, .users-table .user-load { display: none; }
+  .user-open { grid-column: 2; grid-row: 2; }
+  .user-seen { grid-column: 1; }
+  .users-group { display: block; }
+  .users-group th { display: block; width: auto !important; }
+  .user-panel { position: fixed; inset: 0; width: 100%; height: 100dvh; overflow-y: auto; border-radius: 0; z-index: 100; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
+  body:has(.user-panel) { overflow: hidden; }
+}

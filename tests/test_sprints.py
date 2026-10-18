@@ -193,6 +193,56 @@ def test_release_publishes_complete_drafts_only(senv):
     assert body["sprint"]["status"] == "released"
 
 
+def test_release_warns_about_late_dependencies(senv):
+    """`waiting`: released tasks whose dependency is not done and has no sprint, sits in a planned sprint or in a
+    later one. Done dependencies, the same sprint and earlier released sprints give no warning."""
+    from app.models import Sprint
+    from app.services import sprints
+
+    c = senv["c"]
+    early = mksprint(senv, name="Früh", start_date="2026-10-01")
+    later = mksprint(senv, name="Später", start_date="2026-10-20")
+    planned_before = mksprint(senv, name="Geplant", start_date="2026-10-05")
+    s = mksprint(senv, name="Jetzt", start_date="2026-10-10")
+    in_early = mktask(senv, sprint=early["id"], title="früh")["task_nr"]
+    in_later = mktask(senv, sprint=later["id"], title="später")["task_nr"]
+    for x in (early, later):
+        assert c.post(sprint_url("KET", x["id"], "/release"), headers=senv["admin"]).status_code == 200
+    in_planned = mktask(senv, sprint=planned_before["id"], title="geplant")["task_nr"]
+    loose = mktask(senv, title="lose")["task_nr"]
+    done = mktask(senv, title="fertig")["task_nr"]
+    same = mktask(senv, sprint=s["id"], title="gleich")["task_nr"]
+    with db.session() as session:
+        session.execute(text("UPDATE tasks SET status = 'done' WHERE task_nr = :nr"), {"nr": done})
+        session.commit()
+    nrs = {dep: mktask(senv, sprint=s["id"], title=f"wartet {dep}", depends_on=[dep])["task_nr"]
+           for dep in (in_early, in_later, in_planned, loose, done, same)}
+    blocked = mktask(senv, sprint=s["id"], acceptance_criteria="", depends_on=[loose])["task_nr"]
+
+    with db.session() as session:
+        preview = sprints.release_preview(session, session.get(Sprint, s["id"]))
+        waiting = {t["task_nr"]: [d["task_nr"] for d in t["waits_for"]] for t in preview["waiting"]}
+        assert waiting == {nrs[in_later]: [in_later], nrs[in_planned]: [in_planned], nrs[loose]: [loose]}
+        assert blocked not in waiting  # Only tasks that would be released.
+        by_dep = {t["waits_for"][0]["task_nr"]: t["waits_for"][0] for t in preview["waiting"]}
+        assert by_dep[loose]["sprint"] is None
+        assert (by_dep[in_planned]["sprint_name"], by_dep[in_planned]["sprint_status"]) == ("Geplant", "planned")
+        assert by_dep[in_later]["sprint_status"] == "released"
+        # Without start dates the creation order (id) decides.
+        session.execute(text("UPDATE sprints SET start_date = NULL"))
+        assert {t["task_nr"] for t in sprints.release_preview(session, session.get(Sprint, s["id"]))["waiting"]} \
+            == {nrs[in_planned], nrs[loose]}
+        session.rollback()
+        drafts = text("SELECT COUNT(*) FROM tasks WHERE sprint_id = :sid AND status = 'draft'")
+        assert session.scalar(drafts, {"sid": s["id"]}) == 8  # The preview changes nothing.
+
+    # The release itself still publishes them and returns the same warning.
+    body = c.post(sprint_url("KET", s["id"], "/release"), headers=senv["admin"]).json()
+    assert {t["task_nr"] for t in body["released"]} == set(nrs.values()) | {same}
+    assert {t["task_nr"] for t in body["waiting"]} == {nrs[in_later], nrs[in_planned], nrs[loose]}
+    assert task(senv, nrs[loose])["status"] == "defined"
+
+
 def test_release_of_closed_sprint_refused(senv):
     c = senv["c"]
     s = mksprint(senv)
@@ -296,3 +346,162 @@ def test_batch_create_is_all_or_nothing(senv):
     assert c.post(sprint_url("KET", s["id"], "/tasks"), headers=senv["admin"], json={"tasks": []}).status_code == 422
     t = mktask(senv)  # Numbering was rolled back with the batch.
     assert t["task_nr"] == "KET-0001"
+
+
+# --- Reopen -------------------------------------------------------------------------------
+
+def _closed_sprint(e, detach=True, move_to=None):
+    """Close a sprint with mixed tasks; returns the sprint plus the open task numbers."""
+    s, running, waiting, draft, done, cancelled = _sprint_with_mixed_tasks(e)
+    body = {"detach": True} if detach else {"move_to": move_to}
+    r = e["c"].post(sprint_url("KET", s["id"], "/close"), headers=e["admin"], json=body)
+    assert r.status_code == 200, r.text
+    return s, running, waiting, draft, done, cancelled
+
+
+def test_reopen_requires_closed_status(senv):
+    c = senv["c"]
+    planned = mksprint(senv, name="Geplant")
+    r = c.post(sprint_url("KET", planned["id"], "/reopen"), headers=senv["admin"], json={})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "invalid_sprint_status"
+    s = mksprint(senv, name="Freigegeben")
+    c.post(sprint_url("KET", s["id"], "/release"), headers=senv["admin"])
+    r = c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "invalid_sprint_status"
+    assert c.get(sprint_url("KET", s["id"]), headers=senv["admin"]).json()["status"] == "released"
+
+
+def test_reopen_rights(senv):
+    c = senv["c"]
+    own = mksprint(senv, key="OWN", who="alex")
+    c.post(sprint_url("OWN", own["id"], "/release"), headers=senv["alex"])
+    c.post(sprint_url("OWN", own["id"], "/close"), headers=senv["alex"], json={"detach": True})
+    assert c.post(sprint_url("OWN", own["id"], "/reopen"), headers=senv["orch"], json={}).status_code == 403
+    assert c.post(sprint_url("OWN", own["id"], "/reopen"), headers=senv["hermes"], json={}).status_code == 403
+    assert c.post(sprint_url("OWN", own["id"], "/reopen"), headers=senv["alex"], json={}).status_code == 200
+
+
+def test_reopen_restores_detached_tasks(senv):
+    c = senv["c"]
+    s, running, waiting, draft, done, cancelled = _closed_sprint(senv)
+    assert c.get(sprint_url("KET", s["id"]), headers=senv["admin"]).json()["status"] == "closed"
+    r = c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={"restore_tasks": True})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["sprint"]["status"] == "released" and body["sprint"]["closed_at"] is None
+    assert set(body["restored"]) == {running, waiting, draft} and body["skipped"] == []
+    # Statuses unchanged; the sprint is released, so nothing is turned into a draft again.
+    assert [(task(senv, nr)["status"], task(senv, nr)["sprint"]) for nr in (running, waiting, draft)] == \
+        [(task(senv, nr)["status"], s["id"]) for nr in (running, waiting, draft)]
+    assert task(senv, waiting)["status"] == "defined" and task(senv, running)["status"] == "in_progress"
+    assert task(senv, draft)["status"] == "draft"
+    # Finished tasks never moved out and stay.
+    assert task(senv, done)["sprint"] == s["id"] and task(senv, cancelled)["sprint"] == s["id"]
+    # Events: the move back is a `sprint` event with no old value.
+    assert ("sprint", None, s["name"]) in events(senv, running)
+
+
+def test_reopen_across_a_move_back_and_forth(senv):
+    """The close moved tasks to another sprint: reopen only takes back the ones still there, the ones moved on
+    afterwards are skipped."""
+    c = senv["c"]
+    nxt = mksprint(senv, name="Sprint 2")
+    s, running, waiting, draft, done, cancelled = _closed_sprint(senv, detach=False, move_to=nxt["id"])
+    assert task(senv, running)["sprint"] == nxt["id"]
+    # Someone moves `draft` on into a third sprint after the close.
+    third = mksprint(senv, name="Sprint 3")
+    assert c.patch(f"/api/v1/tasks/{draft}", headers=senv["admin"], json={"sprint": third["id"]}).status_code == 200
+    r = c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={})
+    body = r.json()
+    assert set(body["restored"]) == {running, waiting}
+    assert body["skipped"] == [draft]  # Moved elsewhere later – stays in Sprint 3.
+    assert task(senv, draft)["sprint"] == third["id"]
+    assert task(senv, running)["sprint"] == s["id"]
+
+
+def test_reopen_skips_finished_tasks_and_keeps_their_sprint(senv):
+    """A task finished after the close stays where it is and is reported as skipped."""
+    c = senv["c"]
+    s, running, waiting, draft, _done, _cancelled = _closed_sprint(senv)
+    with db.engine.begin() as conn:
+        conn.execute(text("UPDATE tasks SET status='done' WHERE task_nr=:n"), {"n": waiting})
+    r = c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={})
+    body = r.json()
+    assert set(body["restored"]) == {running, draft} and body["skipped"] == [waiting]
+    assert task(senv, waiting)["sprint"] is None and task(senv, waiting)["status"] == "done"
+
+
+def test_reopen_without_restore(senv):
+    c = senv["c"]
+    s, running, waiting, draft, _done, _cancelled = _closed_sprint(senv)
+    r = c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={"restore_tasks": False})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["sprint"]["status"] == "released" and body["restored"] == [] and body["skipped"] == []
+    assert task(senv, running)["sprint"] is None and task(senv, waiting)["sprint"] is None
+
+
+def test_reopen_round_trip_close_reopen_close(senv):
+    """close → reopen → close again works and moves the tasks out a second time."""
+    c = senv["c"]
+    s, running, waiting, draft, _done, _cancelled = _closed_sprint(senv)
+    assert c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={}).status_code == 200
+    assert set(task(senv, nr)["sprint"] for nr in (running, waiting, draft)) == {s["id"]}
+    r = c.post(sprint_url("KET", s["id"], "/close"), headers=senv["admin"], json={"detach": True})
+    assert r.status_code == 200, r.text
+    assert set(r.json()["detached"]) == {running, waiting, draft}
+
+
+def test_reopen_ignores_same_named_sprint_in_another_project(senv):
+    """Sprint names are only unique per project: a `sprint` event of a different project's same-named sprint must
+    not be picked up (it would otherwise make reopen fail with `sprint_other_project`)."""
+    c = senv["c"]
+    mkproject(senv, key="OTP")
+    # OTP gets its own "Sprint 1" whose close detaches a task – a same-named `sprint` event in another project.
+    other = mksprint(senv, key="OTP")
+    other_task = mktask(senv, project="OTP", sprint=other["id"])["task_nr"]
+    assert c.post(sprint_url("OTP", other["id"], "/release"), headers=senv["admin"]).status_code == 200
+    assert c.post(sprint_url("OTP", other["id"], "/close"), headers=senv["admin"],
+                  json={"detach": True}).status_code == 200
+    assert task(senv, other_task)["sprint"] is None
+    # KET closes and reopens its own "Sprint 1": the OTP task is not restored and not touched.
+    s, running, waiting, draft, _done, _cancelled = _closed_sprint(senv)
+    assert s["name"] == other["name"] == "Sprint 1"
+    r = c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body["restored"]) == {running, waiting, draft} and body["skipped"] == []
+    assert task(senv, other_task)["sprint"] is None  # Belongs to OTP, stays detached.
+
+
+def test_reopen_does_not_restore_tasks_moved_out_before_close(senv):
+    """A task moved out of the sprint on purpose while it was released (before the close) is not restored: only
+    the close's own moves are taken back."""
+    c = senv["c"]
+    s, running, waiting, draft, _done, _cancelled = _sprint_with_mixed_tasks(senv)
+    # Moved out by hand while the sprint is released – its `sprint` event lies before the close call.
+    early = mktask(senv, sprint=s["id"])["task_nr"]
+    assert c.patch(f"/api/v1/tasks/{early}", headers=senv["admin"], json={"sprint": None}).status_code == 200
+    assert task(senv, early)["sprint"] is None
+    assert c.post(sprint_url("KET", s["id"], "/close"), headers=senv["admin"],
+                  json={"detach": True}).status_code == 200
+    r = c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body["restored"]) == {running, waiting, draft}
+    assert early not in body["restored"] and early not in body["skipped"]
+    assert task(senv, early)["sprint"] is None  # Stays where it was moved before the close.
+
+
+def test_reopen_falls_back_to_events_for_sprints_closed_before_the_column(senv):
+    """Sprints closed before `moved_task_ids` existed (NULL) still reopen: the `sprint` events written by the close
+    call are used instead, limited to this sprint's project and to the close's timestamp."""
+    c = senv["c"]
+    s, running, waiting, draft, _done, _cancelled = _closed_sprint(senv)
+    with db.engine.begin() as conn:  # Pretend the sprint was closed before the migration.
+        conn.execute(text("UPDATE sprints SET moved_task_ids = NULL WHERE id = :i"), {"i": s["id"]})
+    r = c.post(sprint_url("KET", s["id"], "/reopen"), headers=senv["admin"], json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body["restored"]) == {running, waiting, draft} and body["skipped"] == []
+    assert set(task(senv, nr)["sprint"] for nr in (running, waiting, draft)) == {s["id"]}

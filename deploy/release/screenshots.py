@@ -28,20 +28,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "tbr-shots"
+# Volumes the app mounts for the data zones (compose.yaml); renamed like db/state so `down -v` never hits the real stack.
+DATA_VOLUMES = ("data", "data-key", "sftp", "sftp-spool")
 PLAYWRIGHT_VERSION = "1.63.0"
 PLAYWRIGHT_IMAGE = f"mcr.microsoft.com/playwright/python:v{PLAYWRIGHT_VERSION}-noble"
 VIEWPORT = {"width": 1440, "height": 900}
 MOBILE_VIEWPORT = {"width": 390, "height": 844}  # Smartphone, portrait.
-MAX_HEIGHT = 1500  # Long pages (task detail) are cut here.
+MAX_HEIGHT = 1500  # Long full-page shots (task detail) are cut here.
 
-# file name → (path, full page?, description); "{editor}" is filled in from the seed output.
+# file name → (path, full page?, description); "{editor}"/"{run}" are filled in from the seed output.
 SHOTS = {
     "inbox.png": ("/", False, "Inbox: questions and reviews waiting for a human"),
     "backlog.png": ("/backlog", False, "Backlog with filters"),
     "kanban.png": ("/kanban", False, "Kanban board"),
+    "planning.png": ("/planning", False, "Planning: sprints of all projects"),
+    "projects.png": ("/projects", False, "Projects list"),
     "task-detail.png": ("/tasks/DEMO-0001", True, "Task detail with thread and pull request"),
     "sprint-editor.png": ("{editor}", False, "Sprint editor"),
-    "agents.png": ("/admin/users", False, "Users and agents"),
+    "workflows-list.png": ("/workflows", False, "Workflows: templates with their last runs"),
+    "workflows-editor.png": ("/workflows/DEMO/release-notes/edit", False, "Workflow editor with an opened step"),
+    "workflows-run.png": ("{run}", False, "Workflow run with the chain of steps"),
+    "profile-notifications.png": ("/profile#channels", False, "Profile: channels and the event × channel matrix"),
+    "agents.png": ("/admin/users?all_agents=1", False, "Users and agents"),  # Seeded agents have no owner.
 }
 # Same demo data at phone size (touch, mobile layout); same format as SHOTS.
 MOBILE_SHOTS = {
@@ -50,7 +58,17 @@ MOBILE_SHOTS = {
     "kanban-mobile.png": ("/kanban", False, "Kanban board with the status column picker on a smartphone"),
     "task-detail-mobile.png": ("/tasks/DEMO-0001", False, "Task detail on a smartphone"),
 }
-
+# Script run before the screenshot of a page (file name → JavaScript).
+PREPARE = {
+    # Fold open the last step and its placeholder list, which offers the outputs of the earlier steps.
+    "workflows-editor.png": """() => { const steps = document.querySelectorAll("#wf-steps > li.wf-step > details");
+        const last = steps[steps.length - 1]; if (!last) return; last.open = true;
+        const insert = last.querySelector("details.wf-insert"); if (insert) insert.open = true;
+        last.scrollIntoView({block: "start"}); window.scrollBy(0, -80); }""",
+}
+# Token prefixes (`tm_` + 5 characters) are shown on the admin pages; they become a fixed placeholder.
+MASK_TOKENS_JS = r"""() => { const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) n.nodeValue = n.nodeValue.replace(/\btm[a-z]*_[A-Za-z0-9_-]+/g, "tm_xxxxx"); }"""
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     print("+", " ".join(cmd), file=sys.stderr, flush=True)
@@ -75,6 +93,7 @@ class Stack:
                     "TBR_DOCKER_SUBNET": "172.31.251.0/24",
                     "TBR_DOCKER_GATEWAY": gateway,
                     "TRUSTED_PEER_NETWORKS": f"{gateway}/32",
+                    "TBR_RUNNER_SUBNET": "172.31.253.0/24",
                     "UI_LANGUAGE": "en"}
         self.override = work / "compose.shots.yaml"
         # Network and volume names are fixed in compose.yaml; rename them for this project.
@@ -83,7 +102,8 @@ class Stack:
             "      TBR_INITIAL_ADMIN_PASSWORD: ${TBR_INITIAL_ADMIN_PASSWORD}\n      UI_LANGUAGE: en\n"
             f"networks:\n  taskbrigade:\n    name: {PROJECT}\n"
             f"volumes:\n  taskbrigade-db:\n    name: {PROJECT}-db\n  taskbrigade-state:\n    name: {PROJECT}-state\n"
-            f"  gitea-data:\n    name: {PROJECT}-gitea\n")
+            f"  gitea-data:\n    name: {PROJECT}-gitea\n"
+            + "".join(f"  taskbrigade-{v}:\n    name: {PROJECT}-{v}\n" for v in DATA_VOLUMES))
 
     def compose(self, *args: str, **kw) -> subprocess.CompletedProcess:
         return run(["docker", "compose", "-p", PROJECT, "--project-directory", str(ROOT), "-f",
@@ -140,7 +160,7 @@ def capture(url: str, out: Path, paths: dict) -> None:
     def save(page, name: str, full: bool) -> None:
         png = page.screenshot(full_page=full)
         img = Image.open(BytesIO(png)).convert("RGB")
-        if img.height > MAX_HEIGHT:
+        if full and img.height > MAX_HEIGHT:
             img = img.crop((0, 0, img.width, MAX_HEIGHT))
         # 256-colour palette without dithering: UI screenshots stay sharp at a fraction of the size.
         img.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(
@@ -163,6 +183,9 @@ def capture(url: str, out: Path, paths: dict) -> None:
             for name, (path, full, _desc) in shots.items():
                 page.goto(url + path.format(**paths))
                 page.wait_for_load_state("networkidle")
+                if name in PREPARE:
+                    page.evaluate(PREPARE[name])
+                page.evaluate(MASK_TOKENS_JS)
                 save(page, name, full)
             context.close()
         browser.close()
@@ -193,7 +216,8 @@ def main() -> None:
         finally:
             if args.keep:
                 print(f"Stack {PROJECT} kept: {stack.url} (admin / {stack.password}); remove it with\n"
-                      f"  docker compose -p {PROJECT} down && docker volume rm {PROJECT}-db {PROJECT}-state {PROJECT}-gitea",
+                      f"  docker compose -p {PROJECT} down && docker volume rm {PROJECT}-db {PROJECT}-state {PROJECT}-gitea "
+                      + " ".join(f"{PROJECT}-{v}" for v in DATA_VOLUMES),
                       file=sys.stderr)
             else:
                 stack.down()

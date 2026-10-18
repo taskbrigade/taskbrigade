@@ -1,9 +1,11 @@
-// Prevent lost input in forms with data-guard (edit task, new task, sprint editor).
+// Prevent lost input in forms with data-guard (edit task, new task, sprint editor, workflow editor, settings,
+// project).
 // - Leaving the page (quick capture, links, other forms) with unsaved input:
 //   ask to save and continue, then ask to discard and continue or stay.
 // - Publishing (data-publish) with unsaved input: save and publish in one step.
-// - "Discard changes" (data-discard): confirm, then reload the stored values.
+// - "Cancel" (data-discard): confirm, then reload the stored values.
 // - Closing or reloading the tab: use the browser's standard warning.
+// - [data-dirty-indicator] inside a guarded form is shown while it has unsaved input.
 (function () {
   const guarded = [...document.querySelectorAll("form[data-guard]")];
   if (!guarded.length) return;
@@ -37,6 +39,9 @@
     const kind = dirty[0].dataset.guard;
     const what = kind === "new" ? tmT("The new task has not been created yet.") :
       kind === "sprint" ? tmT("The changes to this sprint are not saved yet.") :
+      kind === "workflow" ? tmT("The changes to this workflow are not saved yet.") :
+      kind === "settings" ? tmT("The changes to the settings are not saved yet.") :
+      kind === "project" ? tmT("The changes to this project are not saved yet.") :
       tmT("The changes to this task are not saved yet.");
     if (confirm(what + "\n\n" + tmT("Save now?\n(OK = save and continue, Cancel = do not save)"))) {
       for (const f of dirty) { if (!(await save(f))) return; }
@@ -64,6 +69,12 @@
     });
   });
 
+  const showDirty = () => guarded.forEach((f) => {
+    const dirty = snapshot(f) !== f.dataset.initial;
+    f.querySelectorAll("[data-dirty-indicator]").forEach((el) => { el.hidden = !dirty; });
+  });
+  ["input", "change"].forEach((type) => document.addEventListener(type, showDirty));
+
   // Submitting a guarded form is an intentional save.
   guarded.forEach((f) => f.addEventListener("submit", () => { leaving = true; }));
 
@@ -76,7 +87,7 @@
     guard(() => { leaving = true; HTMLFormElement.prototype.submit.call(f); });
   }, false);
 
-  // "Discard changes" (data-discard): reload the stored values after one confirmation.
+  // "Cancel" (data-discard): reload the stored values after one confirmation.
   document.addEventListener("click", (e) => {
     const a = e.target.closest("a[data-discard]");
     if (!a) return;

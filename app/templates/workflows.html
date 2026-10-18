@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Workflows") }} – TaskBrigade{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/workflows.css?v={{ static_v }}"><script src="/static/workflow_actions.js?v={{ static_v }}" defer></script>{% endblock %}
+{% block content %}
+{# Template list (research/konzept-workflows.md §8.1); schedules are managed under the Schedules tab (WF 6). #}
+<section class="ui-page wf-page">
+  {% call ui.page_header(_("Workflows"), _("Repeatable task chains with schedules and triggers")) %}
+    {% if can_create %}<a class="ui-btn" href="/workflows/new{% if project %}?project={{ project | urlencode }}{% endif %}">{{ _("+ New workflow") }}</a>{% endif %}
+  {% endcall %}
+  {% include "_workflow_tabs.html" %}
+  {% if request.query_params.msg %}<p class="banner ok" role="status">{{ request.query_params.msg }}{% if started_run %} · <a href="/workflow-runs/{{ started_run }}">{{ _("View run") }}</a>{% endif %}</p>{% endif %}
+  <form method="get" action="/workflows" class="wf-toolbar">
+    {{ ui.search("q", _("Search"), q, _("Search workflows …")) }}
+    <select class="ui-select" name="project" aria-label="{{ _('Project') }}" onchange="this.form.submit()">
+      <option value="">{{ _("All projects") }}</option>
+      {% for key in projects %}<option value="{{ key }}"{% if project == key %} selected{% endif %}>{{ key }}</option>{% endfor %}
+    </select>
+    <noscript><button type="submit" class="ui-btn ui-btn-secondary ui-btn-sm">{{ _("Filter") }}</button></noscript>
+    {% if filtered %}<a href="/workflows">{{ _("reset filters") }}</a>{% endif %}
+  </form>
+
+  {% if rows %}
+  <div class="ui-card ui-card-flush">
+  <div class="ui-table-scroll">
+  <table class="ui-table ui-table-cards wf-list">
+    <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Project") }}</th><th>{{ _("Steps") }}</th><th>{{ _("Version") }}</th><th>{{ _("Schedule") }}</th><th>{{ _("Last runs") }}</th><th>{{ _("Next") }}</th><th class="wf-row-actions-heading">{{ _("Actions") }}</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="task-title"><a href="/workflows/{{ r.project }}/{{ r.key }}"><strong>{{ r.template.name }}</strong></a> <small class="muted"><code>{{ r.key }}</code></small>
+          {% if r.template.status != "active" %} <span class="badge st-cancelled">{{ _("Archived") if r.template.status == "archived" else _("Paused") }}</span>{% endif %}</td>
+        <td class="meta c2">{{ r.project }}</td>
+        <td class="c2" data-label="{{ _('Steps') }}">{{ r.steps }}</td>
+        <td class="c2" data-label="{{ _('Version') }}">{% if r.version %}v{{ r.version }}{% else %}<span class="muted">{{ _("not published") }}</span>{% endif %}{% if r.draft %} <small class="muted">({{ _("draft") }})</small>{% endif %}</td>
+        <td class="c2" data-label="{{ _('Schedule') }}">{{ _("manual") }}</td>
+        <td class="wf-last" data-label="{{ _('Last runs') }}">
+          {% for run in r.runs %}<a href="/workflow-runs/{{ run.id }}" class="wf-dot wf-run-{{ run.status }}" title="#{{ run.run_seq }} · {{ run_status_label(run.status) }}"><span class="visually-hidden">#{{ run.run_seq }} {{ run_status_label(run.status) }}</span></a>{% endfor %}
+          {% if r.last %} <a href="/workflow-runs/{{ r.last.id }}">#{{ r.last.run_seq }}</a> <small>{{ run_status_label(r.last.status) }}</small>{% else %}<span class="muted">{{ _("no runs yet") }}</span>{% endif %}</td>
+        <td class="c3" data-label="{{ _('Next') }}">–</td>
+        <td class="wf-row-actions-cell">{% include "_workflow_actions.html" %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  </div>
+  <p class="ui-muted wf-legend"><small><span class="wf-dot wf-run-succeeded"></span> {{ _("succeeded") }} · <span class="wf-dot wf-run-running"></span> {{ _("running or waiting") }} · <span class="wf-dot wf-run-failed"></span> {{ _("failed or paused") }} · <span class="wf-dot wf-run-cancelled"></span> {{ _("cancelled") }}</small></p>
+  {% elif filtered %}
+  {% call ui.empty(_("No workflows match these filters.")) %}<a href="/workflows">{{ _("reset filters") }}</a>{% endcall %}
+  {% else %}
+  <div class="ui-empty wf-empty">
+    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1.5"></rect><rect x="15" y="15" width="6" height="6" rx="1.5"></rect><path d="M9 6h4a3 3 0 0 1 3 3v6"></path><path d="m14 13 2 2 2-2"></path></svg>
+    <h2 class="ui-empty-title">{{ _("No workflows yet") }}</h2>
+    <p>{{ _("A workflow chains tasks for agents, local runners and reviewers – and can run on a schedule or when an event fires.") }}</p>
+    {% if can_create %}<a class="ui-btn" href="/workflows/new">{{ _("+ New workflow") }}</a>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if can_create %}
+  <h2 class="ui-section-title wf-starters-title">{{ _("Start from a template") }}</h2>
+  <div class="wf-starters">
+    {% for id, st in starters.items() %}
+    <article class="ui-card wf-starter">
+      <div class="wf-starter-head"><h3>{{ _(st.name) }}</h3><span class="ui-pill">{{ _(st.badge) }}</span></div>
+      <p>{{ _(st.text) }}</p>
+      <a class="ui-btn ui-btn-secondary ui-btn-sm" href="/workflows/new?starter={{ id }}{% if project %}&amp;project={{ project | urlencode }}{% endif %}">{{ _("Use template") }}</a>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

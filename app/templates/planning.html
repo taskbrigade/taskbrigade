@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Planning") }} – TaskBrigade{% endblock %}
+{% block head %}<script src="/static/vendor/Sortable.min.js" defer></script><script src="/static/planning.js?v={{ static_v }}" defer></script>{% endblock %}
+{% block content %}
+{# Sprint accordion list: page header (title + subtitle, project select, "+ New sprint"), the segmented filter with
+   the "show closed sprints" toggle and one full-width card per sprint. Closed sprints are hidden by default. The
+   expanded state per user and the drag & drop live in static/planning.js. #}
+{% set subtitle = (project.key ~ " – " ~ project.name ~ " · " ~ ngettext("%(num)d sprint", "%(num)d sprints", sprint_count)) if project else None %}
+{% call ui.page_header(_("Planning"), subtitle) %}
+  {% if projects %}
+    <form class="filters plan-project" method="get" action="/planning" onchange="this.submit()">
+      <select name="project" aria-label="{{ _('Project') }}">
+        {% for key, name in projects %}<option value="{{ key }}" {% if project and project.key == key %}selected{% endif %}>{{ key }} – {{ name }}</option>{% endfor %}
+      </select>
+      <input type="hidden" name="filter" value="{{ active }}">
+      <input type="hidden" name="closed" value="{{ '1' if show_closed else '0' }}">
+      <noscript><button type="submit" class="small secondary">{{ _("Show") }}</button></noscript>
+    </form>
+    {% if project %}<button type="button" class="small" data-open="dlg-new-sprint">{{ _("+ New sprint") }}</button>{% endif %}
+  {% endif %}
+{% endcall %}
+{% if request.query_params.msg %}<p class="banner ok">{{ request.query_params.msg }}</p>{% endif %}
+{% if request.query_params.err %}<p class="banner error">{{ request.query_params.err }}</p>{% endif %}
+{% if owner_hint %}{% include "_own_projects_hint.html" %}{% endif %}
+<p id="planning-msg" role="status" aria-live="polite" tabindex="-1"
+   data-empty-hint="{{ _('No tasks yet – drag tasks here from the backlog or add a task') }}"></p>
+
+{% if project %}
+<div class="plan-toolbar">
+  <div class="ui-seg plan-segments" role="group" aria-label="{{ _('Filter sprints') }}">
+    <a href="/planning?project={{ project.key | urlencode }}&filter=active&closed={{ '1' if show_closed else '0' }}"
+       class="plan-segment" {% if active == 'active' %}aria-pressed="true" aria-current="page"{% endif %}>{{ _("Active %(count)s", count=counts.active) }}</a>
+    <a href="/planning?project={{ project.key | urlencode }}&filter=planned&closed={{ '1' if show_closed else '0' }}"
+       class="plan-segment" {% if active == 'planned' %}aria-pressed="true" aria-current="page"{% endif %}>{{ _("Planned %(count)s", count=counts.planned) }}</a>
+    <a href="/planning?project={{ project.key | urlencode }}&filter=closed&closed={{ '1' if show_closed else '0' }}"
+       class="plan-segment" {% if active == 'closed' %}aria-pressed="true" aria-current="page"{% endif %}>{{ _("Closed %(count)s", count=counts.closed) }}</a>
+    <a href="/planning?project={{ project.key | urlencode }}&filter=all&closed={{ '1' if show_closed else '0' }}"
+       class="plan-segment" {% if active == 'all' %}aria-pressed="true" aria-current="page"{% endif %}>{{ _("All %(count)s", count=counts.all) }}</a>
+  </div>
+  <a class="plan-closed-toggle" href="/planning?project={{ project.key | urlencode }}&filter={{ active }}&closed={{ '0' if show_closed else '1' }}"
+     role="switch" aria-checked="{{ 'true' if show_closed else 'false' }}">
+    <span class="plan-switch" aria-hidden="true"></span><span>{{ _("Show closed sprints") }}</span></a>
+</div>
+
+<div class="plan-list" data-project="{{ project.key }}">
+  {% for r in rows %}{% include "_plan_sprint.html" %}{% else %}
+  <p class="plan-no-sprints muted">{{ _("No sprints in this filter.") }}</p>
+  {% endfor %}
+</div>
+
+{# Dialogs: "+ New sprint" and the sprint actions. The forms post to the sprint routes and come back here
+   (`back=planning`); the "+ Task" dialog posts to the quick add of the sprint. Release is offered for a planned
+   sprint and for a released sprint that still has drafts; close for a released sprint; reopen for a closed one. #}
+<dialog id="dlg-new-sprint">
+  <article>
+    <header><strong>{{ _("New sprint") }}</strong> {{ project.key }}</header>
+    <form method="post" action="/projects/{{ project.key }}/sprints/new">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="back" value="planning">
+      <label>{{ _("Name") }} <input name="name" required maxlength="120"></label>
+      <label>{{ _("Goal") }} <textarea name="goal" rows="2"></textarea></label>
+      <div class="grid">
+        <label>{{ _("Start") }} <input type="date" name="start_date"></label>
+        <label>{{ _("End") }} <input type="date" name="end_date"></label>
+      </div>
+      <footer><button type="button" class="secondary" data-close>{{ _("Cancel") }}</button> <button type="submit">{{ _("Create") }}</button></footer>
+    </form>
+  </article>
+</dialog>
+{% for r in rows %}{% set x = r.sprint %}
+<dialog id="dlg-edit-{{ x.id }}">
+  <article>
+    <header><strong>{{ _("Edit sprint") }}</strong></header>
+    <form method="post" action="/projects/{{ project.key }}/sprints/{{ x.id }}/edit">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="back" value="planning">
+      <label>{{ _("Name") }} <input name="name" value="{{ x.name }}" required maxlength="120"></label>
+      <label>{{ _("Goal") }} <textarea name="goal" rows="2">{{ x.goal or '' }}</textarea></label>
+      <div class="grid">
+        <label>{{ _("Start") }} <input type="date" name="start_date" value="{{ x.start_date or '' }}"></label>
+        <label>{{ _("End") }} <input type="date" name="end_date" value="{{ x.end_date or '' }}"></label>
+      </div>
+      <footer><button type="button" class="secondary" data-close>{{ _("Cancel") }}</button> <button type="submit">{{ _("Save") }}</button></footer>
+    </form>
+  </article>
+</dialog>
+<dialog id="dlg-task-{{ x.id }}">
+  <article>
+    <header><strong>{{ _("Add task") }}</strong> {{ x.name }}</header>
+    <form method="post" action="/planning/{{ project.key }}/quick-add">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="sprint" value="{{ x.id }}">
+      <label>{{ _("One task per line: %(format)s", format=_("Title | Agent | Prio | Reviewer")) }}
+        <textarea name="lines" rows="4" required></textarea></label>
+      <footer><button type="button" class="secondary" data-close>{{ _("Cancel") }}</button> <button type="submit">{{ _("Create") }}</button></footer>
+    </form>
+  </article>
+</dialog>
+{% if can_manage and (x.status == "planned" or r.drafts) %}
+<dialog id="dlg-release-{{ x.id }}" data-src="/planning/{{ project.key }}/sprints/{{ x.id }}/release">
+  <article>
+    <header><strong>{{ _("Release sprint") }}</strong> {{ x.name }}</header>
+    <div class="plan-dialog-body" aria-live="polite">{{ _("Loading…") }}</div>
+    <footer><button type="button" class="secondary" data-close>{{ _("Cancel") }}</button></footer>
+  </article>
+</dialog>
+{% endif %}
+{% if can_manage and x.status == "released" %}{% set others = targets | rejectattr("id", "equalto", x.id) | list %}
+<dialog id="dlg-close-{{ x.id }}">
+  <article>
+    <header><strong>{{ _("Close sprint") }}</strong> {{ x.name }}</header>
+    <p class="muted">{{ _("Running tasks are never stopped; finished tasks stay assigned to this sprint.") }}</p>
+    <form method="post" action="/projects/{{ project.key }}/sprints/{{ x.id }}/close">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="back" value="planning">
+      {% if r.open %}
+      <p>{{ ngettext("%(num)d open task:", "%(num)d open tasks:", r.open) }}</p>
+      <label><input type="radio" name="open_tasks" value="move" {% if not others %}disabled{% else %}checked{% endif %}>
+        {{ _("move to sprint") }}
+        <select name="move_to" {% if not others %}disabled{% endif %}>{% for y in others %}<option value="{{ y.id }}">{{ y.name }} ({{ sprint_status_label(y.status) }})</option>{% endfor %}</select></label>
+      <label><input type="radio" name="open_tasks" value="detach" {% if not others %}checked{% endif %}>
+        {{ _("detach from the sprint (they stay normal tasks)") }}</label>
+      {% else %}<input type="hidden" name="open_tasks" value="detach">
+      <p class="muted">{{ _("No open tasks.") }}</p>{% endif %}
+      <footer><button type="button" class="secondary" data-close>{{ _("Cancel") }}</button> <button type="submit">{{ _("Close sprint") }}</button></footer>
+    </form>
+  </article>
+</dialog>
+{% endif %}
+{% if can_manage and x.status == "closed" %}
+<dialog id="dlg-reopen-{{ x.id }}">
+  <article>
+    <header><strong>{{ _("Reopen sprint") }}</strong> {{ x.name }}</header>
+    <p class="muted">{{ _("The sprint goes back to 'released'; finished tasks stay assigned to it.") }}</p>
+    <form method="post" action="/projects/{{ project.key }}/sprints/{{ x.id }}/reopen"
+          onsubmit="return confirm({{ _("Reopen sprint '%(name)s'? %(num)d tasks moved out when it was closed will be moved back.", name=x.name, num=r.moved_out) | tojson | forceescape }})">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="back" value="planning">
+      <label><input type="checkbox" name="restore_tasks" value="1" checked> {{ _("Move tasks back") }}</label>
+      <footer><button type="button" class="secondary" data-close>{{ _("Cancel") }}</button> <button type="submit" class="secondary">{{ _("Reopen sprint") }}</button></footer>
+    </form>
+  </article>
+</dialog>
+{% endif %}
+{% endfor %}
+{% elif projects %}
+<p class="muted">{{ _("Choose a project.") }}</p>
+{% endif %}
+{% endblock %}

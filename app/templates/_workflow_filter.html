@@ -1,0 +1,10 @@
+{#- Kanban/backlog filter `workflow` (research/konzept-workflows.md §8.6): hide (default), all, only, or one template.
+    Remembered in the cookie tm_workflow like the owner filter. -#}
+<select name="workflow" aria-label="{{ _('Workflow tasks') }}" title="{{ _('Show tasks created by workflow runs (remembered)') }}">
+  <option value="hide" {% if workflow_filter == "hide" %}selected{% endif %}>{{ _("Hide workflow tasks") }}</option>
+  <option value="all" {% if workflow_filter == "all" %}selected{% endif %}>{{ _("With workflow tasks") }}</option>
+  <option value="only" {% if workflow_filter == "only" %}selected{% endif %}>{{ _("Only workflow tasks") }}</option>
+  {% if workflow_options %}<optgroup label="{{ _('Workflow') }}">
+    {% for w in workflow_options %}<option value="{{ w.id }}" {% if workflow_filter == w.id | string %}selected{% endif %}>{{ w.label }}</option>{% endfor %}
+  </optgroup>{% endif %}
+</select>

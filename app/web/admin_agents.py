@@ -10,7 +10,7 @@ from app.i18n import _
 from app.logging_setup import audit
 from app.models import AGENT_KINDS, Actor, Project
 from app.services import actors as svc
-from app.services import members, onboarding, settings_store
+from app.services import members, onboarding, settings_store, zones
 from app.web.common import render, web_session
 from app.web.downloads import server_url
 
@@ -36,6 +36,8 @@ SETUP_KINDS = {"claude_code": "claude-code", "codex": "codex", "opencode": "open
 
 def join_commands(base_url: str, name: str, code: str, agent_kind: str | None = None) -> dict[str, str]:
     """Commands for the agent machine: install tbr (if missing) and join – including tbr setup where the kind is known."""
+    if agent_kind == "runner":  # Runs on the TaskBrigade host itself as a system service (docs/operations.md).
+        return {"install": "", "join": f"sudo /opt/taskbrigade/app/.venv/bin/tbr-admin runner join {code}"}
     setup = f" --setup {SETUP_KINDS[agent_kind]}" if agent_kind in SETUP_KINDS else ""
     return {"install": f"curl -fsSL {base_url}/install.sh | sh",
             "join": f"tbr join {base_url} {code} --dir ~/taskbrigade-work/{name}{setup}"}
@@ -71,27 +73,30 @@ def new_form(request: Request, user: UiUser = Depends(require_admin)):
 @router.post("/new", dependencies=POST)
 async def create(request: Request, user: UiUser = Depends(require_admin), name: str = Form(...),
                  display_name: str = Form(""), agent_kind: str = Form(...), runtime: str = Form("local"),
-                 role: str = Form("worker"), owner: str = Form(""), is_public: bool = Form(False)):
+                 role: str = Form("worker"), owner: str = Form(""), is_public: bool = Form(False),
+                 model_location: str = Form("cloud"), confirm_local_model: bool = Form(False)):
     from app.web.admin_users import owner_from_form
 
     form_data = await request.form()
     selected = [str(k) for k in form_data.getlist("projects")]
     form = {"name": name, "display_name": display_name, "agent_kind": agent_kind, "runtime": runtime, "role": role,
-            "projects": selected, "owner": owner, "is_public": is_public}
+            "projects": selected, "owner": owner, "is_public": is_public, "model_location": model_location}
     try:
         if role not in AGENT_ROLES:
             raise AppError(_("Role must be one of %(roles)s", roles=", ".join(AGENT_ROLES)))
+        zones.require_confirmation(model_location, None, confirm_local_model)
         with web_session() as s:
             projects = [p for p in _projects(s) if p.project_key in selected]
             created = svc.create(s, name=name, display_name=display_name or name, actor_type="agent",
                                  agent_kind=agent_kind, role=role, runtime=runtime, issue_token=False,
+                                 model_location=model_location,
                                  owner=owner_from_form(s, owner, _me(s, user)), is_public=is_public)
             actor = created.actor
             for project in projects:  # Before Gitea: a privacy violation rolls everything back.
                 members.check_privacy(project, actor)
-            audit(user.name, "actor_created", target=actor.name, via="ui-wizard")
+            audit(user.name, "actor_created", target=actor.name, model_location=actor.model_location, via="ui-wizard")
             gitea_error = None
-            if onboarding.gitea_admin_client(s) is not None:
+            if onboarding.gitea_admin_client(s) is not None and actor.agent_kind != "runner":
                 try:
                     onboarding.provision_gitea(s, actor)
                     audit(user.name, "gitea_user_provisioned", target=actor.name, gitea_user=actor.gitea_username,

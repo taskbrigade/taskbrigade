@@ -44,7 +44,8 @@ def own_projects_only(actor: Actor | None) -> bool:
 
 # --- Agent visibility (owner + public) ------------------------------------------------------------------------
 # Every agent has an owner (a human) and/or is public. Assignment and reviewer choices show a human only own and
-# public agents; admins may switch on "Show all agents" in the profile. The server enforces the same rule on every
+# public agents; admins see only their own agents (not other owners' public ones) unless they switch on "Show all
+# agents" in the profile. The server enforces the same rule on every
 # assignment (`require_may_use_agent`): admins may use any agent, other humans own and public ones, agents (e.g. an
 # orchestrator) public ones, themselves and those of their own owner.
 
@@ -73,11 +74,20 @@ def all_agents_shown(viewer: Actor | None) -> bool:
     return viewer is None or (viewer.actor_type == "human" and viewer.role == "admin" and viewer.show_all_agents)
 
 
+def own_agents_only(viewer: Actor | None) -> bool:
+    """Profile switch "Show all agents" off for a human admin: choices, agent filters and Admin → Users & agents
+    show only the agents the admin owns – also when other owners' agents are public. A display default only."""
+    return (viewer is not None and viewer.actor_type == "human" and viewer.role == "admin"
+            and not viewer.show_all_agents)
+
+
 def agent_choice_filter(viewer: Actor | None):
     """SQL condition on `Actor` for assignment/reviewer choices: humans, plus the agents `viewer` may use – for
-    admins without "Show all agents" only own and public ones (a display default, the server allows all)."""
+    admins without "Show all agents" only their own ones (a display default, the server allows all)."""
     if all_agents_shown(viewer):
         return true()
+    if own_agents_only(viewer):
+        return or_(Actor.actor_type == "human", Actor.owner_id == viewer.id)
     own = Actor.owner_id == viewer.id if viewer.actor_type == "human" else or_(
         Actor.id == viewer.id, and_(Actor.owner_id.is_not(None), Actor.owner_id == viewer.owner_id))
     return or_(Actor.actor_type == "human", Actor.is_public.is_(True), own)

@@ -27,7 +27,7 @@ from app.i18n import N_
 from app.i18n import gettext as _
 from app.logging_setup import audit
 from app.models import Actor, Notification, Project, QuestionRead, Task, TaskComment, TelegramAction
-from app.services import settings_store, state_machine
+from app.services import settings_store, state_machine, zones
 from app.services import tasks as task_svc
 from app.services.actors import utcnow
 
@@ -119,7 +119,7 @@ def _set_result(session: Session, kb: str, result: str) -> None:
 
 
 def _local(session: Session, task: Task) -> bool:
-    return session.get(Project, task.project_id).privacy == "local_only"
+    return zones.effective_class(session.get(Project, task.project_id), task) != "cloud_ok"
 
 
 def _error_text(session: Session, e: AppError, task: Task) -> str:
@@ -306,7 +306,7 @@ def mark_questions_read(session: Session, actor: Actor | None, task_nrs: list[st
         return
     latest = (select(TaskComment.task_id, TaskComment.id.label("cid"))
               .join(Task, Task.id == TaskComment.task_id).join(Project, Project.id == Task.project_id)
-              .where(Task.task_nr.in_(task_nrs), Task.status == "questions", Project.privacy == "local_only",
+              .where(Task.task_nr.in_(task_nrs), Task.status == "questions", zones.sql_effective_class() != "cloud_ok",
                      TaskComment.comment_type == "question"))
     ids: dict[int, int] = {}
     for task_id, cid in session.execute(latest):

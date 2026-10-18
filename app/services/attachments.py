@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from urllib.parse import quote
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import getenv
@@ -19,6 +19,11 @@ from app.services.state_machine import add_event
 
 MAX_BYTES = int(getenv("MAX_ATTACHMENT_MB", "10")) * 1024 * 1024
 MAX_FILES = 20
+# Concept research/konzept-datenzonen.md §1 rule 5: spreadsheet and archive attachments must not land in Git.
+BLOCKED_EXTENSIONS = frozenset({"xlsx", "xls", "xlsm", "csv", "tsv", "ods", "zip"})
+# Zones L (`local_only`) and R (`sealed`), by the task's effective class.
+RESTRICTED_CLASSES = frozenset({"local_only", "sealed"})
+USE_DATASET_UPLOAD = "use_dataset_upload"
 
 
 @dataclass
@@ -62,6 +67,41 @@ def can_attach(actor: Actor, task: Task, owner_id: int | None = None) -> bool:
             or (actor.actor_type == "human" and actor.id == owner_id))
 
 
+def _extension(name: str) -> str:
+    base = PurePosixPath((name or "").replace("\\", "/")).name
+    return base.rsplit(".", 1)[-1].lower() if "." in base else ""
+
+
+def is_blocked_attachment(filename: str) -> bool:
+    """True for spreadsheet/archive names, before and after `safe_filename` (case-insensitive)."""
+    return _extension(filename) in BLOCKED_EXTENSIONS or _extension(safe_filename(filename)) in BLOCKED_EXTENSIONS
+
+
+def attachment_class(task: Task, project: Project) -> str:
+    """Effective data class of the task (`zones.effective_class`)."""
+    from app.services import zones
+
+    return zones.effective_class(project, task)
+
+
+def scan_blocked_attachments(session: Session) -> list[dict]:
+    """Existing spreadsheet/archive attachments of tasks whose effective class is `local_only`/`sealed`. Read-only."""
+    rows = session.execute(
+        select(TaskAttachment.filename, TaskAttachment.repo_path, Task.task_nr, Project.project_key,
+               Project.gitea_owner, Project.gitea_repo)
+        .join(Task, Task.id == TaskAttachment.task_id)
+        .join(Project, Project.id == Task.project_id)
+        .where(func.coalesce(Task.data_class, Project.privacy).in_(sorted(RESTRICTED_CLASSES)))
+        .order_by(Project.project_key, Task.task_nr, TaskAttachment.filename, TaskAttachment.id)).all()
+    found = []
+    for filename, repo_path, task_nr, key, owner, repo in rows:
+        if not is_blocked_attachment(filename) and not is_blocked_attachment(PurePosixPath(repo_path).name):
+            continue
+        found.append({"project": key, "task_nr": task_nr, "filename": filename, "path": repo_path,
+                      "repo": f"{owner}/{repo}" if owner and repo else None})
+    return found
+
+
 def listing(session: Session, task: Task, project: Project) -> list[dict]:
     rows = session.scalars(select(TaskAttachment).where(TaskAttachment.task_id == task.id)
                            .order_by(TaskAttachment.created_at, TaskAttachment.id))
@@ -78,16 +118,24 @@ def add(session: Session, actor: Actor, task: Task, uploads: list[Upload]) -> li
     uploads = [u for u in uploads if u.filename or u.content]
     if not uploads:
         return []
-    if not can_attach(actor, task, session.get(Project, task.project_id).owner_id):
+    project = session.get(Project, task.project_id)
+    if not can_attach(actor, task, project.owner_id):
         raise Forbidden(_( 'Attachments: only admins, orchestrators, owners, creators, or assignees' ))
     if len(uploads) > MAX_FILES:
         raise Unprocessable(_("At most %(count)d files at once", count=MAX_FILES))
+    if attachment_class(task, project) in RESTRICTED_CLASSES:
+        blocked = [u.filename or "file" for u in uploads if is_blocked_attachment(u.filename)]
+        if blocked:
+            raise Unprocessable(
+                _("%(filename)s: spreadsheet and archive files cannot be task attachments in a local-only project. "
+                  "They would be stored in Git and can reach cloud agents. Upload them as a dataset under Data "
+                  "(/data/upload) instead.", filename=", ".join(blocked)),
+                code=USE_DATASET_UPLOAD)
     for u in uploads:
         if len(u.content) > MAX_BYTES:
             raise Unprocessable(_("%(filename)s: larger than %(size)d MB", filename=u.filename, size=MAX_BYTES // (1024 * 1024)), code="attachment_too_large")
         if not u.content:
             raise Unprocessable(_("%(filename)s: file is empty", filename=u.filename))
-    project = session.get(Project, task.project_id)
     if not project.gitea_repo:
         raise Unprocessable(_( 'Attachments require a Gitea repository; this project does not have one yet' ), code="no_repo")
 

@@ -9,7 +9,7 @@ on Gitea Actions.
 | Job | What it does |
 | --- | --- |
 | `lint` | `uvx ruff@0.14.0 check .` (rules: Ruff defaults, settings in `pyproject.toml`). Formatting is not enforced. |
-| `test` | `uv run pytest -q` – the complete suite, including the database tests, against a throwaway `mariadb:10.5` service container (database `tm_test`, host port 33306). The job never sees another database: `tests/conftest.py` refuses any name not ending in `_test`. |
+| `test` | `uv run pytest -q` – the complete suite, including the database tests, against a throwaway `mariadb:10.5` service container (database `tm_test`, host port 33306). The job never sees another database: `tests/conftest.py` refuses any name not ending in `_test`. It installs Playwright's Chromium first (`uv run playwright install --with-deps chromium`) for the screenshot and layout tests in `tests/test_ui_screens.py`, which compare the main pages at 390, 768 and 1440 px with the baselines in `tests/screenshots/` (`TBR_UPDATE_SCREENSHOTS=1` rewrites them). |
 | `image` | `docker buildx build` for `linux/amd64` and `linux/arm64` (arm64 through QEMU), no push. |
 | `smoke` | `deploy/docker/smoke-test.sh`: `docker compose --profile gitea up` with a freshly built image, `GET /healthz`, then one task through the agent workflow – `tbr create` → `tbr prepare` (claim, clone, worktree) → commit and `git push` with `tbr git-credential` → `tbr submit` → status `for_review` and an open pull request in the bundled Gitea. |
 | `release` | Tags `v*` only, after all other jobs: builds both platforms and pushes `ghcr.io/taskbrigade/taskbrigade:<version>` and `:<major>.<minor>` with the workflow's `GITHUB_TOKEN`. |

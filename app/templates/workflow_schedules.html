@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Workflow schedules") }}{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ _("Workflow schedules") }}</h2></div>
+{% include "_workflow_tabs.html" %}
+{% if not enabled %}<p role="status">{{ _("Schedules are paused. Enable Workflows in Admin → Settings.") }}</p>{% endif %}
+<table><thead><tr><th>{{ _("Workflow") }}</th><th>{{ _("Schedule") }}</th><th>{{ _("Next runs") }}</th></tr></thead><tbody>
+{% for template, row, dates in entries %}<tr><td>{{ template.project.project_key }}/{{ template.workflow_key }}</td>
+<td><a href="/workflows/{{ template.project.project_key }}/{{ template.workflow_key }}/schedules?schedule_id={{ row.id }}">{{ row.name }}</a> · {{ _("Enabled") if row.enabled else _("Disabled") }}</td>
+<td>{% for date in dates %}{{ date }}<br>{% endfor %}</td></tr>{% endfor %}</tbody></table>
+<h2>{{ _("Templates") }}</h2>
+<ul>{% for template in templates %}<li><a href="/workflows/{{ template.project.project_key }}/{{ template.workflow_key }}/schedules">{{ template.name }} · {{ _("Manage schedules") }}</a></li>{% endfor %}</ul>
+{% endblock %}

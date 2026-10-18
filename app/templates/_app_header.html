@@ -1,0 +1,82 @@
+{% import "_logo.html" as logo %}
+{% import "_ui.html" as ui %}
+{% macro current(active) %}{% if active %} aria-current="page"{% endif %}{% endmacro %}
+{% set path = request.url.path %}
+{% set here = path ~ ("?" ~ request.url.query if request.url.query else "") %}
+{% macro link(url, label, active, icon='', badge=false) %}
+<a href="{{ url }}"{{ current(active) }}>{% if icon %}<span class="tab-icon" aria-hidden="true">{{ icon }}</span>{% endif %}<span>{{ _(label) }}</span>{% if badge and inbox_badge %}<span class="nav-badge" aria-label="{{ _('Needs your action') }}">{{ inbox_badge }}</span>{% endif %}</a>
+{% endmacro %}
+{% macro extra_links() %}
+  {% if db_ready %}
+  {{ link('/projects', 'Projects', path.startswith('/projects')) }}
+  {% if show_workflows and user.actor_id %}{{ link('/workflows', 'Workflows', path.startswith('/workflow')) }}{% endif %}
+  {% if show_data %}{{ link('/data', 'Data', path.startswith('/data')) }}{% endif %}
+  {% endif %}
+  {% if user.is_admin %}{{ link('/admin/users' if db_ready else '/admin/database', 'Admin', path.startswith('/admin')) }}{% endif %}
+{% endmacro %}
+<header class="container-fluid topbar app-header">
+  <div class="app-header-row">
+    <a href="/" class="brand" aria-label="{{ _('TaskBrigade – home') }}">{{ logo.full(34, alt='') }}</a>
+    {% if user %}
+    {% if db_ready and qc_projects %}
+    <form class="quick-capture collapsible" id="quick-capture" method="post" action="/tasks/quick">
+      <h2 class="qc-heading">{{ _('Quick capture') }}</h2>
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="qc-input">
+        <span class="qc-leading" aria-hidden="true">＋</span>
+        <input name="title" placeholder="{{ _('Quick capture: new task … (press N)') }}" required maxlength="200" aria-label="{{ _('Title') }}">
+      </div>
+      {# The list shows "KEY – name"; with JS the closed select shows only the key (.qc-project-key over it). #}
+      <label class="qc-project" title="{{ qc_projects[0][1] }}"><span class="qc-project-label">{{ _('Project') }}</span>
+        <span class="qc-project-box">
+          <select name="project" data-qc-project>
+            {% for key, name in qc_projects %}<option value="{{ key }}" title="{{ name }}">{{ key }}{% if name and name != key %} – {{ name }}{% endif %}</option>{% endfor %}
+          </select>
+          <span class="qc-project-key" aria-hidden="true">{{ qc_projects[0][0] }}</span>
+        </span>
+      </label>
+      <button type="submit" class="qc-submit" aria-label="{{ _('Create') }}">{{ _('Create') }}</button>
+      <button type="button" class="sheet-close" data-close="quick-capture" aria-label="{{ _('Close') }}">×</button>
+    </form>
+    <button type="button" class="qc-toggle" aria-expanded="false" aria-controls="quick-capture" data-toggle data-group="topbar" aria-label="{{ _('Quick capture') }}"><span aria-hidden="true">＋</span></button>
+    {% elif db_ready %}<a href="/tasks/new" class="qc-new" aria-label="{{ _('Create task') }}">＋</a>{% endif %}
+    <nav id="main-nav" class="desktop-nav" aria-label="{{ _('Main navigation') }}">
+      {% if db_ready %}
+      {{ link('/', 'Inbox', path == '/') }}
+      {{ link('/backlog', 'Backlog', path.startswith('/backlog')) }}
+      {{ link('/kanban', 'Kanban', path.startswith('/kanban')) }}
+      {% if show_planning %}{{ link('/planning', 'Planning', path.startswith('/planning')) }}{% endif %}
+      {% endif %}
+      {{ extra_links() }}
+    </nav>
+    <div class="account">
+      <button type="button" class="avatar" aria-label="{{ _('Account menu') }}: {{ user.name }}" aria-expanded="false" aria-controls="account-menu" data-toggle data-group="topbar">{{ user.name[:2] | upper }}</button>
+      <div id="account-menu" class="header-popup collapsible">
+        <strong>{{ user.name }}</strong>
+        {% if db_ready and user.actor_id %}{{ link('/profile', 'Profile', path.startswith('/profile')) }}{% endif %}
+        <div class="account-languages"><span>{{ _('Language') }}</span>
+          {{ ui.language_choices(request, here) }}
+        </div>
+        <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" class="secondary outline">{{ _('Log out') }}</button></form>
+      </div>
+    </div>
+    {% else %}
+    <nav class="account-languages" aria-label="{{ _('Language') }}">{{ ui.language_choices(request, here) }}</nav>
+    {% endif %}
+  </div>
+  {% if not db_ready %}<p class="banner warn">{{ _('Setup mode: no usable database connection. Only Admin → Database is available.') }}</p>{% endif %}
+</header>
+{% if user and db_ready %}
+<nav class="bottom-tabs" aria-label="{{ _('Mobile navigation') }}">
+  {{ link('/', 'Inbox', path == '/', '⌂', true) }}
+  {{ link('/backlog', 'Backlog', path.startswith('/backlog'), '≡') }}
+  {{ link('/kanban', 'Kanban', path.startswith('/kanban'), '▥') }}
+  {% if show_planning %}{{ link('/planning', 'Planning', path.startswith('/planning'), '▦') }}{% endif %}
+  <button type="button" aria-expanded="false" aria-controls="more-menu" data-toggle data-group="topbar"{% if path.startswith(('/projects', '/workflow', '/admin', '/data', '/profile')) %} class="active"{% endif %}><span class="tab-icon" aria-hidden="true">•••</span><span>{{ _('More') }}</span></button>
+</nav>
+<div id="more-menu" class="header-popup more-sheet collapsible" aria-label="{{ _('More') }}">
+  <button type="button" class="sheet-close" data-close="more-menu" aria-label="{{ _('Close') }}">×</button>
+  {{ extra_links() }}
+  {% if user.actor_id %}{{ link('/profile', 'Profile', path.startswith('/profile')) }}{% endif %}
+</div>
+{% endif %}

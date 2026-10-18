@@ -2,7 +2,7 @@
 <p class="banner ok">✅ {{ _("Connection successful") }} – <code>{{ result.server_version }}</code>,
   SKIP LOCKED {{ _("yes") if result.skip_locked else _("no") }},
   {{ _("schema revision <code>%(current)s</code> (latest <code>%(head)s</code>)", current=result.current_revision or _("empty"), head=result.head_revision) }}</p>
-<button hx-post="/admin/database/save" hx-include="#db-form" hx-target="#db-status">{{ _("Save") }}</button>
+<button class="ui-btn" hx-post="/admin/database/save" hx-include="#db-form" hx-target="#db-status">{{ _("Save") }}</button>
 {% else %}
 <p class="banner error">❌ {{ result.error }}</p>
 {% endif %}

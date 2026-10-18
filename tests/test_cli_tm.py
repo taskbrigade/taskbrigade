@@ -100,6 +100,21 @@ def test_parse_due():
         client_mod.parse_due("31.10.2026")
 
 
+def test_parse_usage():
+    assert client_mod.parse_usage("input=100,output=200,cost_cents=12,model=gpt-4") == {
+        "input_tokens": 100, "output_tokens": 200, "cost_cents": 12, "model": "gpt-4"}
+    assert client_mod.parse_usage("input=5") == {"input_tokens": 5}
+    assert client_mod.parse_usage("cost_cents=3,model=x") == {"cost_cents": 3, "model": "x"}
+    assert client_mod.parse_usage(None) is None
+    assert client_mod.parse_usage("") is None
+    with pytest.raises(ValueError, match="must be an integer"):
+        client_mod.parse_usage("input=abc")
+    with pytest.raises(ValueError, match="invalid"):
+        client_mod.parse_usage("foo=1")
+    with pytest.raises(ValueError, match="at least one"):
+        client_mod.parse_usage("model=gpt-4")
+
+
 def test_update_sends_patch_with_if_match(monkeypatch):
     fake = OrchestratorFake()
     monkeypatch.setattr(tm, "_client", lambda: fake)
@@ -119,6 +134,51 @@ def test_update_sends_patch_with_if_match(monkeypatch):
     assert r.exit_code == 1 and "Version conflict" in r.output
     assert runner.invoke(tm.app, ["update", "KET-0001"]).exit_code == 2
     assert runner.invoke(tm.app, ["update", "KET-0001", "--due", "morgen"]).exit_code == 2
+
+
+def test_parse_depends_on():
+    assert client_mod.parse_depends_on(["ket-1", "KET-2, ket-1"]) == ["KET-1", "KET-2"]
+    assert client_mod.parse_depends_on("KET-1,KET-2") == ["KET-1", "KET-2"]
+    assert client_mod.parse_depends_on(None) == [] and client_mod.parse_depends_on(["none"]) == []
+    assert client_mod.parse_depends_on("-") == []
+    with pytest.raises(ValueError, match="none"):
+        client_mod.parse_depends_on(["none", "KET-1"])
+
+
+def test_update_depends_on_set_replace_clear_unchanged(monkeypatch):
+    fake = OrchestratorFake()
+    monkeypatch.setattr(tm, "_client", lambda: fake)
+    r = runner.invoke(tm.app, ["update", "KET-0001", "--depends-on", "ket-0002", "--depends-on", "KET-0003"])
+    assert r.exit_code == 0, r.output
+    assert fake.calls[-1][2]["json"] == {"depends_on": ["KET-0002", "KET-0003"]}
+    r = runner.invoke(tm.app, ["update", "KET-0001", "--depends-on", "KET-0004"])  # Replaces, does not add.
+    assert fake.calls[-1][2]["json"] == {"depends_on": ["KET-0004"]}
+    r = runner.invoke(tm.app, ["update", "KET-0001", "--depends-on", "none"])
+    assert r.exit_code == 0 and fake.calls[-1][2]["json"] == {"depends_on": []}
+    r = runner.invoke(tm.app, ["update", "KET-0001", "--prio", "2"])  # Without the option: not sent.
+    assert "depends_on" not in fake.calls[-1][2]["json"]
+    r = runner.invoke(tm.app, ["update", "KET-0001", "--depends-on", "none", "--depends-on", "KET-0002"])
+    assert r.exit_code == 2 and "none" in r.output
+
+
+class FailingFake(OrchestratorFake):
+    def request(self, method, path, **kw):
+        raise client_mod.ApiError(422, "unprocessable", "KET-0001 cannot depend on itself")
+
+
+def test_update_depends_on_server_errors_are_readable(monkeypatch):
+    monkeypatch.setattr(tm, "_client", lambda: FailingFake())
+    r = runner.invoke(tm.app, ["update", "KET-0001", "--depends-on", "KET-0001"])
+    assert r.exit_code == 1 and "cannot depend on itself" in r.output and "Traceback" not in r.output
+    monkeypatch.setattr(tm, "_client", lambda: OrchestratorFake(deny=True))
+    r = runner.invoke(tm.app, ["update", "KET-0001", "--depends-on", "KET-0002"])
+    assert r.exit_code == 1 and "403" in r.output and "No permission" in r.output
+
+
+def test_task_markdown_lists_dependencies_with_status():
+    t = {"task_nr": "K-1", "title": "T", "status": "defined", "prio": 3, "description": "D",
+         "dependencies": [{"task_nr": "K-0", "status": "in_progress", "title": "Basis"}]}
+    assert "## Dependencies\n\n- K-0 (in_progress): Basis" in tm.task_markdown(t)
 
 
 def test_cancel_reset_transition_and_worker_403(monkeypatch):
@@ -205,6 +265,13 @@ def test_release_and_close_reports():
          "blocked": [{"task_nr": "K-2", "title": "Zwei", "missing": ["description"]}]}
     text = client_mod.release_report(r)
     assert "1 task(s) set to defined" in text and "+ K-1 Eins" in text and "K-2 Zwei (missing: description)" in text
+    assert "Warning" not in text  # No `waiting` (older servers) or an empty list: no warning.
+    r["waiting"] = [{"task_nr": "K-1", "title": "Eins", "waits_for": [
+        {"task_nr": "K-7", "sprint": None}, {"task_nr": "K-8", "sprint": 3, "sprint_name": "B",
+                                             "sprint_status": "planned"}]}]
+    text = client_mod.release_report(r)
+    assert "Warning: 1 released task(s) wait for" in text and "! K-1 Eins waits for K-7 (no sprint), K-8 (B, planned)" \
+        in text
     r = {"sprint": {"name": "A"}, "moved_to": None, "moved": [], "detached": []}
     assert client_mod.close_report(r) == "Sprint 'A' closed."
     w = tm.create_warnings({"task_nr": "K-1", "status": "draft", "assigned_to": "x", "sprint_status": "planned",

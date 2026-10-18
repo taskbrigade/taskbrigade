@@ -20,8 +20,9 @@ from app.i18n import _, LanguageMiddleware
 from app.logging_setup import setup_logging
 from app.scheduler import create_scheduler
 from app.services import distribution, telegram_bot
-from app.web import (admin_agents, admin_db, admin_settings, admin_users, auth_routes, downloads, profile,
-                     projects_ui, sprint_editor, sprints_ui, tasks_ui)
+from app.web import (admin_agents, admin_db, admin_settings, admin_ui_kit, admin_users, auth_routes, data_ui,
+                     downloads, mail_ui, planning_ui, profile, projects_ui, sprint_editor, sprints_ui, tasks_ui,
+                     workflow_schedules, workflow_triggers, workflows_ui)
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +87,9 @@ async def lifespan(app: FastAPI):
     if scheduler:
         telegram_bot.shutdown()
         scheduler.shutdown(wait=False)
+        from app.services import mail
+
+        mail.release_lock()
     db.dispose()
 
 
@@ -174,11 +178,18 @@ def create_app() -> FastAPI:
     app.include_router(admin_agents.router)
     app.include_router(admin_users.router)
     app.include_router(admin_settings.router)
+    app.include_router(admin_ui_kit.router)
     app.include_router(tasks_ui.router)
+    app.include_router(mail_ui.router)
     app.include_router(projects_ui.router)
     app.include_router(sprints_ui.router)
     app.include_router(sprint_editor.router)
+    app.include_router(planning_ui.router)
     app.include_router(profile.router)
+    app.include_router(data_ui.router)
+    app.include_router(workflow_schedules.router)
+    app.include_router(workflow_triggers.router)
+    app.include_router(workflows_ui.router)
     return app
 
 

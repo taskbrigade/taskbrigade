@@ -4,6 +4,7 @@
 {% set filter = "project=" ~ p.project_key ~ "&sprint=" ~ sprint.id %}
 <div class="headline"><h2>{{ sprint.name }} <small><a href="/projects/{{ p.project_key }}">{{ p.project_key }}</a> · {{ _("Sprint") }}</small></h2>
   <span><a href="/backlog?{{ filter }}&all=1">{{ _("Backlog") }}</a> · <a href="/kanban?{{ filter }}">{{ _("Kanban") }}</a>
+  {% if can_plan %} · <a href="/planning?project={{ p.project_key | urlencode }}{% if sprint.status == 'closed' %}&closed=1&filter=all{% endif %}">{{ _("Planning board") }}</a>{% endif %}
   {% if can_plan and sprint.status != "closed" %} · <a href="/tasks/new?{{ filter }}">{{ _("New task") }}</a>{% endif %}
   {% if can_plan and sprint.status == "planned" %} · <a href="/projects/{{ p.project_key }}/sprints/{{ sprint.id }}/editor">{{ _("Edit in the sprint editor") }}</a>{% endif %}</span></div>
 {% if request.query_params.msg %}<p class="banner ok">{{ request.query_params.msg }}</p>{% endif %}
@@ -47,7 +48,7 @@
   <header><strong>{{ _("Tasks") }}</strong> <small class="muted">({{ tasks | length }})</small></header>
   <div class="table-card">
   <table>
-    <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Status") }}</th><th>{{ _("Prio") }}</th><th>{{ _("Assigned") }}</th><th>{{ _("Missing") }}</th></tr></thead>
+    <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Status") }}</th><th>{{ _("Prio") }}</th><th>{{ _("Assigned") }}</th><th>{{ _("Missing") }}</th><th>{{ _("Waits for") }}</th></tr></thead>
     <tbody>
     {% for t in tasks %}
       <tr>
@@ -57,9 +58,10 @@
         <td><span class="prio prio-{{ t.prio }}">{{ t.prio }}</span></td>
         <td>{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}<span class="agent none">–</span>{% endif %}</td>
         <td>{% if t.missing %}<small class="missing">{{ field_labels(t.missing) }}</small>{% endif %}</td>
+        <td>{% if t.waits_for %}<small class="waits">{% include "_late_deps.html" %}</small>{% endif %}</td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="muted">{{ _("No tasks in this sprint yet.") }}</td></tr>
+      <tr><td colspan="7" class="muted">{{ _("No tasks in this sprint yet.") }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -102,23 +104,7 @@
 {% if can_manage and preview is not none %}
 <article id="release">
   <header><strong>{{ _("Release sprint") }}</strong></header>
-  {% if preview.released %}
-  <h6>{{ _("Will be released (%(count)d)", count=preview.released | length) }}</h6>
-  <ul class="plain">{% for t in preview.released %}<li><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a> {{ t.title }}</li>{% endfor %}</ul>
-  {% endif %}
-  {% if preview.blocked %}
-  <h6>{{ ngettext("Stays a draft (%(num)d)", "Stay drafts (%(num)d)", preview.blocked | length) }}</h6>
-  <ul class="plain blocked">{% for t in preview.blocked %}<li><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a> {{ t.title }}
-    <small class="missing">{{ _("missing: %(fields)s", fields=field_labels(t.missing)) }}</small></li>{% endfor %}</ul>
-  {% endif %}
-  {% if not preview.released and not preview.blocked %}<p class="muted">{{ _("No drafts in this sprint.") }}</p>{% endif %}
-  {% if sprint.status == "planned" or preview.released %}
-  <form method="post" action="/projects/{{ p.project_key }}/sprints/{{ sprint.id }}/release"
-        onsubmit="return confirm({{ ngettext('Release the sprint and %(num)d task?', 'Release the sprint and %(num)d tasks?', preview.released | length) | tojson | forceescape }})">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <button type="submit">{% if sprint.status == "planned" %}{{ _("Release sprint") }}{% else %}{{ _("Release completed drafts") }}{% endif %}</button>
-  </form>
-  {% endif %}
+  {% include "_release_preview.html" %}
 </article>
 {% endif %}
 
@@ -139,6 +125,19 @@
     {% else %}<input type="hidden" name="open_tasks" value="detach">
     <p class="muted">{{ _("No open tasks.") }}</p>{% endif %}
     <button type="submit" class="secondary">{{ _("Close sprint") }}</button>
+  </form>
+</article>
+{% endif %}
+
+{% if can_manage and sprint.status == "closed" %}
+<article id="reopen">
+  <header><strong>{{ _("Reopen sprint") }}</strong></header>
+  <p class="muted">{{ _("The sprint goes back to 'released'; finished tasks stay assigned to it.") }}</p>
+  <form method="post" action="/projects/{{ p.project_key }}/sprints/{{ sprint.id }}/reopen"
+        onsubmit="return confirm({{ _("Reopen sprint '%(name)s'? %(num)d tasks moved out when it was closed will be moved back.", name=sprint.name, num=restorable) | tojson | forceescape }})">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label><input type="checkbox" name="restore_tasks" value="1" checked> {{ _("Move tasks back") }}</label>
+    <button type="submit" class="secondary">{{ _("Reopen sprint") }}</button>
   </form>
 </article>
 {% endif %}

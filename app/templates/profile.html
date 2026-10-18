@@ -1,98 +1,234 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}{{ _("Profile") }} – TaskBrigade{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/profile.css?v={{ static_v }}">
+{% endblock %}
 {% block content %}
-<h2>{{ _("Profile") }} – {{ actor.display_name or actor.name }}</h2>
+<div class="profile-page ui-page">
 {% if message %}<p class="banner ok">{{ message }}</p>{% endif %}
 {% if error %}<p class="banner error">{{ error }}</p>{% endif %}
 
-<article id="display">
-  <h3>{{ _("Display") }}</h3>
-  <form method="post" action="/profile/display">
+{% set subtitle = (actor.display_name or actor.name) ~ ((" · " ~ actor.email) if actor.email else "") %}
+{% call ui.page_header(_("Profile"), subtitle) %}
+  <form method="post" action="/logout" class="ui-row">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <label><input type="checkbox" role="switch" name="show_all_projects" value="1" {% if actor.show_all_projects %}checked{% endif %}> {{ _("Show all projects") }}</label>
-    <small class="field-help">{{ _("Off: project list, backlog, kanban, inbox, sprints and project choices show only the projects you own. On: all projects, with the owner filter. Other projects stay reachable through direct links either way.") }}</small>
-    {% if actor.role == "admin" %}
-    <label><input type="checkbox" role="switch" name="show_all_agents" value="1" {% if actor.show_all_agents %}checked{% endif %}> {{ _("Show all agents") }}</label>
-    <small class="field-help">{{ _("Off: assignee and reviewer choices and agent filters show only your own and public agents. On: all agents. As an admin you may assign any agent either way; Admin → Users & agents always lists all.") }}</small>
-    {% endif %}
-    <button type="submit">{{ _("Save") }}</button>
+    <button type="submit" class="ui-btn ui-btn-secondary">{{ _("Log out") }}</button>
   </form>
-</article>
+{% endcall %}
 
-<article id="telegram">
-  <h3>{{ _("Telegram") }}</h3>
-  {% if link %}
-    <p>{{ _("Linked with the chat %(chat)s since %(since)s.", chat=link.chat_name or link.chat_id, since=link.linked_at | localtime) }}</p>
-    <form method="post" action="/profile/telegram/unlink">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <button class="secondary" type="submit">{{ _("Unlink") }}</button>
-    </form>
-    <small>{{ _("Sending /stop to the bot also unlinks the chat.") }}</small>
-  {% elif not bot_enabled %}
-    <p>{{ _("The Telegram bot is not enabled yet – an admin sets it up under Admin → Settings.") }}</p>
-  {% else %}
-    {% if code %}
-      <p>{{ _("Send this message to the bot within 15 minutes (the code works once):") }}</p>
-      <p><code class="copy">/start {{ code }}</code></p>
-      {% if bot_username %}<p><a href="https://t.me/{{ bot_username }}?start={{ code }}" target="_blank" rel="noopener">{{ _("Open @%(bot)s in Telegram", bot=bot_username) }}</a></p>{% endif %}
-      <small>{{ _("Valid until %(time)s.", time=code_expires | localtime) }}</small>
-    {% else %}
-      <p>{{ _("Not linked. Create a one-time code and send it to the bot to receive notifications in Telegram.") }}</p>
-      {% if pending %}<small>{{ _("An earlier code is valid until %(time)s; a new code replaces it.", time=pending.expires_at | localtime) }}</small>{% endif %}
-    {% endif %}
-    <form method="post" action="/profile/telegram/code">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <button type="submit" {% if code %}class="secondary"{% endif %}>{{ _("Create link code") }}</button>
-    </form>
+{% macro notify_group(label, keys) -%}
+  {% set rows = [] %}
+  {% for k in keys %}{% if k in events %}{{ rows.append(k) or "" }}{% endif %}{% endfor %}
+  {% if rows %}
+  <tr class="pf-group-row"><th colspan="3" scope="colgroup">{{ label }}</th></tr>
+  {% for k in rows %}
+  <tr><th scope="row">{{ events[k] }}</th>
+    {% for c, clabel in channels.items() %}
+    <td class="pf-check"><input type="checkbox" name="ch_{{ k }}_{{ c }}" value="1" aria-label="{{ events[k] }} – {{ clabel }}"{% if c in chosen.get(k, []) %} checked{% endif %}></td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
   {% endif %}
-</article>
+{%- endmacro %}
 
-<article id="notifications">
-  <h3>{{ _("Notifications") }}</h3>
-  <form method="post" action="/profile/notifications">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <fieldset>
-      <legend>{{ _("Events") }}</legend>
-      {% for key, label in events.items() %}
-      <label><input type="checkbox" name="event_{{ key }}" value="1" {% if key in enabled %}checked{% endif %}> {{ label }}</label>
-      {% endfor %}
-      {% if actor.role == "admin" %}
-      <label><input type="checkbox" name="all_projects" value="1" {% if all_projects %}checked{% endif %}> {{ _("All projects (not only the ones I own)") }}</label>
+<div class="pf-layout">
+  <nav class="pf-nav" aria-label="{{ _('Profile sections') }}">
+    <a href="#display">{{ _("Display") }}</a>
+    <a href="#channels">{{ _("Channels") }}</a>
+    <a href="#notifications">{{ _("Notifications") }}</a>
+    <a href="#quiet">{{ _("Quiet hours & mute") }}</a>
+    <a href="#delivery-log">{{ _("Delivery log") }}</a>
+  </nav>
+  <select class="ui-select pf-nav-select ui-only-phone" aria-label="{{ _('Profile sections') }}" onchange="location.hash = this.value">
+    <option value="#display">{{ _("Display") }}</option>
+    <option value="#channels">{{ _("Channels") }}</option>
+    <option value="#notifications">{{ _("Notifications") }}</option>
+    <option value="#quiet">{{ _("Quiet hours & mute") }}</option>
+    <option value="#delivery-log">{{ _("Delivery log") }}</option>
+  </select>
+
+  <div class="pf-content">
+    <section id="display" class="ui-card">
+      <h2 class="ui-section-title">{{ _("Display") }}</h2>
+      <div class="pf-language">
+        <h3 class="ui-section-title">{{ _("Language") }}</h3>
+        {% set personal = normalize_language(request.cookies.get('tm_lang')) %}
+        <div class="ui-seg pf-language-seg" role="group" aria-label="{{ _('Language') }}">
+          <a href="/language?lang=default&amp;next=/profile"{% if not personal %} aria-current="true"{% endif %}>{{ _("Default (%(lang)s)", lang=default_language() | upper) }}</a>
+          {% for code, name in LANGUAGES.items() %}
+          <a href="/language?lang={{ code }}&amp;next=/profile" hreflang="{{ code }}" lang="{{ code }}"{% if code == personal %} aria-current="true"{% endif %}>{{ code | upper }}</a>
+          {% endfor %}
+        </div>
+        {% if personal %}
+        <p class="ui-muted">{{ _("Personal choice: %(lang)s", lang=current_language() | upper) }}</p>
+        {% else %}
+        <p class="ui-muted">{{ _("Using the default language: %(lang)s", lang=default_language() | upper) }}</p>
+        {% endif %}
+      </div>
+      {#- Own form, saved on every change (htmx) – the switches used to ride on the distant "Save all changes"
+          button of the notification form, so toggling one and leaving the page dropped the change. -#}
+      <form id="pf-display" method="post" action="/profile/display" class="pf-display"
+            hx-post="/profile/display" hx-trigger="change" hx-target="#pf-display-status" hx-swap="innerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <div class="pf-switch">
+          {{ ui.switch("show_all_projects", _("Show all projects"), actor.show_all_projects) }}
+          <small class="ui-muted">{{ _("Off: project list, backlog, kanban, inbox, sprints and project choices show only the projects you own. On: all projects, with the owner filter. Other projects stay reachable through direct links either way.") }}</small>
+        </div>
+        {% if actor.role == "admin" %}
+        <div class="pf-switch">
+          {{ ui.switch("show_all_agents", _("Show all agents"), actor.show_all_agents) }}
+          <small class="ui-muted">{{ _("Off: choices, agent filters and Admin → Users & agents show only your own agents. On: all agents. As an admin you may assign any agent either way; agents already assigned to a task stay visible on it.") }}</small>
+        </div>
+        {% endif %}
+        <p id="pf-display-status" class="ui-muted" role="status" aria-live="polite"></p>
+        <noscript><button type="submit" class="ui-btn ui-btn-secondary ui-btn-sm">{{ _("Save display settings") }}</button></noscript>
+      </form>
+    </section>
+
+    <section id="channels" class="pf-channels" aria-label="{{ _('Channels') }}">
+      <div class="ui-card pf-channel">
+        <div class="ui-card-head">
+          <h2 class="ui-section-title">{{ _("Telegram") }}</h2>
+          {% if link %}<span class="ui-pill ui-st-done">{{ _("Linked") }}</span>
+          {% else %}<span class="ui-pill ui-st-draft">{{ _("Not linked") }}</span>{% endif %}
+        </div>
+        {% if link %}
+          <p class="ui-muted">{{ _("Linked with the chat %(chat)s since %(since)s.", chat=link.chat_name or link.chat_id, since=link.linked_at | localtime) }}</p>
+          <form method="post" action="/profile/telegram/unlink">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button type="submit" class="ui-btn ui-btn-secondary ui-btn-sm">{{ _("Unlink") }}</button>
+          </form>
+          <small class="ui-muted">{{ _("Sending /stop to the bot also unlinks the chat.") }}</small>
+        {% elif not bot_enabled %}
+          <p class="ui-muted">{{ _("The Telegram bot is not enabled yet – an admin sets it up under Admin → Settings.") }}</p>
+        {% else %}
+          {% if code %}
+            <p>{{ _("Send this message to the bot within 15 minutes (the code works once):") }}</p>
+            <p><code class="copy">/start {{ code }}</code></p>
+            {% if bot_username %}<p><a href="https://t.me/{{ bot_username }}?start={{ code }}" target="_blank" rel="noopener">{{ _("Open @%(bot)s in Telegram", bot=bot_username) }}</a></p>{% endif %}
+            <small class="ui-muted">{{ _("Valid until %(time)s.", time=code_expires | localtime) }}</small>
+          {% else %}
+            <p>{{ _("Not linked. Create a one-time code and send it to the bot to receive notifications in Telegram.") }}</p>
+            {% if pending %}<small class="ui-muted">{{ _("An earlier code is valid until %(time)s; a new code replaces it.", time=pending.expires_at | localtime) }}</small>{% endif %}
+          {% endif %}
+          <form method="post" action="/profile/telegram/code">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button type="submit" class="ui-btn ui-btn-secondary ui-btn-sm">{{ _("Create link code") }}</button>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="ui-card pf-channel">
+        <div class="ui-card-head">
+          <h2 class="ui-section-title">{{ _("Email") }}</h2>
+          {% if not mail_enabled %}<span class="ui-pill ui-st-draft">{{ _("Not enabled") }}</span>
+          {% elif email_verified %}<span class="ui-pill ui-st-done">{{ _("Confirmed") }}</span>
+          {% else %}<span class="ui-pill ui-st-questions">{{ _("Not confirmed") }}</span>{% endif %}
+        </div>
+        {% if not mail_enabled %}
+          <p class="ui-muted">{{ _("Email notifications are not enabled yet – an admin sets them up under Admin → Settings → Email.") }}</p>
+        {% endif %}
+        <form method="post" action="/profile/email">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <label class="ui-field"><span>{{ _("Email address") }}</span>
+            <input class="ui-input" type="email" name="email" value="{{ actor.email or '' }}" autocomplete="email">
+          </label>
+          {% if actor.email %}
+            {% if email_verified %}<small class="ui-muted">{{ _("Confirmed on %(time)s.", time=actor.email_verified_at | localtime) }}</small>
+            {% elif email_pending %}<small class="ui-muted">{{ _("Not confirmed yet – a confirmation link was sent and is valid until %(time)s.", time=email_pending.expires_at | localtime) }}</small>
+            {% else %}<small class="ui-muted">{{ _("Not confirmed yet – no mail goes to this address until you open the confirmation link.") }}</small>{% endif %}
+          {% endif %}
+          <div class="ui-row">
+            <button type="submit" class="ui-btn ui-btn-secondary ui-btn-sm">{{ _("Save and send confirmation link") if not email_verified else _("Save") }}</button>
+            {% if actor.email and not email_verified and mail_enabled %}
+            <button type="submit" class="ui-btn ui-btn-secondary ui-btn-sm" formaction="/profile/email/verify">{{ _("Send confirmation link again") }}</button>
+            {% endif %}
+          </div>
+          <small class="ui-muted">{{ _("TaskBrigade only sends mail – replies to notification mails are not read.") }}</small>
+        </form>
+      </div>
+    </section>
+
+    <form id="pf-settings" method="post" action="/profile/notifications" class="pf-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+
+      <section id="notifications" class="ui-card">
+        <div class="ui-card-head">
+          <h2 class="ui-section-title">{{ _("Notifications") }}</h2>
+          {% if actor.role == "admin" %}
+          <label class="pf-inline-check"><input type="checkbox" name="all_projects" value="1" {% if all_projects %}checked{% endif %}> {{ _("All projects (not only the ones I own)") }}</label>
+          {% endif %}
+        </div>
+        <div class="ui-table-scroll">
+          <table class="ui-table pf-matrix">
+            <thead><tr><th>{{ _("Event") }}</th>{% for c, label in channels.items() %}<th class="pf-check-col">{{ label }}</th>{% endfor %}</tr></thead>
+            <tbody>
+              {{ notify_group(_("Tasks"), ("question", "review", "agent_review", "aborted", "conflict", "lease_expired", "agent_blocked", "sprint_done")) }}
+              {{ notify_group(_("Workflows"), ("workflow_paused", "workflow_budget_warning", "workflow_wait_reminder", "workflow_claim_reminder", "workflow_schedule_overlap", "workflow_schedule_failed", "workflow_notify")) }}
+              {{ notify_group(_("Data"), ("dataset_retention", "data_release", "gate_failed")) }}
+            </tbody>
+          </table>
+        </div>
+        <small class="ui-muted">{{ _("Telegram needs a linked chat, email a confirmed address – a channel you cannot be reached on is skipped.") }}</small>
+      </section>
+
+      <section id="quiet" class="ui-card">
+        <h2 class="ui-section-title">{{ _("Quiet hours & mute") }}</h2>
+        <p class="ui-muted">{{ _("Quiet hours for Telegram and email (messages are collected and sent afterwards)") }}</p>
+        <div class="pf-quiet-grid">
+          <label class="ui-field"><span>{{ _("from") }}</span><input class="ui-input" type="time" name="quiet_start" value="{{ quiet_start }}"></label>
+          <label class="ui-field"><span>{{ _("to") }}</span><input class="ui-input" type="time" name="quiet_end" value="{{ quiet_end }}"></label>
+          <label class="ui-field"><span>{{ _("Email bundling") }}</span>
+            <select class="ui-select" name="bundle">
+              {% for m in bundle_choices %}<option value="{{ m }}" {% if m == bundle %}selected{% endif %}>{{ _("immediately") if m == 0 else _("every %(num)s minutes", num=m) }}</option>{% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="pf-quiet-grid">
+          {% for field, current, label in [("mute_all", mute_all, _("Mute all messages")), ("mute_review", mute_review, _("Mute review requests"))] %}
+          <label class="ui-field"><span>{{ label }}</span>
+            <select class="ui-select" name="{{ field }}">{% for value, text in mute_options %}<option value="{{ value }}">{{ text }}</option>{% endfor %}</select>
+          </label>
+          <label class="ui-field"><span>{{ _("until (for “until …”)") }}</span><input class="ui-input" type="datetime-local" name="{{ field }}_at"></label>
+          {% endfor %}
+        </div>
+        <div class="pf-mute-state ui-muted">
+          {{ _("Current:") }}
+          {{ _("Mute all messages") }}:
+          {% if mute_all is none %}{{ _("off") }}{% elif mute_all >= forever %}{{ _("permanently") }}{% else %}{{ _("until %(time)s", time=mute_all | localtime) }}{% endif %}
+          · {{ _("Mute review requests") }}:
+          {% if mute_review is none %}{{ _("off") }}{% elif mute_review >= forever %}{{ _("permanently") }}{% else %}{{ _("until %(time)s", time=mute_review | localtime) }}{% endif %}
+        </div>
+        <small class="ui-muted">{{ _("In the bot: /pause 2h, /pause until 18:00, /resume, /reviews off, /inbox, /status.") }}</small>
+      </section>
+
+      <div class="pf-actions"><button type="submit" class="ui-btn">{{ _("Save all changes") }}</button></div>
+    </form>
+
+    <section id="delivery-log" class="ui-card">
+      <div class="ui-card-head">
+        <h2 class="ui-section-title">{{ _("Delivery log") }}</h2>
+        {% if log %}{% if log_all %}<a href="/profile" class="small">{{ _("Show recent") }}</a>
+        {% else %}<a href="/profile?log=all" class="small">{{ _("Show all") }}</a>{% endif %}{% endif %}
+      </div>
+      {% if log %}
+      <div class="ui-table-scroll">
+        <table class="ui-table">
+          <thead><tr><th>{{ _("Time") }}</th><th>{{ _("Channel") }}</th><th>{{ _("Event") }}</th><th>{{ _("Task") }}</th><th>{{ _("Status") }}</th></tr></thead>
+          <tbody>
+          {% for n in log %}
+            <tr><td>{{ n.created_at | localtime }}</td><td>{{ channels.get(n.channel, n.channel) }}</td><td>{{ (log_events | default(events)).get(n.event, n.event) }}</td><td>{% if n.task_nr %}{{ ui.key(n.task_nr) }}{% else %}–{% endif %}</td>
+                <td>{{ ui.pill(status_labels.get(n.status, n.status), status_tone.get(n.status, "")) }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="ui-muted">{{ _("No notifications have been delivered yet.") }}</p>
       {% endif %}
-    </fieldset>
-    <fieldset class="grid">
-      <legend>{{ _("Quiet hours (messages are collected and sent afterwards)") }}</legend>
-      <label>{{ _("from") }} <input type="time" name="quiet_start" value="{{ quiet_start }}"></label>
-      <label>{{ _("to") }} <input type="time" name="quiet_end" value="{{ quiet_end }}"></label>
-    </fieldset>
-    {% for field, current, label in [("mute_all", mute_all, _("Mute all messages")), ("mute_review", mute_review, _("Mute review requests"))] %}
-    <fieldset class="grid">
-      <legend>{{ label }}:
-        {% if current is none %}{{ _("off") }}{% elif current >= forever %}{{ _("permanently") }}{% else %}{{ _("until %(time)s", time=current | localtime) }}{% endif %}
-      </legend>
-      <label>{{ _("Change") }}
-        <select name="{{ field }}">{% for value, text in mute_options %}<option value="{{ value }}">{{ text }}</option>{% endfor %}</select>
-      </label>
-      <label>{{ _("until (for “until …”)") }} <input type="datetime-local" name="{{ field }}_at"></label>
-    </fieldset>
-    {% endfor %}
-    <button type="submit">{{ _("Save") }}</button>
-  </form>
-  <small>{{ _("In the bot: /pause 2h, /pause until 18:00, /resume, /reviews off, /inbox, /status.") }}</small>
-</article>
-
-{% if log %}
-<article id="delivery-log">
-  <h3>{{ _("Delivery log") }}</h3>
-  <table class="striped">
-    <thead><tr><th>{{ _("Time") }}</th><th>{{ _("Event") }}</th><th>{{ _("Task") }}</th><th>{{ _("Status") }}</th><th>{{ _("Attempts") }}</th><th>{{ _("Error") }}</th></tr></thead>
-    <tbody>
-    {% for n in log %}
-      <tr><td>{{ n.created_at | localtime }}</td><td>{{ (log_events | default(events)).get(n.event, n.event) }}</td><td>{{ n.task_nr or "–" }}</td>
-          <td>{{ status_labels.get(n.status, n.status) }}</td><td>{{ n.attempts }}</td><td>{{ n.last_error or "" }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</article>
-{% endif %}
+    </section>
+  </div>
+</div>
+</div>
 {% endblock %}

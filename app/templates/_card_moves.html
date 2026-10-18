@@ -1,5 +1,6 @@
-{# Choices of the "Move" menu on a kanban card (GET /kanban/<nr>/moves, static/kanban.js): only the transitions the
+{# Items of the "⋯" card menu (GET /kanban/<nr>/moves, static/kanban.js): "Open task", then only the transitions the
    viewer may run by the normal rules. Moving into "done" means approving and merging, so it asks first. #}
+<a class="card-move-open" href="/tasks/{{ nr }}">{{ _("Open task") }}</a>
 {% for to in targets %}<button type="button" class="small secondary" data-move-to="{{ to }}" data-label="{{ status_label(to) }}"
   {% if to == "done" %}data-confirm="{{ _('Merge %(nr)s?', nr=nr) }}"{% endif %}><span class="badge st-{{ to }}">{{ status_label(to) }}</span></button>
 {% else %}<p class="muted"><small>{{ _("No status change allowed for you from here.") }}</small></p>{% endfor %}

@@ -30,3 +30,9 @@ class Forbidden(AppError):
 
 class Gone(AppError):
     status, code = 410, "gone"
+
+
+class ProbeFailed(AppError):
+    """A server-side check of an external service failed there (e.g. the SMTP probe: connect, TLS or login
+    refused) – the TaskBrigade server itself is healthy."""
+    status, code = 502, "bad_gateway"

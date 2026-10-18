@@ -271,6 +271,47 @@ def test_project_ui_create_and_activate(env, ui):  # noqa: F811
     assert ui.get("/projects/repos?q=we").text.count("<option") == 2
 
 
+def _settings_form(page: str) -> tuple[set[str], dict[str, str]]:
+    """Field names of the project settings form and the values the page shows (selected option, checkbox)."""
+    form = page.split('action="/projects/KET/edit"')[1].split("</form>")[0]
+    names = set(re.findall(r'name="(\w+)"', form)) - {"csrf_token"}
+    shown = dict(re.findall(r'name="(\w+)" value="([^"]*)"(?: required)?>', form))
+    for name, block in re.findall(r'<select name="(\w+)">(.*?)</select>', form, re.S):
+        chosen = [(re.search(r'value="([^"]*)"', attrs) or [None, text.strip()])[1]
+                  for attrs, text in re.findall(r"<option([^>]*)>([^<]*)", block) if "selected" in attrs]
+        shown[name] = chosen[0] if chosen else ""
+    shown["serialize_reviews"] = "1" if re.search(r'name="serialize_reviews" value="1" checked', form) else ""
+    shown["description"] = re.search(r'<textarea name="description"[^>]*>([^<]*)</textarea>', form, re.S)[1]
+    return names, shown
+
+
+def test_project_settings_tab_saves_every_field(env, ui):  # noqa: F811
+    """Redesigned project page: every setting of the form is posted and stored; the page shows it again."""
+    mkproject(env)
+    page = ui.get("/projects/KET").text
+    assert 'data-guard="project"' in page and 'data-tab="settings"' in page and 'id="recipients"' in page
+    assert "data-copy=" in page and 'value="link"' in page  # Clone URL copy button, "Repeat setup" form.
+    names, shown = _settings_form(page)
+    assert names == {"name", "description", "owner", "status", "privacy", "default_reviewer",
+                     "serialize_reviews", "data_four_eyes"}
+    assert shown["name"] == "Projekt KET" and shown["status"] == "active" and shown["data_four_eyes"] == "default"
+    assert shown["serialize_reviews"] == "" and shown["default_reviewer"] == ""
+    r = post(ui, "/projects/KET/edit", name="Projekt Neu", description="Worum es geht", owner=shown["owner"],
+             status="paused", privacy="local_only", default_reviewer="none", serialize_reviews="1",
+             data_four_eyes="off")
+    assert r.status_code == 200 and "Gespeichert" in r.text
+    info = env["c"].get("/api/v1/projects/KET", headers=env["admin"]).json()
+    assert (info["name"], info["status"], info["privacy"]) == ("Projekt Neu", "paused", "local_only")
+    assert info["serialize_reviews"] is True and info["data_four_eyes"] is False
+    _names, shown = _settings_form(ui.get("/projects/KET").text)
+    assert shown["description"] == "Worum es geht" and shown["status"] == "paused"
+    assert shown["privacy"] == "local_only" and shown["serialize_reviews"] == "1" and shown["data_four_eyes"] == "off"
+    # Unchecking the checkbox (not sent) switches it off again; four-eyes back to the admin default.
+    post(ui, "/projects/KET/edit", name="Projekt Neu", status="active", privacy="cloud_ok", data_four_eyes="default")
+    info = env["c"].get("/api/v1/projects/KET", headers=env["admin"]).json()
+    assert info["serialize_reviews"] is False and info["data_four_eyes"] is None and info["status"] == "active"
+
+
 def test_admin_project_access(env, ui):  # noqa: F811
     mkproject(env, privacy="local_only")
     mkproject(env, key="CLD", privacy="cloud_ok")

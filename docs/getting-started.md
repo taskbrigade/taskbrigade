@@ -7,8 +7,17 @@ You have a running TaskBrigade server and at least one connected agent – if no
 afterwards: how to write tasks agents can finish, where their questions and results show up, and how to keep an
 eye on several agents at once.
 
-The UI is English by default; the EN/DE switch in the top bar changes it per browser, *Admin → Settings* for
-everyone.
+The UI is English by default. *Admin → Settings → Default UI language* applies to everyone without a personal
+language choice. *Language* in the avatar menu or *Profile → Display* sets a personal choice for this browser.
+Choose *Default (EN)* or *Default (DE)* there to follow the admin default again. The active entry and the profile
+show whether a personal choice or the default is in use. The fallback without an admin setting is `UI_LANGUAGE`
+(for example, `UI_LANGUAGE=de`), then English.
+
+Saving the admin setting clears the saving worker's language cache, so the next request without a personal choice
+uses the new default. Other workers refresh their cached default within 30 seconds.
+
+The avatar menu also contains *Profile* and *Log out*. On phones, the bottom tabs open the main views;
+*More* contains Projects, Workflows, Admin and Profile (according to your permissions).
 
 ## The idea in one minute
 
@@ -36,7 +45,9 @@ into the repository. Every agent is told to read both first, and it records new 
 
 ## 2. Write a task an agent can finish
 
-*New task* in the top bar, or *+ Add subtask* on a task.
+Use quick capture in the header: press **N**, type a title, pick the target project in the *Project* field next to it (Tab) and press
+**Enter**. On phones, the **+** button opens the capture sheet. For a detailed task use *New task* in the backlog,
+or *+ Add subtask* on a task.
 
 | Field | What to put there |
 |---|---|
@@ -86,7 +97,12 @@ The task page shows every step in its thread: status changes, comments, the mode
 
 - **Kanban** shows the running work per column; done tasks of the last three days by default (*Period*). Drag a
   card to change its status where that is allowed.
-- **Backlog** is the full list with filters (project, status, assignee, sprint, owner) and sorting.
+- **Backlog** is the full list with search and filters for project, sprint, assignee, priority, workflow tasks,
+  and owner. Status chips show counts within the other filters; toggle them to choose statuses, or use *Reset
+  filters* to restore the default view. Sort by key, priority, or changed time and choose the rows per page.
+  Select row checkboxes to assign tasks, move them to a sprint, set priority, or change status together. Each task
+  follows the usual permission and transition rules; the result lists successes and errors per task. On phones,
+  the list becomes cards, *Filters* opens a sheet, and the selection toolbar stays above the bottom navigation.
 
 A card or task that says *waiting for a background run* is fine: the agent started a long job (a model test, a
 large build) and checks back when it ends.
@@ -97,6 +113,18 @@ large build) and checks back when it ends.
 order, fill in descriptions and criteria, then *Save and release sprint*. Until the sprint is released every task in
 it stays a draft – so nothing starts half-planned. *Set prio from order* turns your order into priorities. Tasks of
 one sprint run in parallel; use *Depends on* where order matters.
+
+**Planning** (main menu, for admins, orchestrators and project owners) shows all sprints of one project as a
+full-width accordion list. Each sprint card carries expand/collapse, name, status, a progress bar with *“x / y
+done”* and a primary *+ Task* button; the segmented filter switches between *Active*, *Planned*, *Closed* and *All*,
+and *Show closed sprints* reveals the closed ones (hidden by default). Drag a task row to another sprint, or within
+a planned sprint to reorder it (drafts get their prio from the order); the row menu *Move to sprint …* does the same
+on touch and via keyboard. The card actions are *Release sprint* (with the preview of what stays a draft),
+*Close sprint* (move open tasks to another sprint) and *Edit sprint*; the page header has the project select and
+*+ New sprint*, and *+ Task* adds drafts to the sprint right away. A row that says *waits for …* depends on a task
+that is not done yet. The release dialog warns when a task would be released although it waits for a task without a
+sprint, in a planned sprint or in a later one – you can still release. The project page lists its sprints and opens
+them in the board with *Open in planning*.
 
 ## 7. Notifications in Telegram
 

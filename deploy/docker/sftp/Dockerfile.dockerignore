@@ -1,0 +1,5 @@
+# Build context of the SFTP image (repository root): only the files its Dockerfile copies.
+*
+!deploy/ssh/60-taskbrigade-sftp.conf
+!deploy/docker/sftp/sshd_config
+!deploy/docker/sftp/sftp_sync.py

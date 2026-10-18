@@ -31,7 +31,7 @@ are you woken up – the assignment is complete in the prompt and also in `TASK.
    A `CHANGELOG.md` entry (if the repo has one) goes into `changelog.d/<NR>.md` (bullet points only) –
    TaskBrigade adds it under „Unreleased“ on approval.
 4. **Lease:** if it takes longer than 30 minutes, run `tbr heartbeat <NR>` in between.
-   **Long background job** (nohup, model test …): write a log file, then run `tbr heartbeat <NR> --waiting "<reason>" --for 2h --watch-file <log>` and repeat it before it ends (max. 24 h) – otherwise the runner reports a stall. Report progress with `tbr comment`; `tbr heartbeat <NR> --done-waiting` ends the waiting state.
+   **Long background job** (model test, build …): start it **detached from your session**, with a log file – `setsid nohup <command> > <log> 2>&1 < /dev/null &` –, then run `tbr heartbeat <NR> --waiting "<reason>" --for 2h --watch-file <log>` and repeat it before it ends (max. 24 h) – otherwise the runner reports a stall. **Do not** use your CLI's own background feature for it (e.g. Claude Code `run_in_background`, Codex background commands): such jobs end with your session, and a runner may end an idle waiting session (parking). Report progress with `tbr comment`; `tbr heartbeat <NR> --done-waiting` ends the waiting state.
 5. **Exactly one closing step:**
    - **Done:** `git push -u origin <branch>`, then `tbr submit <NR> --summary "…"`.
      Summary: what changed, how it was tested. `tbr` determines branch and commit itself. Name every point that
@@ -57,7 +57,7 @@ in the working directory – a **read-only** checkout of the task branch (detach
    summary and open points of the assignee, changed files, pull request link).
 2. Check the changes against the description and the acceptance criteria (`git diff origin/<base>...HEAD`), run the
    project's tests if brain.md names them. Do **not** edit, commit or push anything.
-3. Lease: if it takes longer than 30 minutes, run `tbr heartbeat <NR>` in between. Long background job: write a log file and run `tbr heartbeat <NR> --waiting "<reason>" --for 2h --watch-file <log>`, repeated before it ends (max. 24 h), so no stall is reported; `--done-waiting` ends it.
+3. Lease: if it takes longer than 30 minutes, run `tbr heartbeat <NR>` in between. Long background job: start it detached (`setsid nohup <command> > <log> 2>&1 < /dev/null &`, never the CLI's own background feature – it ends with the session) and run `tbr heartbeat <NR> --waiting "<reason>" --for 2h --watch-file <log>`, repeated before it ends (max. 24 h), so no stall is reported; `--done-waiting` ends it.
 4. **Exactly one decision:**
    - **Approve:** `tbr review <NR> approve --comment "<what you checked>"` – merges the pull request; TaskBrigade
      applies brain-changes and changelog.d. If it reports a merge, brain or changelog conflict, use "Conflict".
@@ -91,7 +91,7 @@ openclaw` installs next to this one. In short:
   role – creating and assigning tasks and planning sprints need the role `orchestrator`; releasing a sprint only
   works for admins and the project owner (a `403` goes back to the human, no workaround).
 - Recognise the intent: `tbr create` / `tbr update` / `tbr cancel`, `tbr sprint create` + `tbr sprint add-tasks`
-  (+ `tbr sprint release` if the role allows it), `tbr notify pause 2h --user <human>`, `tbr notify resume --user
+  (+ `tbr sprint update`, and `tbr sprint release` / `tbr sprint reopen` if the role allows it), `tbr notify pause 2h --user <human>`, `tbr notify resume --user
   <human>`, `tbr notify reviews off|on --user <human>`, `tbr notify status --user <human>`, `tbr list --assigned-to
   all --status questions --status for_review` for the inbox, `tbr projects` / `tbr agents` for keys and assignees
   (`tbr agents` lists only the agents you may assign: your owner's and public ones).
@@ -123,8 +123,11 @@ openclaw` installs next to this one. In short:
 | Create a task (orchestrator) | `tbr create --project <KEY> --title "…" --assign <agent> [--reviewer <name>] --due YYYY-MM-DD --description "…" --acceptance "…"` |
 | Attach files to a task (e.g. right after `tbr create`, with the number it printed) | `tbr attach <NR> <file> [<file> …]` (stored in the project repo under `tasks/<NR>/`; max. 20 files, 10 MB each; only files the user named – never keys, `.env` or other secrets) |
 | Change a task (orchestrator) | `tbr update <NR> --assign … --due … --prio … --title … --description … --acceptance …` |
+| Set task dependencies (orchestrator) | `tbr update <NR> --depends-on <NR> [--depends-on <NR> …]` replaces the list, `--depends-on none` removes all; also `tbr create … --depends-on` (claimable once all are done) |
 | Cancel a task / back to "Defined" (orchestrator) | `tbr cancel <NR> --reason "…"` / `tbr reset <NR>` |
 | Duplicate a task as a new draft, e.g. for a second opinion (orchestrator) | `tbr duplicate <NR> [--assign <agent>] [--title "…"]` (prints the new number; publish with `tbr reset <new NR>`) |
 | Sprints of a project | `tbr sprint list -p <KEY>` / `tbr sprint show "<sprint>" -p <KEY>` |
 | Plan a sprint (orchestrator) | `tbr sprint create -p <KEY> --name "…" --goal "…"`, `tbr sprint add-tasks "<sprint>" -p <KEY> --file tasks.txt` (one line per task: `Title \| Agent \| Prio \| Reviewer`), `tbr create … --sprint "<sprint>"`, `tbr update <NR> --sprint "<sprint>"\|none` |
+| Edit a sprint (orchestrator) | `tbr sprint update "<sprint>" -p <KEY> [--name …] [--goal …] [--start YYYY-MM-DD] [--end YYYY-MM-DD]` (only the given fields; `--start none` / `--end none` clear a date, `--goal ""` clears the goal; the status stays) |
 | Release / close a sprint (owner, admin) | `tbr sprint release "<sprint>" -p <KEY>` / `tbr sprint close "<sprint>" -p <KEY> --move-to "<other>"` or `--detach` |
+| Reopen a sprint (owner, admin) | `tbr sprint reopen "<sprint>" -p <KEY>` (`--no-restore` leaves the tasks that were moved out where they are) |

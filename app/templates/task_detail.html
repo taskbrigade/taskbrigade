@@ -1,18 +1,33 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}{{ t.task_nr }} – TaskBrigade{% endblock %}
-{% block body_attrs %} class="tinted"{% endblock %}
 {% block head %}<script src="/static/task_form.js?v={{ static_v }}" defer></script>{% endblock %}
 {% block content %}
-{# Same card layout as the new-task form (task_new.html): editor on the left (project/status, title, description,
-   criteria, then "Planning & assignment" with folded model and link sections), discussion below; actions,
-   attachments, structure and project links on the right. Phones and narrow windows (app.css "Task details"):
-   primary actions first, then the tabs "Details" / "Discussion" (static/shell.js; both panels stay in the page, so
-   switching tabs keeps typed text), then the folded side cards. Managers see the read view first there; "Edit"
-   opens the form (always open on desktop). A folded section opens when it holds a validation error. #}
+{# Read view by default (artboard "Task detail"): result, description, criteria and activity in the main column,
+   properties in the sidebar. "Edit" opens the same form as before (versioned save). Phones fold the header
+   actions into "⋯" and lift the property grid above the description (app.css, max-width 639px). #}
 {% set pi = t.project_info %}
 {% set ef = edit_form or {} %}{% set editing = edit_form is defined and edit_form %}
 {% set running = t.status in ("in_progress", "questions", "aborted", "for_review", "changes_requested") %}
 {% set no_desc = not (t.description or "").strip() %}{% set no_ac = not (t.acceptance_criteria or "").strip() %}
+{% set criteria = t.acceptance_criteria | criteria_view %}
+{% set has_result = t.result_summary or t.result_commit_sha or t.open_points %}
+{% macro chip(name) -%}
+{%- if name -%}{{ ui.actor(name, (actor_kinds | default({})).get(name)) }}
+{%- else -%}<span class="muted">{{ _("System") }}</span>{%- endif -%}
+{%- endmacro %}
+{# Popovers post the same edit endpoint. Title, description, criteria, prio, due date and assignee are always
+   written, so every popover repeats the values it does not change (`skip` names the one control it shows). #}
+{% macro keep(skip="") %}
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+<input type="hidden" name="row_version" value="{{ t.row_version }}">
+<input type="hidden" name="title" value="{{ t.title }}">
+<input type="hidden" name="description" value="{{ t.description or '' }}">
+<input type="hidden" name="acceptance_criteria" value="{{ t.acceptance_criteria or '' }}">
+{% if "prio" not in skip %}<input type="hidden" name="prio" value="{{ t.prio }}">{% endif %}
+{% if "due" not in skip %}<input type="hidden" name="due_date" value="{{ t.due_date or '' }}">{% endif %}
+{% if "who" not in skip %}<input type="hidden" name="assigned_to" value="{{ t.assigned_to or '' }}">{% endif %}
+{% endmacro %}
 <div class="task-page">
 <header class="task-head">
   <nav class="crumbs" aria-label="{{ _('Breadcrumb') }}"><ol>
@@ -20,10 +35,82 @@
     <li><a href="/projects/{{ t.project }}">{{ t.project }}</a></li>
     <li aria-current="page">{{ t.task_nr }}</li>
   </ol></nav>
-  <h2>{% if can_manage %}{{ _("Edit task") }}{% else %}{{ t.title }}{% endif %}</h2>
-  <p class="task-version muted">{{ _("Version %(version)s", version=t.row_version) }}
-    {%- if t.lease_expires_at %} · {{ _("Lease until %(date)s", date=t.lease_expires_at | localtime) }}{% endif %}</p>
+  <div class="task-top">
+    <div class="task-identity">
+      <div class="task-keyline">
+        <a class="task-key" href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a>
+        {% with status=t.status %}{% include "_status.html" %}{% endwith %}
+        <span class="prio prio-{{ t.prio }}" title="{{ prio_label(t.prio) }}">{{ t.prio }}</span>
+        <span class="task-version muted">{{ _("Version %(version)s", version=t.row_version) }}</span>
+        {% if t.lease_expires_at %}<span class="task-version muted">{{ _("Lease until %(date)s", date=t.lease_expires_at | localtime) }}</span>{% endif %}
+      </div>
+      <h1 class="task-title">{{ t.title }}</h1>
+    </div>
+    <div class="task-actions">
+      <h2 id="actions-heading" class="visually-hidden">{{ _("Actions") }}</h2>
+      {% if can_manage %}
+      <button type="button" class="small secondary edit-toggle" aria-controls="edit" aria-expanded="{{ 'true' if editing else 'false' }}" data-toggle>{{ _("Edit") }}</button>
+      <a href="/tasks/{{ t.task_nr }}/follow-up" role="button" class="secondary outline action-wide" data-follow-up>{{ _("Create follow-up task") }}</a>
+      {% endif %}
+      {% if can_duplicate %}
+      <details class="action-fold duplicate">
+        <summary>{{ _("Duplicate") }}</summary>
+        <form method="post" action="/tasks/{{ t.task_nr }}/duplicate" data-duplicate>
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <small class="muted">{{ _("Creates a new draft in the same project with description, criteria, prio, due date, model, dependencies, parent and open sprint – without thread, review, branch or result.") }}</small>
+          <label>{{ _("Assign to") }} <select name="assign"><option value="">{{ _("– nobody –") }}</option>
+            {% for a in agents %}<option>{{ a }}</option>{% endfor %}</select></label>
+          <button type="submit" class="secondary small">{{ _("Duplicate as draft") }}</button>
+        </form>
+      </details>
+      {% endif %}
+      <details class="action-fold more-actions">
+        <summary><span class="visually-hidden">{{ _("More actions") }}</span><span aria-hidden="true">⋯</span></summary>
+        <div class="more-actions-body">
+          {% if t.status == "defined" and can_manage %}
+          <form method="post" action="/tasks/{{ t.task_nr }}/action">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="to_draft">
+            <button type="submit" class="secondary outline small">{{ _("Back to draft") }}</button>
+          </form>
+          {% endif %}
+          {% if t.status in ("in_progress", "questions", "changes_requested", "for_review") and human_admin %}
+          <details>
+            <summary>{{ _("Set status to “%(status)s”", status=status_label("aborted")) }}</summary>
+            <form method="post" action="/tasks/{{ t.task_nr }}/action">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="abort">
+              <input name="body" placeholder="{{ _('Reason, e.g. model too weak') }}" aria-label="{{ _('Reason, e.g. model too weak') }}" required>
+              <button type="submit" class="secondary small">{{ _("Abort (agent)") }}</button>
+            </form>
+          </details>
+          {% endif %}
+          {% if t.status not in ("done", "cancelled") and can_manage %}
+          <form method="post" action="/tasks/{{ t.task_nr }}/action" onsubmit="return confirm({{ _('Cancel the task for good?') | tojson | forceescape }})">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="cancel">
+            <button type="submit" class="outline contrast small">{{ _("Cancel task") }}</button>
+          </form>
+          {% endif %}
+          {% if not ((t.status == "defined" and can_manage) or (t.status in ("in_progress", "questions", "changes_requested", "for_review") and human_admin) or (t.status not in ("done", "cancelled") and can_manage)) %}
+          <p class="muted more-empty">{{ _("No further actions") }}</p>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+  </div>
 </header>
+{% if workflow %}
+<section class="wf-task-context" aria-labelledby="wf-context-h">
+  <p id="wf-context-h"><span aria-hidden="true">⟳</span> {{ _("Workflow") }} <a href="/workflows/{{ workflow.project }}/{{ workflow.key }}">{{ workflow.name }}</a>
+    <a href="/workflow-runs/{{ workflow.run_id }}">#{{ workflow.seq }}</a>, {{ _("step %(pos)d/%(total)d", pos=workflow.position, total=workflow.total) }}
+    · <span class="badge wf-run-{{ workflow.status }}">{{ run_status_label(workflow.status) }}</span></p>
+  {% with chain=workflow.chain, chain_task=t.task_nr %}{% include "_workflow_chain.html" %}{% endwith %}
+</section>
+{% endif %}
+{% if zone_chain %}
+<section class="zone-chain-context" aria-labelledby="zone-chain-h">
+  <p id="zone-chain-h"><strong>{{ _("Chain") }}</strong> <small class="muted">{{ _("Each zone change starts as a draft that a human releases.") }}</small></p>
+  {% with chain=zone_chain, chain_task=t.task_nr %}{% include "_workflow_chain.html" %}{% endwith %}
+</section>
+{% endif %}
 {% if t.waiting %}<p class="banner warn waiting">⏳ {{ _("Waiting for a background run: %(reason)s (until %(date)s)", reason=t.waiting.reason, date=t.waiting.until | localtime) }}</p>{% endif %}
 {% if request.query_params.msg %}<p class="banner ok" role="status">{{ request.query_params.msg }}</p>{% endif %}
 {% if request.query_params.err %}<p class="banner error" role="alert">{{ request.query_params.err }}</p>{% endif %}
@@ -36,35 +123,58 @@
 </form>
 {% endif %}
 
-<div class="detail-grid">
-<div class="detail-main">
-<div class="detail-tabs" role="tablist" data-tabs aria-label="{{ _('Task') }}">
+<nav class="ui-tabs detail-tabs" role="tablist" data-tabs aria-label="{{ _('Task') }}">
   <button type="button" role="tab" id="tab-details" aria-controls="details" aria-selected="{{ 'false' if comment_body else 'true' }}"{% if comment_body %} tabindex="-1"{% endif %}>{{ _("Details") }}</button>
   <button type="button" role="tab" id="tab-thread" aria-controls="thread" aria-selected="{{ 'true' if comment_body else 'false' }}"{% if not comment_body %} tabindex="-1"{% endif %}>{{ _("Discussion") }} <span class="count-pill">{{ t.comments | length }}</span></button>
-</div>
+  <button type="button" role="tab" id="tab-history" aria-controls="history" aria-selected="false" tabindex="-1">{{ _("History") }}</button>
+  <button type="button" role="tab" id="tab-attachments" aria-controls="attachments" aria-selected="false" tabindex="-1">{{ _("Attachments") }} <span class="count-pill">{{ t.attachments | length }}</span></button>
+</nav>
+
+<div class="detail-grid">
+<div class="detail-main">
   <div id="details" class="tab-panel{% if comment_body %} tab-hidden{% endif %}" role="tabpanel" aria-labelledby="tab-details">
-    {% if can_manage %}
-    <div class="details-head"><span><strong>{{ t.title }}</strong></span>
-      <button type="button" class="small secondary edit-toggle" aria-controls="edit" aria-expanded="{{ 'true' if editing else 'false' }}" data-toggle>{{ _("Edit") }}</button></div>
-    {% endif %}
-    {# Read view: always for viewers without edit rights, on narrow screens also for managers until "Edit". #}
-    <section class="form-card{% if can_manage %} read-view{% endif %}" aria-label="{{ _('Details') }}">
-      <div class="form-row cols-2-1 facts-head">
-        <div class="fact"><span class="fact-label">{{ _("Project") }}</span> <a href="/projects/{{ t.project }}">{{ t.project }}{% if pi.name %} – {{ pi.name }}{% endif %}</a></div>
-        <div class="fact"><span class="fact-label">{{ _("Status") }}</span> {% with status=t.status %}{% include "_status.html" %}{% endwith %}</div>
+    {% if has_result %}
+    <section class="read-card read-view read-result" aria-label="{{ _('Result') }}">
+      <div class="read-card-head"><h2 class="card-kicker">{{ _("Result") }}</h2>
+        <span class="muted result-by">{% if t.assigned_to and t.reviewer %}{{ _("by %(assignee)s · reviewed by %(reviewer)s", assignee=t.assigned_to, reviewer=t.reviewer) }}{% elif t.assigned_to %}{{ _("by %(assignee)s", assignee=t.assigned_to) }}{% elif t.reviewer %}{{ _("reviewed by %(reviewer)s", reviewer=t.reviewer) }}{% endif %}</span></div>
+      {% if t.result_summary %}<div class="md">{{ t.result_summary | markdown }}</div>{% endif %}
+      {% if t.open_points %}<h3 class="open-points-title">{{ _("Open points") }}</h3>
+      <ul class="open-points">{% for p in t.open_points %}<li>{{ p }}</li>{% endfor %}</ul>
+      {% if can_manage %}<a href="/tasks/{{ t.task_nr }}/follow-up" class="small">{{ _("Take them into a follow-up task") }}</a>{% endif %}
+      {% endif %}
+      <div class="result-links">
+        {% if pi.repo_url and t.branch_name %}<a class="result-link" href="{{ pi.repo_url }}/commits/branch/{{ t.branch_name }}" target="_blank" rel="noopener">{{ _("Commits in Gitea") }} ↗</a>
+        {% elif pi.repo_url and t.result_commit_sha %}<a class="result-link" href="{{ pi.repo_url }}/commit/{{ t.result_commit_sha }}" target="_blank" rel="noopener">{{ _("Commits in Gitea") }} ↗</a>{% endif %}
+        {% if t.pr_url %}<a class="result-link" href="{{ t.pr_url }}" target="_blank" rel="noopener">{{ _("Diff") }} ↗</a>
+        {% elif pi.repo_url and t.branch_name %}<a class="result-link" href="{{ pi.repo_url }}/compare/{{ pi.default_branch or 'main' }}...{{ t.branch_name }}" target="_blank" rel="noopener">{{ _("Diff") }} ↗</a>{% endif %}
       </div>
-      <div class="spec-section"><h5>{{ _("Description") }}</h5><div class="md">{{ t.description | markdown }}</div></div>
-      <div class="spec-section"><h5>{{ _("Acceptance criteria") }}</h5><div class="md">{{ t.acceptance_criteria | markdown }}</div></div>
-      <dl class="facts">
-        <div><dt>{{ _("Priority") }}</dt><dd>{{ prio_label(t.prio) }}</dd></div>
-        <div><dt>{{ _("Assigned agent") }}</dt><dd>{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}<span class="agent none">{{ _("– nobody –") }}</span>{% endif %}</dd></div>
-        <div><dt>{{ _("Due") }}</dt><dd>{{ t.due_date or "–" }}</dd></div>
-        <div><dt>{{ _("Reviewer") }}</dt><dd>{% if t.reviewer %}{{ t.reviewer }}{% if t.reviewer_kind == "agent" %} <small>({{ _("reviewer agent") }})</small>{% endif %}{% if not t.reviewer_effective and t.status not in ("done", "cancelled") %} <small title="{{ _('Cannot review this task (assignee, role, inactive or privacy) – the owner and admins review') }}">⚠</small>{% endif %}{% else %}{{ _("owner and admins") }}{% endif %}</dd></div>
-        {% if t.sprint %}<div><dt>{{ _("Sprint") }}</dt><dd><a href="/projects/{{ t.project }}/sprints/{{ t.sprint }}">{{ t.sprint_name }}</a> <span class="badge sprint-{{ t.sprint_status }}">{{ sprint_status_label(t.sprint_status) }}</span></dd></div>{% endif %}
-        {% set me_ = t.model_effective %}
-        {% if me_ and (me_.model or t.model_tier) %}<div><dt>{{ _("Model & execution") }}</dt><dd>{% include "_tier.html" %} {% if me_.model %}<code>{{ me_.model }}</code>{% else %}{{ _("agent default") }}{% endif %}
-          {% if not me_.applies and t.assigned_to %}<small title="{{ _('This agent chooses its model itself') }}">({{ _("ignored by this agent") }})</small>{% endif %}</dd></div>{% endif %}
-      </dl>
+    </section>
+    {% endif %}
+    <section class="form-card read-view" data-block="description" aria-label="{{ _('Description') }}">
+      <h2 class="card-kicker">{{ _("Description") }}</h2>
+      {% if no_desc %}<p class="muted">{{ _("No description yet.") }}</p>{% else %}<div class="md">{{ t.description | markdown }}</div>{% endif %}
+    </section>
+    <section class="read-card read-view read-criteria" aria-label="{{ _('Acceptance criteria') }}">
+      <div class="read-card-head"><h2 class="card-kicker">{{ _("Acceptance criteria") }}</h2>
+        {% if criteria.checks %}<span class="criteria-met{% if criteria.met == criteria.checks %} is-done{% endif %}">{{ _("%(met)d / %(total)d met", met=criteria.met, total=criteria.checks) }}</span>{% endif %}</div>
+      {% if criteria.checks %}
+      <ul class="criteria-list">{% for item in criteria["items"] %}
+        {% if item.kind == "check" %}<li class="criteria-item"><input type="checkbox" disabled{% if item.done %} checked{% endif %} aria-label="{{ _('Acceptance criterion') }}"><span>{{ item.text | inline_md }}</span></li>
+        {% else %}<li class="criteria-note">{{ item.text | inline_md }}</li>{% endif %}
+      {% endfor %}</ul>
+      {% elif criteria.empty %}<p class="muted">{{ _("No acceptance criteria yet.") }}</p>
+      {% else %}<div class="md">{{ t.acceptance_criteria | markdown }}</div>{% endif %}
+    </section>
+    <section class="read-card read-view read-activity" aria-label="{{ _('Activity') }}">
+      <h2 class="card-kicker">{{ _("Activity") }}</h2>
+      <ul class="activity-list">{% for e in t.events %}
+        <li><time datetime="{{ e.created_at }}">{{ e.created_at | localtime("%H:%M") }}</time>{{ chip(e.actor) }}<span>{{ e.type }}{% if e.from or e.to %}: {{ e.from or "–" }} → {{ e.to or "–" }}{% endif %}{% if e.note %} <small>({{ e.note }})</small>{% endif %}</span></li>
+      {% else %}<li class="muted">{{ _("No posts yet.") }}</li>{% endfor %}</ul>
+      <form method="post" action="/tasks/{{ t.task_nr }}/comment" class="comment-form activity-comment">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <textarea name="body" rows="3" placeholder="{{ _('Write a comment or @mention an agent …') }}" aria-label="{{ _('Comment') }}" required></textarea>
+        <div class="comment-actions"><button type="submit">{{ _("Comment") }}</button></div>
+      </form>
     </section>
 
     {% if can_manage %}
@@ -78,8 +188,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf }}">
       <input type="hidden" name="row_version" value="{{ ef.row_version or t.row_version }}">
       <section class="form-card" aria-label="{{ _('Task') }}">
-        {# Project and status are shown, not edited: a task never changes its project, and status changes go
-           through the actions on the right (state machine). #}
+        <h2>{{ _("Edit task") }}</h2>
         <div class="form-row cols-2-1">
           <label>{{ _("Project") }} <input value="{{ t.project }}{% if pi.name %} – {{ pi.name }}{% endif %}" readonly class="static-field"></label>
           <label>{{ _("Status") }} <input value="{{ status_label(t.status) }}" readonly class="static-field"></label>
@@ -105,6 +214,9 @@
             {% if assignee_locked %}<input type="hidden" name="assigned_to" value="{{ t.assigned_to or '' }}">{% endif %}
             {% if running %}<small class="muted" id="edit-assignee-help">{% if assignee_locked %}{{ _("Running task: only human admins and the project owner can reassign it.") }}{% else %}{{ _("Running task: changing the assignee resets it to “Defined”") }}{% endif %}</small>{% endif %}</label>
           <label>{{ _("Due") }} <input type="date" name="due_date" value="{{ ef.due_date if 'due_date' in ef else (t.due_date or '') }}"></label>
+        </div>
+        <div class="form-row cols-3">
+          {% set dc_value = ef.data_class or t.data_class or "inherit" %}{% include "_data_class_field.html" %}
         </div>
         {% set has_sprints = project_sprints or t.sprint %}
         <div class="form-row{% if has_sprints %} cols-2{% endif %}">
@@ -146,10 +258,8 @@
           {% endif %}
         </details>
 
-        {# "Discard changes" only resets unsaved input (reloads the stored task); cancelling the task itself is under
-           "More actions". #}
         <div class="form-actions">
-          <a href="/tasks/{{ t.task_nr }}" role="button" class="secondary outline" data-discard{% if editing %}="confirm"{% endif %}>{{ _("Discard changes") }}</a>
+          <a href="/tasks/{{ t.task_nr }}" role="button" class="secondary outline" data-discard{% if editing %}="confirm"{% endif %}>{{ _("Cancel") }}</a>
           <button type="submit">{{ _("Save changes") }}</button>
         </div>
       </section>
@@ -168,28 +278,50 @@
       {% else %}<p class="muted empty-note">{{ _("No posts yet.") }}</p>{% endfor %}
       <form method="post" action="/tasks/{{ t.task_nr }}/comment" class="comment-form">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
-        <textarea name="body" rows="2" placeholder="{{ _('Comment (Markdown)…') }}" aria-label="{{ _('Comment') }}" required>{{ comment_body or '' }}</textarea>
-        <button type="submit" class="secondary outline">{{ _("Comment") }}</button>
+        <textarea name="body" rows="3" placeholder="{{ _('Write a comment or @mention an agent …') }}" aria-label="{{ _('Comment') }}" required>{{ comment_body or '' }}</textarea>
+        <div class="comment-actions"><button type="submit">{{ _("Comment") }}</button></div>
       </form>
-      <details class="form-fold history">
-        <summary><span class="fold-title">{{ _("History") }}</span>
-          <span class="fold-summary">{{ ngettext("%(num)d entry", "%(num)d entries", t.events | length) }}</span></summary>
-        <div class="events-wrap"><table class="events">
-          {% for e in t.events %}
-          <tr><td><small>{{ e.created_at | localtime("daytime") }}</small></td><td>{{ e.actor or _("System") }}</td>
-              <td>{{ e.type }}{% if e.from or e.to %}: {{ e.from or "–" }} → {{ e.to or "–" }}{% endif %}{% if e.note %} <small>({{ e.note }})</small>{% endif %}</td></tr>
-          {% endfor %}
-        </table></div>
-      </details>
+    </section>
+  </div>
+
+  <div id="history" class="tab-panel tab-hidden" role="tabpanel" aria-labelledby="tab-history">
+    <section class="read-card" aria-labelledby="history-heading">
+      <h3 id="history-heading">{{ _("History") }}</h3>
+      <p class="muted">{{ ngettext("%(num)d entry", "%(num)d entries", t.events | length) }}</p>
+      <div class="events-wrap"><table class="events">
+        {% for e in t.events %}
+        <tr><td><small>{{ e.created_at | localtime("daytime") }}</small></td><td>{{ e.actor or _("System") }}</td>
+            <td>{{ e.type }}{% if e.from or e.to %}: {{ e.from or "–" }} → {{ e.to or "–" }}{% endif %}{% if e.note %} <small>({{ e.note }})</small>{% endif %}</td></tr>
+        {% endfor %}
+      </table></div>
+    </section>
+  </div>
+
+  <div id="attachments" class="tab-panel tab-hidden" role="tabpanel" aria-labelledby="tab-attachments">
+    <section class="read-card" aria-labelledby="attachments-heading">
+      <h3 id="attachments-heading">{{ _("Attachments") }} <span class="count-pill">{{ t.attachments | length }}</span></h3>
+      <ul class="plain">
+      {% for a in t.attachments %}
+        <li>{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.filename }} ↗</a>{% else %}{{ a.filename }}{% endif %}
+          <small class="muted">· {{ a.size_bytes | filesize }} · {{ a.uploaded_by }} · {{ a.created_at | localtime("daytime") }}</small></li>
+      {% else %}<li class="muted empty-note">{{ _("No attachments.") }}</li>{% endfor %}
+      </ul>
+      {% if pi.gitea_repo %}
+      <form method="post" action="/tasks/{{ t.task_nr }}/attachments" enctype="multipart/form-data" class="upload-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="file" name="attachments" multiple required aria-label="{{ _('Attachments') }}" aria-describedby="upload-help">
+        <button type="submit" class="secondary small">{{ _("Upload") }}</button>
+        <small class="muted" id="upload-help">{{ _("Max. 10 MB per file, stored in the project repo under <code>tasks/%(nr)s/</code>", nr=t.task_nr) }}{% if t.data_class_effective != "cloud_ok" %} {{ _("Spreadsheet and archive files (.xlsx, .xls, .xlsm, .csv, .tsv, .ods, .zip) are refused in a local-only project. Upload them as a dataset under Data instead.") }}{% endif %}</small>
+      </form>
+      {% else %}<small class="muted">{{ _("Project without a repo – attachments only after “Activate idea”.") }}</small>{% endif %}
     </section>
   </div>
 </div>
 
-<div class="detail-side">
-  <section class="side-card actions" aria-labelledby="actions-heading">
-    <h3 id="actions-heading">{{ _("Actions") }}</h3>
+<aside class="detail-side">
+  <div class="task-status-actions">
     {% if t.status == "questions" and can_answer %}
-    <form method="post" action="/tasks/{{ t.task_nr }}/action">
+    <form method="post" action="/tasks/{{ t.task_nr }}/action" class="side-card">
       <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="answer">
       <textarea name="body" rows="3" placeholder="{{ _('Answer…') }}" aria-label="{{ _('Answer') }}" required></textarea>
       <button type="submit">{{ _("Answer") }}</button>
@@ -199,12 +331,20 @@
     <p class="notice-box review-by-agent">{% if t.review_claimed_at %}{{ _("The reviewer agent %(name)s is reviewing this task (since %(date)s).", name=agent_reviewer, date=t.review_claimed_at | localtime) }}{% else %}{{ _("Waiting for the reviewer agent %(name)s.", name=agent_reviewer) }}{% endif %}
       {% if can_review and t.reviewer != me.name %}{{ _("You can still decide yourself, e.g. to overrule it.") }}{% endif %}</p>
     {% endif %}
-    {% if t.status == "for_review" and can_review %}
-    <form method="post" action="/tasks/{{ t.task_nr }}/action">
+    {% if gate_results %}
+    <div class="notice-box gate-box"><strong>{{ _("Output gate") }}</strong>
+      <ul class="plain">{% for r in gate_results[:5] %}<li><a href="/data/results/{{ r.id }}">{{ _("Result #%(id)s", id=r.id) }}</a> · <span class="badge gate-status gate-{{ r.status }}">{{ r.label }}</span></li>{% endfor %}</ul>
+      {% if gate_results[0].status in ("pending_approval", "checks_failed") %}<a role="button" class="small" href="/data/results/{{ gate_results[0].id }}">{{ _("Open release view") }}</a>{% endif %}
+    </div>
+    {% endif %}
+    {% if t.status == "for_review" and can_review and t.task_kind not in ("run", "profile") %}
+    {% set send_on_approve = emails | selectattr("status", "equalto", "pending_approval") | selectattr("on_approve") | list %}
+    {% if send_on_approve %}<p class="notice-box mail-on-approve">{{ ngettext("Approving also sends %(num)d email request (see Emails).", "Approving also sends %(num)d email requests (see Emails).", send_on_approve | length) }}{% if not can_decide_mail %} {{ _("Only a human approval sends them.") }}{% endif %}</p>{% endif %}
+    <form method="post" action="/tasks/{{ t.task_nr }}/action" class="side-card">
       <input type="hidden" name="csrf_token" value="{{ csrf }}">
       <textarea name="body" rows="2" placeholder="{{ _('Review comment (required for “Reject”)') }}" aria-label="{{ _('Review comment (required for “Reject”)') }}"></textarea>
       <div class="grid">
-        <button name="action" value="approve" onclick="return confirm({{ _('Merge the pull request?') | tojson | forceescape }})">{{ _("Approve &amp; merge") }}</button>
+        <button name="action" value="approve" onclick="return confirm({{ _('Merge the pull request?') | tojson | forceescape }})">{{ _("Approve & merge") }}</button>
         <button name="action" value="reject" class="secondary">{{ _("Reject") }}</button>
       </div>
     </form>
@@ -216,8 +356,6 @@
     <p class="notice-box">{{ _("Part of the planned sprint “%(sprint)s” – it is released together with the sprint once description and acceptance criteria are filled in.", sprint=t.sprint_name) }}</p>
     {% endif %}
     {% if t.status == "draft" and (can_manage or t.created_by == me.name) %}
-    {# Release check: what is still missing, updated live from the editor (static/task_form.js). Description and
-       criteria are required (state machine); an unassigned task only asks for confirmation. #}
     {% set rc_state = "blocked" if no_desc or no_ac else ("unassigned" if not t.assigned_to else "ready") %}
     <div class="release-check" data-release-check data-state="{{ rc_state }}" role="status">
       <p class="rc-title"><strong data-rc="blocked">{{ _("Not ready for release yet") }}</strong><strong data-rc="unassigned">{{ _("Ready for release – nobody assigned yet") }}</strong><strong data-rc="ready">{{ _("Ready for release") }}</strong></p>
@@ -245,94 +383,210 @@
       <button type="submit" class="secondary small">{{ _("Release again") }}</button>
     </form>
     {% endif %}
-    {% if can_manage %}
-    <a href="/tasks/{{ t.task_nr }}/follow-up" role="button" class="secondary outline action-wide" data-follow-up>{{ _("Create follow-up task") }}</a>
-    {% endif %}
-    {% if can_duplicate %}
-    <details class="action-fold duplicate">
-      <summary>{{ _("Duplicate") }}</summary>
-      <form method="post" action="/tasks/{{ t.task_nr }}/duplicate" data-duplicate>
-        <input type="hidden" name="csrf_token" value="{{ csrf }}">
-        <small class="muted">{{ _("Creates a new draft in the same project with description, criteria, prio, due date, model, dependencies, parent and open sprint – without thread, review, branch or result.") }}</small>
-        <label>{{ _("Assign to") }} <select name="assign"><option value="">{{ _("– nobody –") }}</option>
-          {% for a in agents %}<option>{{ a }}</option>{% endfor %}</select></label>
-        <button type="submit" class="secondary small">{{ _("Duplicate as draft") }}</button>
-      </form>
-    </details>
-    {% endif %}
-    {# Rarer and destructive actions (each keeps its own confirmation). #}
-    {% if (can_manage and t.status not in ("done", "cancelled")) or human_admin %}
-    <details class="action-fold more-actions">
-      <summary>{{ _("More actions") }}</summary>
-      <div class="more-actions-body">
-    {% if t.status == "defined" and can_manage %}
-    <form method="post" action="/tasks/{{ t.task_nr }}/action">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="to_draft">
-      <button type="submit" class="secondary outline small">{{ _("Back to draft") }}</button>
-    </form>
-    {% endif %}
-    {% if t.status in ("in_progress", "questions", "changes_requested", "for_review") and human_admin %}
-    <details>
-      <summary>{{ _("Set status to “%(status)s”", status=status_label("aborted")) }}</summary>
-      <form method="post" action="/tasks/{{ t.task_nr }}/action">
-        <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="abort">
-        <input name="body" placeholder="{{ _('Reason, e.g. model too weak') }}" aria-label="{{ _('Reason, e.g. model too weak') }}" required>
-        <button type="submit" class="secondary small">{{ _("Abort (agent)") }}</button>
-      </form>
-    </details>
-    {% endif %}
-    {% if t.status not in ("done", "cancelled") and can_manage %}
-    <form method="post" action="/tasks/{{ t.task_nr }}/action" onsubmit="return confirm({{ _('Cancel the task for good?') | tojson | forceescape }})">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="cancel">
-      <button type="submit" class="outline contrast small">{{ _("Cancel task") }}</button>
-    </form>
-    {% endif %}
-    {% if human_admin %}
-    <details>
-      <summary>{{ _("Override status") }}</summary>
-      <form method="post" action="/tasks/{{ t.task_nr }}/action" onsubmit="return confirm({{ _('Override the status manually?') | tojson | forceescape }})">
-        <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="override">
-        <select name="to" aria-label="{{ _('Status') }}">{% for s in statuses if s != t.status %}<option value="{{ s }}">{{ status_label(s) }}</option>{% endfor %}</select>
-        <input name="body" placeholder="{{ _('Note (optional)') }}" aria-label="{{ _('Note (optional)') }}">
-        <button type="submit" class="small secondary">{{ _("Set") }}</button>
-      </form>
-    </details>
-    {% endif %}
-      </div>
-    </details>
-    {% endif %}
+  </div>
+
+  <details class="side-card props-card" open>
+    <summary>{{ _("Properties") }}</summary>
+    <div class="prop-list">
+      <div class="prop"><span class="prop-label">{{ _("Project") }}</span><span class="prop-value"><a href="/projects/{{ t.project }}"{% if pi.name %} title="{{ t.project }} – {{ pi.name }}"{% endif %}>{{ t.project }}</a></span></div>
+      <div class="prop"><span class="prop-label">{{ _("Status") }}</span><span class="prop-value">{% with status=t.status %}{% include "_status.html" %}{% endwith %}</span></div>
+      <div class="prop"><span class="prop-label">{{ _("Priority") }}</span><span class="prop-value">
+        {% if can_manage %}
+        <details class="prop-pop"><summary><span class="prio prio-{{ t.prio }}" title="{{ prio_label(t.prio) }}">{{ t.prio }}</span></summary>
+          <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep("prio") }}
+            <label>{{ _("Priority") }} <select name="prio">{% for p in range(1, 6) %}<option value="{{ p }}" {% if p == t.prio %}selected{% endif %}>{{ prio_label(p) }}</option>{% endfor %}</select></label>
+            <button type="submit" class="small">{{ _("Save") }}</button>
+          </form></details>
+        {% else %}<span class="prio prio-{{ t.prio }}">{{ t.prio }}</span>{% endif %}
+      </span></div>
+      <div class="prop"><span class="prop-label">{{ _("Assignee") }}</span><span class="prop-value">
+        {% set assignee_locked = running and not human_admin %}
+        {% if can_manage and not assignee_locked %}
+        <details class="prop-pop"><summary>{% if t.assigned_to %}{{ chip(t.assigned_to) }}{% else %}<span class="agent none">{{ _("– nobody –") }}</span>{% endif %}</summary>
+          <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep("who") }}
+            <label>{{ _("Assign to") }} <select name="assigned_to"><option value="">{{ _("– nobody –") }}</option>
+              {% for a in agents %}<option {% if t.assigned_to == a %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+            {% if running %}<small class="muted">{{ _("Running task: changing the assignee resets it to “Defined”") }}</small>{% endif %}
+            <button type="submit" class="small">{{ _("Save") }}</button>
+          </form></details>
+        {% elif t.assigned_to %}{{ chip(t.assigned_to) }}{% else %}<span class="agent none">{{ _("– nobody –") }}</span>{% endif %}
+      </span></div>
+      <div class="prop"><span class="prop-label">{{ _("Reviewer") }}</span><span class="prop-value">
+        {% if can_manage and t.status not in ("done", "cancelled") %}
+        <details class="prop-pop"><summary>{% if t.reviewer %}{{ chip(t.reviewer) }}{% else %}{{ _("owner and admins") }}{% endif %}</summary>
+          <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep() }}
+            <label>{{ _("Reviewer") }} <select name="reviewer">
+              <option value="none" {% if not t.reviewer %}selected{% endif %}>{{ _("– owner and admins –") }}</option>
+              {% for r in reviewers %}<option value="{{ r.name }}" {% if t.reviewer == r.name %}selected{% endif %}>{{ r.name }}{% if r.kind == "agent" %} ({{ _("reviewer agent") }}){% endif %}</option>{% endfor %}
+              {% if t.reviewer and t.reviewer not in reviewers | map(attribute="name") %}<option value="{{ t.reviewer }}" selected>{{ t.reviewer }}</option>{% endif %}
+            </select></label>
+            <button type="submit" class="small">{{ _("Save") }}</button>
+          </form></details>
+        {% elif t.reviewer %}{{ chip(t.reviewer) }}{% if t.reviewer_kind == "agent" %} <small>({{ _("reviewer agent") }})</small>{% endif %}{% if not t.reviewer_effective and t.status not in ("done", "cancelled") %} <small title="{{ _('Cannot review this task (assignee, role, inactive or privacy) – the owner and admins review') }}">⚠</small>{% endif %}
+        {% else %}{{ _("owner and admins") }}{% endif %}
+      </span></div>
+      <div class="prop"><span class="prop-label">{{ _("Sprint") }}</span><span class="prop-value">
+        {% if can_manage and (project_sprints or t.sprint) %}
+        <details class="prop-pop"><summary>{% if t.sprint %}<a class="prop-clamp" href="/projects/{{ t.project }}/sprints/{{ t.sprint }}" title="{{ t.sprint_name }}">{{ t.sprint_name }}</a>{% else %}–{% endif %}</summary>
+          <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep() }}
+            {% set sprint_value = (t.sprint or "none") | string %}
+            <label>{{ _("Sprint") }} <select name="sprint"><option value="none">{{ _("– no sprint –") }}</option>
+              {% for x in project_sprints %}<option value="{{ x.id }}" {% if sprint_value == x.id | string %}selected{% endif %}>{{ x.name }} ({{ sprint_status_label(x.status) }})</option>{% endfor %}</select></label>
+            <button type="submit" class="small">{{ _("Save") }}</button>
+          </form></details>
+        {% elif t.sprint %}<a class="prop-clamp" href="/projects/{{ t.project }}/sprints/{{ t.sprint }}" title="{{ t.sprint_name }}">{{ t.sprint_name }}</a> <span class="badge sprint-{{ t.sprint_status }}">{{ sprint_status_label(t.sprint_status) }}</span>{% else %}–{% endif %}
+      </span></div>
+      <div class="prop"><span class="prop-label">{{ _("Due") }}</span><span class="prop-value">
+        {% if can_manage %}
+        <details class="prop-pop"><summary>{{ t.due_date or "–" }}</summary>
+          <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep("due") }}
+            <label>{{ _("Due") }} <input type="date" name="due_date" value="{{ t.due_date or '' }}"></label>
+            <button type="submit" class="small">{{ _("Save") }}</button>
+          </form></details>
+        {% else %}{{ t.due_date or "–" }}{% endif %}
+      </span></div>
+      <div class="prop"><span class="prop-label">{{ _("Data class") }}</span><span class="prop-value">
+        {% if can_manage %}
+        <details class="prop-pop"><summary>{% with cls=t.data_class_effective, inherited=not t.data_class %}{% include "_data_class.html" %}{% endwith %}</summary>
+          <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep() }}
+            {% set dc_labels = {"cloud_ok": _("Cloud ok"), "local_only": _("Local only"), "sealed": _("Sealed")} %}
+            {% set dc_disabled = dc_disabled or [] %}
+            {% set dc_value = t.data_class or "inherit" %}
+            <label>{{ _("Data class") }} <select name="data_class">
+              <option value="inherit"{% if dc_value == "inherit" %} selected{% endif %}{% if dc_project in dc_disabled %} disabled{% endif %}>{% if dc_project %}{{ _("inherited from project: %(label)s", label=dc_labels[dc_project]) }}{% else %}{{ _("– inherited from project –") }}{% endif %}</option>
+              {% for c in ("cloud_ok", "local_only", "sealed") %}<option value="{{ c }}"{% if dc_value == c %} selected{% endif %}{% if c in dc_disabled %} disabled{% endif %}>{{ dc_labels[c] }}</option>{% endfor %}
+            </select></label>
+            <button type="submit" class="small">{{ _("Save") }}</button>
+          </form></details>
+        {% else %}{% with cls=t.data_class_effective, inherited=not t.data_class %}{% include "_data_class.html" %}{% endwith %}{% endif %}
+        {% if t.task_kind in ("profile", "run") %} <small class="runner-mark">⚙ {{ _("Runner") }}</small>{% endif %}
+      </span></div>
+      <div class="prop"><span class="prop-label">{{ _("Model tier") }}</span><span class="prop-value">
+        {% if can_manage %}
+        <details class="prop-pop"><summary>{% if t.model_tier %}{{ tier_label(t.model_tier) }}{% elif t.model %}<code>{{ t.model }}</code>{% else %}{{ _("agent default") }}{% endif %}</summary>
+          <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep() }}
+            <label>{{ _("Model tier") }} <select name="model_tier">
+              <option value="none">{{ _("– agent default –") }}</option>
+              {% for tier in ("simple", "standard", "complex") %}<option value="{{ tier }}" {% if t.model_tier == tier %}selected{% endif %}>{{ tier_label(tier) }}</option>{% endfor %}
+            </select></label>
+            <button type="submit" class="small">{{ _("Save") }}</button>
+          </form></details>
+        {% elif t.model_tier or t.model %}{% include "_tier.html" %}{% else %}{{ _("agent default") }}{% endif %}
+      </span></div>
+    </div>
+  </details>
+
+  <section class="side-card links-card">
+    <h2 class="card-kicker">{{ _("Links") }}</h2>
+    {% if t.branch_name %}<p class="links-branch">{% if pi.repo_url %}<a href="{{ pi.repo_url }}/src/branch/{{ t.branch_name }}" target="_blank" rel="noopener" title="{{ t.branch_name }}"><code class="links-branch-name">{{ t.branch_name }}</code> <span class="links-branch-arrow" aria-hidden="true">↗</span></a>{% else %}<code class="links-branch-name" title="{{ t.branch_name }}">{{ t.branch_name }}</code>{% endif %}</p>{% endif %}
+    {% if can_manage %}<button type="button" class="linkish" data-open-edit="edit-links">+ {{ _("Link task") }}</button>{% endif %}
+    <h3>{{ _("Project & links") }}</h3>
+    <ul class="plain">
+      <li><a href="/projects/{{ t.project }}">{{ t.project }}{% if pi.name %} – {{ pi.name }}{% endif %}</a> <small class="muted">({{ _("local only") if pi.privacy == "local_only" else _("cloud ok") }})</small></li>
+      {% if pi.repo_url %}<li><a href="{{ pi.repo_url }}" target="_blank" rel="noopener">{{ _("Open repository") }} ↗</a> <small class="muted">{{ pi.gitea_owner }}/{{ pi.gitea_repo }}</small></li>{% endif %}
+      {% if t.branch_name %}<li>{{ _("Branch:") }} {% if pi.repo_url %}<a href="{{ pi.repo_url }}/src/branch/{{ t.branch_name }}" target="_blank" rel="noopener"><code>{{ t.branch_name }}</code></a>{% else %}<code>{{ t.branch_name }}</code>{% endif %}</li>{% endif %}
+      {% if t.pr_url %}<li>{{ _("Pull request:") }} <a href="{{ t.pr_url }}" target="_blank" rel="noopener">#{{ t.pr_number }} ↗</a></li>{% endif %}
+      {% if t.detail_task_git_url %}<li>{{ _("Spec:") }} <a href="{{ t.detail_task_git_url }}" target="_blank" rel="noopener">{{ _("file") }} ↗</a></li>{% endif %}
+      {% if t.result_commit_sha %}<li>{{ _("Commit:") }} <code>{{ t.result_commit_sha[:10] }}</code></li>{% endif %}
+    </ul>
+    <p class="created muted"><small>{{ _("Created by %(name)s on %(date)s", name=t.created_by, date=t.created_at | localtime) }}</small></p>
   </section>
 
-  {% if t.result_summary or t.open_points %}
-  <details class="side-card result" open data-fold-narrow>
-    <summary>{{ _("Result") }}</summary>
-    {% if t.result_summary %}<div class="md">{{ t.result_summary | markdown }}</div>{% endif %}
-    {% if t.open_points %}<h6>{{ _("Open points") }}</h6>
-    <ul class="open-points">{% for p in t.open_points %}<li>{{ p }}</li>{% endfor %}</ul>
-    {% if can_manage %}<a href="/tasks/{{ t.task_nr }}/follow-up" class="small">{{ _("Take them into a follow-up task") }}</a>{% endif %}
+  {% if human_admin %}
+  <details class="side-card admin-override">
+    <summary>{{ _("Admin: override status") }}</summary>
+    <form method="post" action="/tasks/{{ t.task_nr }}/action" onsubmit="return confirm({{ _('Override the status manually?') | tojson | forceescape }})">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="override">
+      <div class="override-row">
+        <select name="to" aria-label="{{ _('Status') }}">{% for s in statuses if s != t.status %}<option value="{{ s }}">{{ status_label(s) }}</option>{% endfor %}</select>
+        <button type="submit" class="small secondary">{{ _("Set") }}</button>
+      </div>
+      <input name="body" placeholder="{{ _('Note (optional)') }}" aria-label="{{ _('Note (optional)') }}">
+    </form>
+  </details>
+  {% endif %}
+
+  {% if t.data_refs or t.run %}
+  {% set purpose_labels = {"input": _("Input"), "schema": _("Schema"), "output": _("Result")} %}
+  <details class="side-card data-refs" id="data" open>
+    <summary>{{ _("Data") }}</summary>
+    <dl class="struct">
+      {% for r in t.data_refs %}
+      <div><dt>{{ purpose_labels[r.purpose] }}</dt>
+        <dd>{% if r.type == "result" %}<a href="/data/results/{{ r.id }}">{{ r.label }}</a>{% elif r.dataset %}<a href="/data/{{ r.dataset }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}
+          {%- if r.type == "dataset" %} <small class="muted">({{ _("runner only") }})</small>{% endif %}
+          <span class="badge ref-status ref-{{ r.status }}">{{ r.status_label }}</span></dd></div>
+      {% endfor %}
+      {% if t.run and t.task_kind == "run" %}
+      <div><dt>{{ _("Script") }}</dt><dd>{% if t.run.script_path %}<code>{{ t.run.script_path }}</code>{% else %}<span class="missing">{{ _("no script path yet") }}</span>{% endif %}{% if t.run.commit_sha %} @<code>{{ t.run.commit_sha[:7] }}</code>{% endif %}</dd></div>
+      {% endif %}
+    </dl>
+    {% if can_manage and t.task_kind == "run" and t.status in ("draft", "defined", "changes_requested") %}
+    <details class="run-fields"{% if t.status == "draft" and not (t.run and t.run.script_path) %} open{% endif %}>
+      <summary>{{ _("Run fields") }}</summary>
+      <form method="post" action="/tasks/{{ t.task_nr }}/run-fields">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <label>{{ _("Script path") }} <input name="script_path" value="{{ (t.run.script_path if t.run else '') or '' }}" placeholder="analysis/report.py" required></label>
+        <label>{{ _("Merged script commit") }} <input name="commit_sha" value="{{ (t.run.commit_sha if t.run else '') or '' }}" pattern="[0-9a-f]{40}" required></label>
+        <label>{{ _("Input dataset") }} <input name="dataset" value="{{ (t.run.dataset if t.run else '') or '' }}" required></label>
+        <button type="submit" class="small secondary">{{ _("Save run fields") }}</button>
+      </form>
+    </details>
     {% endif %}
   </details>
   {% endif %}
 
-  <details class="side-card attachments" open data-fold-narrow>
-    <summary>{{ _("Attachments") }} <span class="count-pill">{{ t.attachments | length }}</span></summary>
-    <ul class="plain">
-    {% for a in t.attachments %}
-      <li>{% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.filename }} ↗</a>{% else %}{{ a.filename }}{% endif %}
-        <small class="muted">· {{ a.size_bytes | filesize }} · {{ a.uploaded_by }} · {{ a.created_at | localtime("daytime") }}</small></li>
-    {% else %}<li class="muted empty-note">{{ _("No attachments.") }}</li>{% endfor %}
-    </ul>
-    {% if pi.gitea_repo %}
-    <form method="post" action="/tasks/{{ t.task_nr }}/attachments" enctype="multipart/form-data" class="upload-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <input type="file" name="attachments" multiple required aria-label="{{ _('Attachments') }}" aria-describedby="upload-help">
-      <button type="submit" class="secondary small">{{ _("Upload") }}</button>
-      <small class="muted" id="upload-help">{{ _("Max. 10 MB per file, stored in the project repo under <code>tasks/%(nr)s/</code>", nr=t.task_nr) }}</small>
-    </form>
-    {% else %}<small class="muted">{{ _("Project without a repo – attachments only after “Activate idea”.") }}</small>{% endif %}
+  {% if emails %}
+  <details class="side-card emails" id="emails" open>
+    <summary>{{ _("Emails") }} <span class="count-pill">{{ emails | length }}</span></summary>
+    {% for m in emails %}
+    <article class="mail-request mail-{{ m.status }}" id="mail-{{ m.id }}">
+      <p><strong>#{{ m.id }}</strong> <span class="badge mail-status">{{ m.status_label }}</span>{% if m.on_approve and m.status == "pending_approval" %} <small class="muted">{{ _("sent when the task is approved") }}</small>{% endif %}</p>
+      <dl class="mail-meta">
+        <div><dt>{{ _("To") }}</dt><dd>{{ m.to | join(", ") }}</dd></div>
+        {% if m.cc %}<div><dt>{{ _("Cc") }}</dt><dd>{{ m.cc | join(", ") }}</dd></div>{% endif %}
+        <div><dt>{{ _("Subject") }}</dt><dd>{{ m.subject }}</dd></div>
+        {% if m.reply_to %}<div><dt>{{ _("Reply-To") }}</dt><dd>{{ m.reply_to }}</dd></div>{% endif %}
+        <div><dt>{{ _("Requested by") }}</dt><dd>{{ m.requested_by }} · {{ m.created_at | localtime }}</dd></div>
+        {% if m.approved_by %}<div><dt>{{ _("Decided by") }}</dt><dd>{{ m.approved_by }}{% if m.approved_at %} · {{ m.approved_at | localtime }}{% endif %}{% if m.decided_note %} – {{ m.decided_note }}{% endif %}</dd></div>{% endif %}
+        {% if m.sent_at %}<div><dt>{{ _("Sent") }}</dt><dd>{{ m.sent_at | localtime }} · <code>{{ m.message_id }}</code></dd></div>{% endif %}
+        {% if m.smtp_error %}<div><dt>{{ _("SMTP error") }}</dt><dd class="error">{{ m.smtp_error }}</dd></div>{% endif %}
+      </dl>
+      {% if m.attachments %}<ul class="plain mail-attachments">{% for a in m.attachments %}
+        <li><code>{{ a.name }}</code> <small class="muted">· {{ a.size | filesize }} · SHA-256 <code title="{{ a.sha256 }}">{{ a.sha256[:16] }}…</code>{% if a.ref %} · {{ a.ref }}{% endif %}</small></li>{% endfor %}</ul>{% endif %}
+      {% if m.body %}<details class="mail-body"{% if m.status == "pending_approval" %} open{% endif %}><summary>{{ _("Text") }}</summary><pre>{{ m.body }}</pre></details>
+      {% elif m.cleared %}<p class="muted"><small>{{ _("Text and attachment references cleared after 30 days.") }}</small></p>{% endif %}
+      {% if m.status == "pending_approval" and can_decide_mail %}
+      <form method="post" action="/tasks/{{ t.task_nr }}/emails/{{ m.id }}/approve" onsubmit="return confirm({{ _('Send this email?') | tojson | forceescape }})">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button type="submit" class="small">{{ _("Approve and send") }}</button>
+      </form>
+      <details class="action-fold">
+        <summary>{{ _("Edit") }}</summary>
+        <form method="post" action="/tasks/{{ t.task_nr }}/emails/{{ m.id }}/edit">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <label>{{ _("To") }} <input name="to" value="{{ m.to | join(', ') }}" required></label>
+          <label>{{ _("Cc") }} <input name="cc" value="{{ m.cc | join(', ') }}"></label>
+          <label>{{ _("Subject") }} <input name="subject" value="{{ m.subject }}" maxlength="200" required></label>
+          <label>{{ _("Text") }} <textarea name="body" rows="8" required>{{ m.body }}</textarea></label>
+          <button type="submit" class="secondary small">{{ _("Save") }}</button>
+        </form>
+      </details>
+      <details class="action-fold">
+        <summary>{{ _("Reject") }}</summary>
+        <form method="post" action="/tasks/{{ t.task_nr }}/emails/{{ m.id }}/reject">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input name="reason" placeholder="{{ _('Reason (optional)') }}" aria-label="{{ _('Reason (optional)') }}">
+          <button type="submit" class="secondary small">{{ _("Reject") }}</button>
+        </form>
+      </details>
+      {% endif %}
+    </article>
+    {% endfor %}
   </details>
+  {% endif %}
 
-  <details class="side-card structure" open data-fold-narrow>
+  <details class="side-card structure" open>
     <summary>{{ _("Structure") }}</summary>
     {% if t.parent_task_nr %}<p>{{ _("Part of") }} <a href="/tasks/{{ t.parent_task_nr }}">{{ t.parent_task_nr }}</a></p>{% endif %}
     {% if t.follow_up_of %}<p>{{ _("Follow-up to") }} <a href="/tasks/{{ t.follow_up_of }}">{{ t.follow_up_of }}</a></p>{% endif %}
@@ -349,20 +603,7 @@
         <dd><ul class="plain duplicates">{% for d in t.duplicates %}<li><a href="/tasks/{{ d.task_nr }}">{{ d.task_nr }}</a> {{ d.title }} {% with status=d.status %}{% include "_status.html" %}{% endwith %}</li>{% endfor %}</ul></dd></div>{% endif %}
     </dl>
   </details>
-
-  <details class="side-card links" open data-fold-narrow>
-    <summary>{{ _("Project & links") }}</summary>
-    <ul class="plain">
-      <li><a href="/projects/{{ t.project }}">{{ t.project }}{% if pi.name %} – {{ pi.name }}{% endif %}</a> <small class="muted">({{ _("local only") if pi.privacy == "local_only" else _("cloud ok") }})</small></li>
-      {% if pi.repo_url %}<li><a href="{{ pi.repo_url }}" target="_blank" rel="noopener">{{ _("Open repository") }} ↗</a> <small class="muted">{{ pi.gitea_owner }}/{{ pi.gitea_repo }}</small></li>{% endif %}
-      {% if t.branch_name %}<li>{{ _("Branch:") }} {% if pi.repo_url %}<a href="{{ pi.repo_url }}/src/branch/{{ t.branch_name }}" target="_blank" rel="noopener"><code>{{ t.branch_name }}</code></a>{% else %}<code>{{ t.branch_name }}</code>{% endif %}</li>{% endif %}
-      {% if t.pr_url %}<li>{{ _("Pull request:") }} <a href="{{ t.pr_url }}" target="_blank" rel="noopener">#{{ t.pr_number }} ↗</a></li>{% endif %}
-      {% if t.detail_task_git_url %}<li>{{ _("Spec:") }} <a href="{{ t.detail_task_git_url }}" target="_blank" rel="noopener">{{ _("file") }} ↗</a></li>{% endif %}
-      {% if t.result_commit_sha %}<li>{{ _("Commit:") }} <code>{{ t.result_commit_sha[:10] }}</code></li>{% endif %}
-    </ul>
-    <p class="created muted"><small>{{ _("Created by %(name)s on %(date)s", name=t.created_by, date=t.created_at | localtime) }}</small></p>
-  </details>
-</div>
+</aside>
 </div>
 </div>
 {% endblock %}

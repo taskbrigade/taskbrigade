@@ -1,11 +1,6 @@
-{% macro th(col, label) %}<th><a href="{{ sort_url(col) }}" hx-get="{{ sort_url(col) }}" hx-target="#backlog-table" hx-push-url="true">{{ label }}{% if params.sort == col %} {{ "▼" if params.desc else "▲" }}{% endif %}</a></th>{% endmacro %}
-{# Desktop: table with sortable column heads. Below 900 px the same rows become cards (table.cards in app.css) and
-   the sort fields below take over; they belong to the filter form and carry the sort on every filter change. #}
-<div class="filter-state">
-  <p class="muted">{{ ngettext("%(num)d task", "%(num)d tasks", total) }}{% if active_filters %} · {{ ngettext("%(num)d filter active", "%(num)d filters active", active_filters) }}{% endif %}</p>
-  {% if active_filters or params.q %}<a href="/backlog" class="small">{{ _("Reset filters") }}</a>{% endif %}
-</div>
-<div class="sort-ctl" hx-get="/backlog" hx-include="#backlog-filter" hx-target="#backlog-table" hx-push-url="true"
+{% import "_ui.html" as ui %}
+{% macro th(col, label) %}<th scope="col"{% if params.sort == col %} aria-sort="{{ 'descending' if params.desc else 'ascending' }}"{% endif %}><a href="{{ sort_url(col) }}" hx-get="{{ sort_url(col) }}" hx-target="#backlog-content" hx-push-url="true">{{ label }}{% if params.sort == col %} {{ "▼" if params.desc else "▲" }}{% endif %}</a></th>{% endmacro %}
+<div class="sort-ctl" hx-get="/backlog" hx-include="#backlog-filter" hx-target="#backlog-content" hx-push-url="true"
      hx-trigger="change">
   <label for="backlog-sort">{{ _("Sort") }}</label>
   <select id="backlog-sort" name="sort" form="backlog-filter">
@@ -18,26 +13,36 @@
     <option value="1" {% if params.desc %}selected{% endif %}>{{ _("descending") }}</option>
   </select>
 </div>
-<div class="table-card">
-<table class="cards backlog">
+<div class="ui-card ui-card-flush backlog-table-wrap">
+<table class="ui-table backlog">
   <thead><tr>
-    {{ th("task_nr", _("Task")) }}{{ th("title", _("Title")) }}<th>{{ _("Project") }}</th><th>{{ _("Sprint") }}</th>{{ th("status", _("Status")) }}{{ th("prio", _("Prio")) }}
-    <th>{{ _("Assigned") }}</th>{{ th("created_at", _("Created")) }}{{ th("updated_at", _("Changed")) }}
+    <th scope="col"><input type="checkbox" data-select-all aria-label="{{ _('Select all') }}"></th>
+    {{ th("task_nr", _("Key")) }}{{ th("title", _("Title")) }}<th scope="col">{{ _("Status") }}</th>{{ th("prio", _("Prio")) }}
+    <th scope="col">{{ _("Assigned") }}</th>{{ th("updated_at", _("Changed")) }}
   </tr></thead>
   <tbody>
   {% for t in items %}
-    <tr>
-      <td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td>
-      <td class="task-title">{{ t.title }}</td><td class="meta c2">{{ t.project }}</td>
-      <td class="meta c2{% if not (t.sprint and t.sprint in sprint_names) %} card-hide{% endif %}">{% if t.sprint and t.sprint in sprint_names %}<a href="/projects/{{ t.project }}/sprints/{{ t.sprint }}">{{ sprint_names[t.sprint] }}</a>{% else %}–{% endif %}</td>
-      <td class="c2">{% with status=t.status %}{% include "_status.html" %}{% endwith %}</td>
-      <td><span class="prio prio-{{ t.prio }}">{{ t.prio }}</span> {% include "_tier.html" %}</td>
-      <td class="c2">{% if t.assigned_to %}<span class="agent">{{ t.assigned_to }}</span>{% else %}<span class="agent none">–</span>{% endif %}</td>
-      <td class="date card-hide" data-label="{{ _('Created') }}">{{ t.created_at | localtime("short") }}</td><td class="date c3 first" data-label="{{ _('Changed') }}">{{ t.updated_at | localtime("short") }}</td>
+    <tr data-task-row aria-selected="false">
+      <td class="backlog-select"><input type="checkbox" data-task-select value="{{ t.task_nr }}" data-version="{{ t.row_version }}" aria-label="{{ _('Select %(task)s', task=t.task_nr) }}"></td>
+      <td class="task-nr">{{ ui.key(t.task_nr) }}</td>
+      <td class="task-title"><a href="/tasks/{{ t.task_nr }}" class="ui-task-title">{{ t.title }}</a><div class="backlog-meta">{% include "_tier.html" %} {% include "_workflow_badge.html" %}<span>{{ t.project }}{% if t.sprint and t.sprint in sprint_names %} · <a href="/projects/{{ t.project }}/sprints/{{ t.sprint }}">{{ sprint_names[t.sprint] }}</a>{% endif %}</span></div></td>
+      <td class="backlog-status">{{ ui.status(t.status) }}</td>
+      <td class="backlog-prio">{{ ui.prio(t.prio) }}</td>
+      <td class="backlog-assignee">{% if t.assigned_to %}{{ ui.actor(t.assigned_to, (actor_kinds | default({})).get(t.assigned_to)) }}{% else %}<span class="ui-muted">–</span>{% endif %}</td>
+      <td class="backlog-changed"><time title="{{ t.updated_at | localtime }}">{{ t.updated_at | relative_time }}</time></td>
     </tr>
   {% else %}
-    <tr><td colspan="9" class="muted empty">{{ _("No tasks match these filters.") }}</td></tr>
+    <tr><td colspan="7" class="ui-muted empty">{{ _("No tasks match these filters.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
+<div class="backlog-footer" hx-get="/backlog" hx-trigger="change" hx-include="#backlog-filter" hx-target="#backlog-content" hx-push-url="true">
+  <span>{{ _("Showing %(shown)s of %(total)s", shown=items | length, total=total) }}{% if active_filters %} · {{ ngettext("%(num)d filter active", "%(num)d filters active", active_filters) }}{% endif %}</span>
+  {% if page_url is defined %}<nav aria-label="{{ _('Pagination') }}">
+    {% if params.page > 1 %}<a href="{{ page_url(params.page - 1) }}" hx-get="{{ page_url(params.page - 1) }}" hx-target="#backlog-content" hx-push-url="true">{{ _("Previous") }}</a>{% endif %}
+    <span>{{ _("Page %(page)s", page=params.page) }}</span>
+    {% if params.page * params.limit < total %}<a href="{{ page_url(params.page + 1) }}" hx-get="{{ page_url(params.page + 1) }}" hx-target="#backlog-content" hx-push-url="true">{{ _("Next") }}</a>{% endif %}
+  </nav>{% endif %}
+  <label>{{ _("Rows per page") }} <select class="ui-select" name="limit" form="backlog-filter">{% for size in (25, 50, 100, 200) %}<option value="{{ size }}" {% if params.limit | default(50) == size %}selected{% endif %}>{{ size }}</option>{% endfor %}</select></label>
 </div>

@@ -1,0 +1,18 @@
+[Unit]
+Description=TaskBrigade workflow scheduler tick
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=taskbrigade
+Group=taskbrigade
+WorkingDirectory=/opt/taskbrigade/app
+EnvironmentFile=/etc/taskbrigade/taskbrigade.env
+ExecStart=/opt/taskbrigade/app/.venv/bin/tbr-admin workflows tick
+TimeoutStartSec=50
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/taskbrigade

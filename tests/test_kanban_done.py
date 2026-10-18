@@ -59,7 +59,7 @@ def _done(nr: str, done_at: datetime | None, updated_at: datetime) -> None:
 
 
 def _done_column(html: str) -> str:
-    return html.split('data-column="done"', 1)[1].split("</section>", 1)[0]
+    return html.split('class="kanban-col" data-column="done"', 1)[1].split("</section>", 1)[0]  # Not the phone tab.
 
 
 @pytest.mark.db
@@ -94,14 +94,14 @@ def test_ui_done_filter_ranges_cookie_and_other_filters(env, monkeypatch):
     assert "tm_done_range" not in r.cookies and "Offen-alt" in r.text
     assert shown("/kanban") == {"heute", "gestern", "drei", "fallback"}
     col = _done_column(r.text)
-    assert "(4 von 9)" in col  # Filtered count, of all done tasks matching the other filters (KET excluded).
+    assert ">4 von 9</span>" in col  # Filtered count, of all done tasks matching the other filters (KET excluded).
     assert shown("/kanban?done=today") == {"heute"}
     assert anna.cookies.get("tm_done_range") == "today"
     assert shown("/kanban") == {"heute"}  # Remembered in the cookie.
     assert shown("/kanban?done=7d") == {"heute", "gestern", "drei", "vier", "sieben", "fallback"}
     assert shown("/kanban?done=30d") == ages.keys() - {"alt"} | {"fallback"}
     r = anna.get("/kanban?done=all")
-    assert "(9)" in _done_column(r.text) and "Die neuesten" not in r.text
+    assert ">9</span>" in _done_column(r.text) and "Die neuesten" not in r.text
     assert shown("/kanban?done=all&project=KET") == set()  # Project filter still applies.
 
     _show_all(anna, True)  # Profile switch on: other owners' done tasks join, period filter still applies.
@@ -120,10 +120,8 @@ def test_ui_done_filter_all_is_capped_with_hint(env, monkeypatch):
         _done(nr, svc.utcnow() - timedelta(days=40 + i), svc.utcnow())
     anna = _ui_login("anna", "anna-passwort-123")
     col = _done_column(anna.get("/kanban?done=all").text)
-    assert col.count('class="card"') == 3 and "(5)" in col
+    assert col.count('class="card"') == 3 and "Alle 5 im Backlog anzeigen" in col
     assert [f"Done-{i}" in col for i in range(5)] == [True, True, True, False, False]  # Newest first.
-    assert "Die neuesten 3 –" in col and "ältere im Backlog mit Status-Filter Erledigt" in col
     assert "/backlog?status=done&amp;sort=done_at&amp;desc=1" in col
     backlog = anna.get("/backlog?status=done&sort=done_at&desc=1").text
     assert all(f"Done-{i}" in backlog for i in range(5))
-    assert "Die neuesten" not in _done_column(anna.get("/kanban?done=3d").text)

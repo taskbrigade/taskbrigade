@@ -99,3 +99,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+
+## IBM Plex Sans and IBM Plex Mono (Fontsource 5.3.0)
+
+- Path: `app/static/vendor/fonts/` (`ibm-plex-sans-latin-{400,400-italic,500,600,700}-*.woff2`,
+  `ibm-plex-mono-latin-{400,500,600}-normal.woff2`; Latin subset only)
+- Used from: `app/static/app.css` (`@font-face`, UI typography)
+- Project: <https://github.com/IBM/plex>, packaged as `@fontsource/ibm-plex-sans` and `@fontsource/ibm-plex-mono`
+  5.3.0 on npm
+- License: SIL Open Font License 1.1, full text in `app/static/vendor/fonts/OFL.txt`
+- Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"

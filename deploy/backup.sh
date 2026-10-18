@@ -40,6 +40,22 @@ mkdir -p "$BACKUP_DIR"
 out="$BACKUP_DIR/taskbrigade-$(date -u +%Y%m%d-%H%M%S).sql.gz"
 mariadb-dump --defaults-extra-file="$cnf" --single-transaction --routines --triggers "$db" | gzip > "$out.part"
 mv "$out.part" "$out"
+
+# Encrypted data store (concept §9): only with TBR_BACKUP_DATA=1. The KEK (TBR_DATA_KEY_FILE) is never part of
+# this archive – store it separately, otherwise a leaked backup plus the key would open every dataset.
+DATA_ARCHIVE=""
+if [[ "${TBR_BACKUP_DATA:-}" == "1" ]]; then
+  DATA_DIR="${TBR_DATA_DIR:-/srv/taskbrigade-data}"
+  STORE="$DATA_DIR/store"
+  if [[ -d "$STORE" ]]; then
+    DATA_ARCHIVE="$BACKUP_DIR/taskbrigade-data-$(date -u +%Y%m%d-%H%M%S).tar.gz"
+    tar czf "$DATA_ARCHIVE.part" -C "$DATA_DIR" store
+    mv "$DATA_ARCHIVE.part" "$DATA_ARCHIVE"
+    echo "Backup (data store, ciphertext): $DATA_ARCHIVE"
+  else
+    echo "warning: TBR_BACKUP_DATA=1 but $STORE does not exist; skipping the data store." >&2
+  fi
+fi
 # taskmeister-*: dumps from before TaskBrigade 0.8 rotate out the same way.
-find "$BACKUP_DIR" \( -name 'taskbrigade-*.sql.gz' -o -name 'taskmeister-*.sql.gz' \) -mtime +"$KEEP_DAYS" -delete
+find "$BACKUP_DIR" \( -name 'taskbrigade-*.sql.gz' -o -name 'taskmeister-*.sql.gz' -o -name 'taskbrigade-data-*.tar.gz' \) -mtime +"$KEEP_DAYS" -delete
 echo "Backup: $out"

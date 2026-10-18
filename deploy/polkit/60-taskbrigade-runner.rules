@@ -1,0 +1,14 @@
+// TaskBrigade data zones (research/konzept-datenzonen.md §5): the runner service user may only start and stop
+// sandbox jobs, never any other unit.
+//
+// Installed by deploy/install.sh and deploy/update.sh (only with TBR_DATA_ZONES=1) as
+// /etc/polkit-1/rules.d/60-taskbrigade-runner.rules (owner root, mode 0644).
+polkit.addRule(function (action, subject) {
+  if (action.id == "org.freedesktop.systemd1.manage-units" && subject.user == "tbr-runner") {
+    var unit = action.lookup("unit") || "";
+    var verb = action.lookup("verb") || "";
+    if (unit.indexOf("taskbrigade-job@") == 0 && (verb == "start" || verb == "stop")) {
+      return polkit.Result.YES;
+    }
+  }
+});

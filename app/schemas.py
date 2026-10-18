@@ -1,14 +1,15 @@
 """Pydantic schemas for the REST API."""
 import json
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ActorType = Literal["human", "agent"]
-AgentKind = Literal["hermes", "openclaw", "codex", "claude_code", "opencode", "other"]
+AgentKind = Literal["hermes", "openclaw", "codex", "claude_code", "opencode", "other", "runner"]
 Role = Literal["admin", "orchestrator", "worker", "member", "reviewer"]
 Runtime = Literal["local", "cloud"]
+ModelLocation = Literal["cloud", "local", "none"]  # Where the agent's model runs (`app/services/zones.py`)
 
 
 class ActorPublic(BaseModel):
@@ -20,6 +21,7 @@ class ActorPublic(BaseModel):
     actor_type: ActorType
     agent_kind: AgentKind | None
     runtime: Runtime
+    model_location: ModelLocation = "cloud"
     role: Role
     owner: str | None = Field(default=None, validation_alias="owner_name")  # Agents: owning human
     is_public: bool = False  # Agents: shown to everyone in assignment choices
@@ -33,6 +35,7 @@ class ActorOut(BaseModel):
     actor_type: ActorType
     agent_kind: AgentKind | None
     runtime: Runtime
+    model_location: ModelLocation = "cloud"
     role: Role
     is_active: bool
     api_key_prefix: str | None
@@ -77,6 +80,7 @@ class ActorCreate(BaseModel):
     agent_kind: AgentKind | None = None
     role: Role = "worker"
     runtime: Runtime = "local"
+    model_location: ModelLocation = "cloud"
     lease_minutes: int = 120
     max_parallel_tasks: int = 2
     notes: str | None = None
@@ -93,6 +97,7 @@ class ActorPatch(BaseModel):
     display_name: str | None = None
     role: Role | None = None
     runtime: Runtime | None = None
+    model_location: ModelLocation | None = None
     agent_kind: AgentKind | None = None
     lease_minutes: int | None = None
     max_parallel_tasks: int | None = None
@@ -174,6 +179,7 @@ class DatabaseIn(BaseModel):
 
 ProjectStatus = Literal["idea", "active", "paused", "archived"]
 Privacy = Literal["local_only", "cloud_ok"]
+DataClassIn = Literal["cloud_ok", "local_only", "sealed", "inherit"]  # Task data class (`app/services/zones.py`)
 
 
 class ProjectCreate(BaseModel):
@@ -195,6 +201,7 @@ class ProjectPatch(BaseModel):
 
     owner: str | None = None
     serialize_reviews: bool | None = None
+    data_four_eyes: bool | None = None  # Output gate; send null explicitly to return to the admin default
     default_reviewer: str | None = None  # Human or reviewer agent for new tasks; "" or "none" removes it.
     name: str | None = None
     description: str | None = None
@@ -236,6 +243,48 @@ class TaskCreate(BaseModel):
     model: str | None = Field(default=None, max_length=100)  # Must be on the assignee's allow list.
     # Human or reviewer agent; missing/null = the project's default reviewer, "none" = nobody (owner/admins review).
     reviewer: str | None = Field(default=None, max_length=50)
+    data_class: DataClassIn | None = None  # Own data class; missing/null/"inherit" = the project's privacy.
+    # Runner tasks (data zones): kind `run` needs `run` = {commit_sha, script_path, dataset}, `profile` {dataset}.
+    task_kind: Literal["work", "run", "profile"] = "work"
+    run: "RunFieldsIn | None" = None
+
+
+class RunFieldsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commit_sha: str | None = Field(default=None, max_length=40)  # Merge commit of the reviewed script
+    script_path: str | None = Field(default=None, max_length=300)  # Path in the repository, e.g. analysis/x.py
+    dataset: str | None = Field(default=None, max_length=16)  # Input dataset key, e.g. DS-0003
+
+
+class RunResultFileIn(BaseModel):
+    name: str = Field(max_length=100)
+    kind: Literal["output", "log"]
+    path: str = Field(max_length=500)  # Relative to TBR_DATA_DIR, below quarantine/<job_id>/
+    size: int = Field(ge=0)
+    sha256: str = Field(min_length=64, max_length=64)  # Over the plaintext
+
+
+class RunResultIn(BaseModel):
+    """Report of a finished sandbox job (runner → server); no output contents."""
+    job_id: str = Field(max_length=64)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    exit_code: int | None = None
+    service_result: str | None = Field(default=None, max_length=40)
+    peak_memory_mb: int | None = Field(default=None, ge=0)
+    dek_wrapped: str | None = Field(default=None, max_length=200)
+    files: list[RunResultFileIn] = Field(default_factory=list, max_length=20)
+    refused: int = Field(default=0, ge=0)  # Entries in out/ the runner did not take (output gate check 1)
+    probe: dict | None = None  # Report of the gate probe job (checks 4 and 5): counts and locations only
+
+
+class RunFailIn(BaseModel):
+    code: str = Field(max_length=40)
+    detail: str | None = Field(default=None, max_length=2000)
+
+
+TaskCreate.model_rebuild()
 
 
 class TaskPatch(BaseModel):
@@ -254,6 +303,8 @@ class TaskPatch(BaseModel):
     model_tier: Literal["simple", "standard", "complex"] | None = None  # null removes the tier
     model: str | None = Field(default=None, max_length=100)  # null removes the concrete model
     reviewer: str | None = Field(default=None, max_length=50)  # null removes the reviewer (owner/admins review)
+    data_class: DataClassIn | None = None  # null/"inherit" = inherit the project's privacy
+    run: RunFieldsIn | None = None  # Runner fields; only before work started
 
 
 class DuplicateIn(BaseModel):
@@ -268,12 +319,21 @@ class CommentIn(BaseModel):
     signal: Literal["stalled"] | None = None
 
 
+class UsageIn(BaseModel):
+    """One usage report (research/konzept-workflows.md §7.4): tokens/cost consumed by the agent for the task."""
+    input_tokens: int | None = Field(default=None, ge=0, le=4294967295)
+    output_tokens: int | None = Field(default=None, ge=0, le=4294967295)
+    cost_cents: int | None = Field(default=None, ge=0, le=4294967295)
+    model: str | None = Field(default=None, max_length=100)
+
+
 class HeartbeatIn(BaseModel):
-    """Optional body of the heartbeat: conscious waiting for a long background run."""
+    """Optional body of the heartbeat: conscious waiting for a long background run, and usage."""
     waiting: str | None = Field(default=None, max_length=300)
     for_minutes: int | None = Field(default=None, ge=1)  # Default 120, capped at 1440 (24 h) by the server.
     watch_file: str | None = Field(default=None, max_length=500)
     done_waiting: bool = False
+    usage: UsageIn | None = None
 
 
 class ModelUsedIn(BaseModel):
@@ -297,6 +357,8 @@ class SubmitIn(BaseModel):
     commit_sha: str
     summary: str = Field(min_length=1)
     open_points: list[str] = []  # Points left for a follow-up task, stored at the task.
+    outputs: dict[str, Any] | None = None  # Declared workflow outputs (§3.3). Ignored when the task has none.
+    usage: UsageIn | None = None  # Token/cost usage reported on completion (§7.4).
 
 
 class ReviewIn(BaseModel):
@@ -338,6 +400,11 @@ class SprintClose(BaseModel):
     """Open tasks either move to another sprint of the project or are detached."""
     move_to: int | None = None
     detach: bool = False
+
+
+class SprintReopen(BaseModel):
+    """Reopen a closed sprint; `restore_tasks` moves back the tasks that were moved out when it was closed."""
+    restore_tasks: bool = True
 
 
 class SprintTaskEntry(BaseModel):

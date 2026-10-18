@@ -26,7 +26,8 @@ export TBR_PUBLISH=127.0.0.1:$APP_PORT \
        GITEA_PUBLIC_URL=http://localhost:$GITEA_PORT \
        TBR_DOCKER_SUBNET=${TBR_SMOKE_SUBNET:-172.31.251.0/24} \
        TBR_DOCKER_GATEWAY=${TBR_SMOKE_GATEWAY:-172.31.251.1} \
-       TRUSTED_PEER_NETWORKS=${TBR_SMOKE_GATEWAY:-172.31.251.1}/32
+       TRUSTED_PEER_NETWORKS=${TBR_SMOKE_GATEWAY:-172.31.251.1}/32 \
+       TBR_RUNNER_SUBNET=${TBR_SMOKE_RUNNER_SUBNET:-172.31.253.0/24}
 
 # Network and volume names are fixed in compose.yaml; rename them for the smoke project.
 cat > "$WORK/compose.smoke.yaml" <<EOF
@@ -44,6 +45,14 @@ volumes:
     name: $PROJECT-state
   gitea-data:
     name: $PROJECT-gitea
+  taskbrigade-data:
+    name: $PROJECT-data
+  taskbrigade-data-key:
+    name: $PROJECT-data-key
+  taskbrigade-sftp:
+    name: $PROJECT-sftp
+  taskbrigade-sftp-spool:
+    name: $PROJECT-sftp-spool
 EOF
 
 # Hide API tokens in printed logs.

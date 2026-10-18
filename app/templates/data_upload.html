@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Upload dataset") }} – TaskBrigade{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ _("Upload dataset") }}</h2></div>
+{% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+{% if problem %}<p class="banner error">{{ problem }}</p>
+{% elif not projects %}<p class="banner warn">{{ _("You may not upload datasets to any project. The project owner, admins and project members with the data right may upload.") }}</p>
+{% else %}
+{# Field order matters: the server reads the stream in order and checks the token and the project before the file
+   arrives, so the file input must stay the last field (app/web/data_ui.py). #}
+<form method="post" action="/data/upload" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <label>{{ _("Project") }}
+    <select name="project" required>
+      {% for p in projects %}<option value="{{ p.project_key }}"{% if values.project == p.project_key %} selected{% endif %}>{{ p.project_key }} – {{ p.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>{{ _("Name") }}
+    <input name="name" required maxlength="200" value="{{ values.name or '' }}">
+    <small>{{ _("Shown to project members only, never to agents.") }}</small>
+  </label>
+  <fieldset>
+    <legend>{{ _("Class") }}</legend>
+    {% for c in classes | reverse %}
+    <label><input type="radio" name="data_class" value="{{ c }}"{% if (values.data_class or "sealed") == c %} checked{% endif %}> {{ class_labels[c] }}</label>
+    {% endfor %}
+  </fieldset>
+  <label>{{ _("Replaces") }}
+    <select name="supersedes">
+      <option value="">{{ _("– none –") }}</option>
+      {% for d in replaceable %}<option value="{{ d.dataset_key }}"{% if values.supersedes == d.dataset_key %} selected{% endif %}>{{ project_keys.get(d.project_id) }} · {{ d.dataset_key }} – {{ d.name }}</option>{% endfor %}
+    </select>
+    <small>{{ _("New version of a dataset of the same project; the old one is archived.") }}</small>
+  </label>
+  <div class="grid">
+    <label>{{ _("Retention (days)") }}
+      <input type="number" name="retention_days" min="1" max="3650" value="{{ values.retention_days or default_retention }}">
+    </label>
+    <label>{{ _("Min. group size") }}
+      <input type="number" name="min_group_size" min="2" max="10000" value="{{ values.min_group_size or '' }}" placeholder="5">
+      <small>{{ _("Empty = default of the output gate.") }}</small>
+    </label>
+  </div>
+  <label>{{ _("File") }}
+    <input type="file" name="file" required accept=".xlsx,.xls,.xlsm,.csv,.tsv,.ods,.zip,.json,.txt">
+    <small>{{ _("max. %(size)d MB", size=max_mb) }}</small>
+  </label>
+  <p class="muted">{{ _("The file is encrypted on arrival and never stored in Git. A profile (schema and synthetic sample) is created next and must be released before any cloud task can use it.") }}</p>
+  <div class="actions"><a href="/data" role="button" class="secondary outline">{{ _("Cancel") }}</a> <button type="submit">{{ _("Upload") }}</button></div>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,21 @@
+[Unit]
+Description=TaskBrigade SFTP inbox: import finished deliveries into the encrypted data store
+# The path unit watches the upload folders; it starts this service once per change.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=taskbrigade
+Group=taskbrigade
+# The upload folders belong to the deliverers and the data group; importing needs the data group's read access.
+SupplementaryGroups=tbr-data
+WorkingDirectory=/opt/taskbrigade/app
+EnvironmentFile=/etc/taskbrigade/taskbrigade.env
+ExecStart=/opt/taskbrigade/app/.venv/bin/tbr-admin data sftp-user import
+# Hardening: the import reads the upload folders and writes below TBR_DATA_DIR, nowhere else.
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/taskbrigade-data /srv/taskbrigade-sftp
+NoNewPrivileges=true

@@ -1,0 +1,42 @@
+{% set a = actor %}
+{% set base = '/admin/users/' ~ a.name %}
+{% macro csrf_field() %}<input type="hidden" name="csrf_token" value="{{ csrf }}">{% endmacro %}
+{% macro action(path, label, confirmation=None, danger=False) %}
+<form method="post" action="{{ base }}/{{ path }}?panel=1"{% if confirmation %} onsubmit="return confirm({{ confirmation|tojson|forceescape }})"{% endif %}>{{ csrf_field() }}<button class="ui-btn ui-btn-sm {{ 'ui-btn-danger' if danger else 'ui-btn-secondary' }}" type="submit">{{ label }}</button></form>
+{% endmacro %}
+<aside class="user-panel" id="user-panel" aria-labelledby="user-panel-title" tabindex="-1">
+  <header class="user-panel-header"><span class="ui-avatar ui-avatar-lg ui-avatar-{{ a.agent_kind or 'human' }}">{{ a.name[:2]|upper }}</span><div><h2 id="user-panel-title" title="{{ a.name }}">{{ a.name }}</h2><small>{{ a.display_name }} · {{ presence[a.id].status }}</small></div><a class="ui-btn ui-btn-secondary ui-btn-xs" id="user-panel-close" href="{{ list_url }}" aria-label="{{ _('Close') }}">×</a></header>
+  {% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+  {% if message %}<p class="banner ok" role="status">{{ message }}</p>{% endif %}
+  <form method="post" id="user-summary" action="{{ base }}/summary?panel=1">
+    {{ csrf_field() }}
+    <div class="user-fields">
+      <label>{{ _("Role") }}<select name="role">{% for r in roles %}<option {% if a.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select></label>
+      {% if a.actor_type == 'agent' %}<label>{{ _("Owner") }}<select name="owner"><option value="none">{{ _("– no owner –") }}</option>{% set current_owner = owners.get(a.id) %}{% for n in humans %}<option {% if current_owner == n %}selected{% endif %}>{{ n }}</option>{% endfor %}{% if current_owner and current_owner not in humans %}<option selected>{{ current_owner }}</option>{% endif %}</select></label>{% endif %}
+      <label>{{ _("Runtime") }}<select name="runtime"><option value="cloud" {% if a.runtime == 'cloud' %}selected{% endif %}>{{ _("Cloud runtime") }}</option><option value="local" {% if a.runtime == 'local' %}selected{% endif %}>{{ _("Local runtime") }}</option></select></label>
+      <label>{{ _("Max. parallel tasks") }}<input type="number" name="max_parallel_tasks" min="1" max="50" required value="{{ a.max_parallel_tasks }}"></label>
+    </div>
+  </form>
+  <section><h3 class="ui-label">{{ _("Data zone") }}</h3><div class="ui-row"><span>{{ _("Data:") }} {% with cls=zone_max[a.id], compact=False %}{% include "_data_class.html" %}{% endwith %}</span><span class="ui-pill">{{ _(model_locations[a.model_location]) }}</span>{% if a.actor_type == 'agent' %}<span class="ui-pill">{{ _("Public") if a.is_public else _("private") }}</span>{% endif %}</div></section>
+  <section><h3 class="ui-label">{{ _("API token") }}</h3>
+    {% if a.api_key_hash %}<code>{{ a.api_key_prefix }}••••••••••••</code><small>{{ _("created %(date)s", date=a.api_key_created_at|localtime('date')) }}</small>{% else %}<p>{{ _("No valid token.") }}</p>{% endif %}
+    {% if new_token %}
+    <label>{{ _("New API token (copy now)") }}<input type="password" id="new-api-token" readonly value="{{ new_token }}"></label>
+    <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('new-api-token').value).then(() => this.nextElementSibling.hidden = false)">{{ _("Copy token") }}</button><small role="status" hidden>{{ _("Copied") }}</small>
+    {% else %}<button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" disabled aria-describedby="token-copy-help">{{ _("Copy token") }}</button>{% endif %}
+    <p class="ui-muted" id="token-copy-help"><small>{{ _("Only the hash is stored. Rotate to copy a new token.") }}</small></p>
+    <div class="ui-row">{% if a.is_active %}{{ action('rotate-token', _('Rotate token'), _('Generate a new token? The old one becomes invalid immediately.')) }}{% endif %}{% if a.api_key_hash %}{{ action('revoke-token', _('Revoke'), _('Revoke this API token? It becomes invalid immediately.'), True) }}{% endif %}</div>
+    {% if a.actor_type == 'agent' and a.is_active %}<a href="/admin/agents/{{ a.name }}/setup">{{ _("Join code for tbr join / Gitea setup") }}</a>{% endif %}
+  </section>
+  <section><h3 class="ui-label">{{ _("Gitea") }}</h3><p>{{ a.gitea_username or _('Gitea missing') }}</p><small>{{ _("checked %(date)s", date=a.gitea_token_checked_at|localtime) }}</small>
+    {% if a.gitea_username %}{{ action('gitea/check', _('Test connection')) }}{% endif %}
+    <details><summary>{{ _("Edit credentials") }}</summary><form method="post" action="{{ base }}/gitea?panel=1" onsubmit="return confirm({{ _('Check and replace the Gitea credentials?')|tojson|forceescape }})">{{ csrf_field() }}
+      <label>{{ _("Gitea username") }}<input name="gitea_username" required value="{{ a.gitea_username or a.name }}"></label>
+      <label>{{ _("Access token") }}<input type="password" name="gitea_token" required autocomplete="off"></label>
+      <label>{{ _("Email (for commits)") }}<input type="email" name="gitea_email" value="{{ a.gitea_email or '' }}"></label>
+      <button type="submit" class="ui-btn ui-btn-sm">{{ _("Check and save") }}</button>
+    </form></details>
+  </section>
+  <p><a href="{{ base }}">{{ _("Advanced settings") }}</a></p>
+  <footer class="ui-row"><form method="post" action="{{ base }}/active?panel=1" onsubmit="return confirm({{ _('Change account activation? Deactivation invalidates the API token immediately.')|tojson|forceescape }})">{{ csrf_field() }}<input type="hidden" name="active" value="{{ 'false' if a.is_active else 'true' }}"><button type="submit" class="ui-btn ui-btn-danger">{{ _("Deactivate") if a.is_active else _("Reactivate") }}</button></form><button form="user-summary" type="submit" class="ui-btn">{{ _("Save changes") }}</button></footer>
+</aside>

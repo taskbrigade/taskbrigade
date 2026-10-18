@@ -17,11 +17,27 @@ TBR_STATE_VOLUME=taskbrigade-state
 TBR_GITEA_VOLUME=taskbrigade-gitea
 
 # Once the Gitea volume exists, the services of the "gitea" profile are included as well, whether the stack was
-# started with --profile gitea or COMPOSE_PROFILES=gitea.
+# started with --profile gitea or COMPOSE_PROFILES=gitea. TBR_DATA_ZONES=1 in .env adds the profile "data",
+# TBR_DATA_SFTP=1 (with it) "data-sftp" (docs/docker.md → Data zones).
 dc() {
   local profile=()
-  if tm_volume_exists "$TBR_GITEA_VOLUME"; then profile=(--profile gitea); fi
+  if [[ "$(tm_env_value TBR_DATA_ZONES)" == 1 ]]; then
+    profile=(--profile data)
+    if [[ "$(tm_env_value TBR_DATA_SFTP)" == 1 ]]; then profile+=(--profile data-sftp); fi
+  fi
+  if tm_volume_exists "$TBR_GITEA_VOLUME"; then profile+=(--profile gitea); fi
   docker compose --project-directory "$TBR_COMPOSE_DIR" ${profile[@]+"${profile[@]}"} "$@"
+}
+
+# Value of KEY in .env (last assignment wins, surrounding quotes removed); empty when unset or without .env.
+tm_env_value() {
+  local file="$TBR_COMPOSE_DIR/.env"
+  [[ -f "$file" ]] || return 0
+  awk -v key="$1" '
+    { line = $0; sub(/^[ \t]*export[ \t]+/, "", line) }
+    index(line, key "=") == 1 { value = substr(line, length(key) + 2); sub(/[ \t]+#.*$/, "", value)
+                                gsub(/^["\047]|["\047]$/, "", value) }
+    END { print value }' "$file"
 }
 
 tm_require_compose() {

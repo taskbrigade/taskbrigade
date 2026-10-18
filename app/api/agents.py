@@ -76,6 +76,23 @@ def sftp_credentials(request: Request, session: Session = SessionDep, me: Actor 
     return creds
 
 
+@router.get("/email-status")
+def email_status(session: Session = SessionDep, me: Actor = Depends(current_actor)):
+    """Email channel for `tbr doctor`: probe of the SMTP host (login/certificate, server side, no credentials
+    in the answer) and the delivery status of the log. 404 `email_disabled` when the channel is off."""
+    from app.services import mail
+
+    return mail.smtp_probe(session)
+
+
+@router.get("/workflow-tick-status")
+def workflow_tick_status(session: Session = SessionDep, me: Actor = Depends(current_actor)):
+    """Workflow scheduler tick for `tbr doctor`: last tick and whether it is stale (> 5 min)."""
+    from app.services.workflows.tick import status
+
+    return status(session)
+
+
 @router.get("/tasks")
 def my_tasks(status: list[str] | None = Query(None), session: Session = SessionDep,
              me: Actor = Depends(current_actor)):
@@ -123,7 +140,8 @@ def join(body: JoinIn, request: Request, session: Session = SessionDep):
     client = request.client.host if request.client else "?"
     if api_limiter.blocked(client):
         raise HTTPException(429, _( 'Too many failed sign-in attempts' ), headers={"X-Error-Code": "rate_limited"})
-    if not _secure_channel(request):
+    # The runner container redeems its code over the host-internal runner network (no cleartext on the LAN).
+    if not _secure_channel(request) and not get_settings().is_runner_peer(client):
         raise Forbidden(_("Join codes can only be redeemed over HTTPS (tailscale serve) or localhost"),
                         code="insecure_channel")
     try:

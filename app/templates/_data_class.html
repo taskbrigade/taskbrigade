@@ -1,0 +1,5 @@
+{#- Data class badge (research/konzept-datenzonen.md §8): colour and text. `cls`: data class; `compact`: zone letter
+    only, the label stays as tooltip and for screen readers; `inherited`: the class comes from the project. -#}
+{%- set dc_label = {"cloud_ok": _("Cloud ok"), "local_only": _("Local only"), "sealed": _("Sealed")}[cls] -%}
+{%- set dc_letter = {"cloud_ok": "C", "local_only": "L", "sealed": "R"}[cls] -%}
+<span class="badge zone zone-{{ cls }}{% if compact %} zone-compact{% endif %}" data-class="{{ cls }}" title="{{ _('Data class: %(label)s', label=dc_label) }}{% if inherited %} ({{ _('inherited from the project') }}){% endif %}"><span aria-hidden="true">{{ dc_letter }}</span>{% if compact %}<span class="visually-hidden"> {{ dc_label }}</span>{% else %} {{ dc_label }}{% endif %}</span>

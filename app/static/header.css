@@ -1,0 +1,94 @@
+/* Shared app shell: one row on desktop, two on tablets, bottom navigation on phones. */
+.app-header { background: var(--ui-surface); border-bottom: 1px solid var(--tb-line); margin-bottom: 0; padding-block: 12px; }
+.app-header-row { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.app-header .brand { display: flex; flex: 0 0 auto; align-items: center; min-height: 44px; }
+.qc-new { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+.app-header .tb-logo { height: 34px; width: auto; }
+.desktop-nav { display: flex; flex: 0 1 auto; gap: 2px; min-width: 0; overflow-x: auto; white-space: nowrap; }
+.desktop-nav a, .header-popup a { display: flex; align-items: center; padding: 8px 10px; margin: 0; border-radius: 6px; color: var(--tb-text); text-decoration: none; font-weight: 400; }
+.desktop-nav a:hover, .header-popup a:hover { background: var(--tb-hover); }
+.desktop-nav a[aria-current=page], .bottom-tabs [aria-current=page], .bottom-tabs .active { background: var(--ui-primary-tint); color: var(--ui-primary); font-weight: 600; }
+/* Quick capture: input group (title field + its own project select, 6 px apart). */
+.quick-capture { display: flex; flex: 1 1 280px; min-width: 160px; gap: 6px; align-items: center; margin: 0; padding: 0; }
+.qc-input { display: flex; flex: 1 1 auto; min-width: 0; gap: 4px; align-items: center; height: 36px; padding: 0 8px; border: 1px solid var(--tb-line); border-radius: var(--ui-radius); background: var(--ui-surface-2); }
+.qc-input:focus-within { outline: 2px solid var(--tb-blue); outline-offset: 2px; }
+.qc-leading { color: var(--tb-text-2); }
+.quick-capture input[name=title] { flex: 1; min-width: 0; width: 100%; margin: 0; padding: 0; height: 34px; border: 0; background: transparent; box-shadow: none; font-size: .85rem; }
+.quick-capture input[name=title]:focus-visible { outline: 0; }
+.qc-project { flex: 0 0 160px; min-width: 0; margin: 0; font-size: .8rem; color: var(--ui-text-2); }
+.qc-project-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.qc-project-box { position: relative; display: block; }
+.qc-project select { width: 100%; height: 36px; min-height: 0; margin: 0; padding: 0 28px 0 10px; border: 1px solid var(--ui-input-border); border-radius: var(--ui-radius); background-color: var(--ui-surface); background-position: center right 8px; color: var(--ui-text); font: 500 13px var(--ui-font-mono); box-shadow: none; cursor: pointer; }
+.qc-project select:hover { background-color: var(--ui-bg); }
+.qc-project select:focus { border-color: var(--ui-primary); box-shadow: none; --pico-box-shadow: none; }
+/* With JS the closed select shows only the key (the span on top); the opened list keeps "KEY – name". */
+.qc-project-key { display: none; }
+.js .qc-project select { color: transparent; }
+.js .qc-project select option { color: var(--ui-text); background: var(--ui-surface); }
+.js .qc-project-key { display: flex; align-items: center; position: absolute; inset: 0 28px 0 11px; overflow: hidden; color: var(--ui-text); font: 500 13px var(--ui-font-mono); white-space: nowrap; pointer-events: none; }
+.js .qc-submit, .qc-heading, .sheet-close, .qc-toggle, .bottom-tabs { display: none; }
+/* Beats the button rule of app.css below 960 px (`:is(button, [role=button]):not(.menu-toggle)`), which showed
+   the phone-only toggle and close button next to the capture bar on tablets. */
+:is(.app-header, .more-sheet) :is(.qc-toggle, .sheet-close) { display: none; }
+.account { position: relative; margin-left: auto; flex-shrink: 0; }
+.app-header .avatar { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; margin: 0; border: 0; border-radius: 50%; background: var(--ui-primary); color: var(--ui-surface); font-weight: 600; }
+.header-popup { background: var(--ui-surface); padding: 12px; border: 1px solid var(--tb-line); border-radius: 10px; box-shadow: 0 8px 30px rgba(27, 36, 48, .13); z-index: 60; }
+.js .header-popup:not(.is-open) { display: none; }
+.account .header-popup { position: absolute; top: calc(100% + 8px); right: 0; width: min(280px, calc(100vw - 32px)); }
+.header-popup a, .header-popup button { min-height: 44px; }
+.header-popup form, .header-popup button { margin: 0; }
+.header-popup strong { display: block; padding: 8px 10px; overflow-wrap: anywhere; }
+.account-languages { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 10px; }
+.account-languages > span { flex: 1 0 100%; }
+.account-languages a { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin: 0; border-radius: 6px; }
+.app-header-row > .account-languages a:first-child { flex-basis: 100%; }
+.account-languages [aria-current=true] { background: var(--ui-primary-tint); font-weight: 600; }
+.more-sheet { display: none; }
+@media (min-width: 640px) {
+  .js .app-header .quick-capture.collapsible { display: flex !important; }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .app-header-row { flex-wrap: wrap; gap: 8px 16px; }
+  .desktop-nav { flex: 1; }
+  .quick-capture { order: 4; flex: 1 0 100%; }
+  .app-header .desktop-nav a { min-height: 44px; }
+}
+@media (min-width: 640px) and (max-width: 959px) {
+  /* Touch sizes like every other field below 960 px (app.css): both parts of the capture group 44 px high. */
+  .qc-input, .qc-project select { height: 44px; }
+  .quick-capture input[name=title] { height: 42px; min-height: 0; }
+}
+@media (max-width: 639px) {
+  .app-header { padding: max(8px, env(safe-area-inset-top)) 16px 8px; }
+  .app-header-row { gap: 8px; }
+  .app-header .tb-logo { height: 28px; }
+  .app-header .brand { margin-right: auto; min-width: 0; }
+  .app-header .account { margin-left: 0; }
+  .desktop-nav { display: none; }
+  .app-header .qc-toggle { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: 0; padding: 0; font-size: 1.5rem; }
+  body:has(.bottom-tabs) main.app-main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  /* Sticky save bars stop above the fixed tab bar instead of sliding under it. */
+  body:has(.bottom-tabs) :is(.ui-savebar, .wf-actions) { bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .bottom-tabs { display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; gap: 2px; background: var(--ui-surface); border-top: 1px solid var(--tb-line); padding: 4px max(8px, env(safe-area-inset-right)) max(4px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  .bottom-tabs a, .bottom-tabs button { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; min-height: 52px; min-width: 0; margin: 0; padding: 4px 0; border: 0; border-radius: 6px; background: transparent; color: var(--tb-text); font-size: 11px; text-decoration: none; line-height: 1.2; }
+  .tab-icon { font-size: 22px; line-height: 1; }
+  .nav-badge { position: absolute; top: 0; right: 8%; border-radius: 20px; padding: 2px 5px; background: var(--ui-primary); color: var(--ui-surface); font-size: 10px; }
+  .app-header .quick-capture, .more-sheet { position: fixed; inset: auto 0 calc(66px + env(safe-area-inset-bottom)); z-index: 60; max-height: calc(100dvh - 100px); overflow-y: auto; height: auto; padding: 20px 16px; margin: 0; background: var(--ui-surface); border: 1px solid var(--tb-line); border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(27, 36, 48, .13); }
+  .js .app-header .quick-capture:not(.is-open) { display: none; }
+  .app-header .quick-capture { flex-wrap: wrap; gap: 12px; }
+  .qc-heading { display: block; flex: 1 0 100%; margin: 0; font-size: 1.1rem; padding-right: 40px; }
+  .qc-leading { display: none; }
+  /* Sheet rows: title field, "Project" select with its label, create button. */
+  .qc-input { flex: 1 0 100%; height: auto; padding: 0; border: 0; background: transparent; }
+  .qc-input:focus-within { outline: 0; }
+  .app-header .quick-capture input[name=title] { flex: 1 0 100%; border: 1px solid var(--tb-line); border-radius: 8px; padding: 8px; min-height: 44px; font-size: 16px; }
+  .app-header .quick-capture input[name=title]:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+  .qc-project { display: flex; flex: 1 0 100%; flex-direction: column; gap: 4px; font-size: .9rem; }
+  .qc-project-label { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .js .app-header .qc-project select { height: auto; min-height: 44px; color: var(--ui-text); font: 400 16px var(--ui-font); }
+  .js .app-header .qc-project-key { display: none; }
+  .js .qc-submit { display: block; flex: 1 0 100%; width: 100%; margin: 0; min-height: 44px; }
+  :is(.app-header, .more-sheet) .sheet-close { display: block; position: absolute; right: 8px; top: 4px; width: 44px; height: 44px; padding: 0; margin: 0; background: transparent; border: 0; color: var(--tb-text); font-size: 1.5rem; }
+  .more-sheet.is-open { display: block; padding-top: 48px; }
+  html:not(.js) .more-sheet { display: block; position: static; margin-bottom: 80px; }
+}

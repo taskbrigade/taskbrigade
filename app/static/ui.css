@@ -1,0 +1,443 @@
+/* --- Shared UI components of the redesign (sprint UI-Redesign). ---------------------------------------------
+   Colours, radii, spacing and fonts come only from the --ui-* tokens at the top of app.css; no literal colours here
+   (tests/test_ui_kit.py checks it). Macros: templates/_ui.html, showcase: /admin/ui-kit. Classes start with "ui-" so
+   they never collide with Pico or the older page styles. Selectors that compete with Pico's element rules
+   (button, input, select, table) repeat the element so they win by order, not by !important. */
+
+/* Page canvas (base.html): every page sits directly on the --ui-bg body background in one centred container,
+   1400 px wide with 24 px padding (16 px on phones); cards, tables and panels bring their own white surface.
+   Pages add no wrapper box, max-width or side padding of their own. */
+main.app-main { width: 100%; max-width: 1400px; margin: 0 auto; padding: var(--ui-space-6);
+  padding-left: max(var(--ui-space-6), env(safe-area-inset-left));
+  padding-right: max(var(--ui-space-6), env(safe-area-inset-right)); }
+@media (max-width: 639.98px) {
+  main.app-main { padding: var(--ui-space-4); padding-left: max(var(--ui-space-4), env(safe-area-inset-left));
+    padding-right: max(var(--ui-space-4), env(safe-area-inset-right));
+    padding-bottom: max(var(--ui-space-4), env(safe-area-inset-bottom)); }
+}
+.ui-page { color: var(--ui-text); font-family: var(--ui-font); font-size: var(--ui-fs-base); }
+.ui-mono, .ui-key, .ui-token { font-family: var(--ui-font-mono); }
+.ui-muted { color: var(--ui-text-2); }
+.ui-label { font-size: var(--ui-fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ui-text-2); }
+.ui-stack { display: flex; flex-direction: column; gap: var(--ui-space-4); }
+.ui-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); }
+.ui-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Keyboard focus on any field stays visible even where a page style removed Pico's focus shadow. */
+:is(input, select, textarea):focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.ui-focusable:focus-visible,
+:where(.ui-btn, .ui-seg button, .ui-tab, .ui-key, .ui-chip, .ui-switch, .ui-search, .ui-select):focus-visible {
+  outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+/* --- Page header: title + subtitle left, actions right. ----------------------------------------------------- */
+.ui-page-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: var(--ui-space-4); margin-bottom: var(--ui-space-4); }
+.ui-page-header > div:first-child { display: flex; flex-direction: column; gap: var(--ui-space-1); min-width: 0; }
+.ui-page-title { margin: 0; font-size: var(--ui-fs-title); font-weight: 700; line-height: 1.2; color: var(--ui-text); }
+.ui-page-subtitle { margin: 0; color: var(--ui-text-2); }
+.ui-page-actions { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
+.ui-section-title { margin: 0; font-size: var(--ui-fs-section); font-weight: 600; line-height: 1.3;
+  color: var(--ui-text); }
+
+/* --- Buttons. ------------------------------------------------------------------------------------------------ */
+:is(button, a, input).ui-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--ui-space-2);
+  width: auto; height: var(--ui-h); margin: 0; padding: 0 var(--ui-space-4);
+  border: 1px solid var(--ui-primary); border-radius: var(--ui-radius);
+  background: var(--ui-primary); color: var(--ui-on-primary);
+  font: 600 var(--ui-fs-base)/1 var(--ui-font); text-decoration: none; white-space: nowrap;
+  cursor: pointer; box-shadow: none; transition: background-color .12s, border-color .12s; }
+:is(button, a, input).ui-btn:is(:hover, :active) {
+  background: var(--ui-primary-hover); border-color: var(--ui-primary-hover); color: var(--ui-on-primary); }
+:is(button, a, input).ui-btn:focus { box-shadow: none; }
+:is(button, a, input).ui-btn.ui-btn-secondary {
+  background: var(--ui-surface); border-color: var(--ui-control-border); color: var(--ui-text); font-weight: 500; }
+:is(button, a, input).ui-btn.ui-btn-secondary:is(:hover, :active) {
+  background: var(--ui-primary-tint); border-color: var(--ui-primary); color: var(--ui-text); }
+:is(button, a, input).ui-btn.ui-btn-sm { height: var(--ui-h-sm); padding: 0 var(--ui-space-3); }
+:is(button, a, input).ui-btn.ui-btn-xs { height: var(--ui-h-xs); padding: 0 var(--ui-space-2);
+  font-size: var(--ui-fs-xs); border-radius: var(--ui-radius-sm); }
+/* Danger action as a text button: no fill, red text, underline on hover. */
+:is(button, a, input).ui-btn.ui-btn-danger { background: transparent; border-color: transparent;
+  color: var(--ui-danger); padding: 0 var(--ui-space-2); font-weight: 600; }
+:is(button, a, input).ui-btn.ui-btn-danger:is(:hover, :active) { background: transparent; border-color: transparent;
+  color: var(--ui-danger); text-decoration: underline; }
+:is(button, input).ui-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+/* --- Pills / badges. ----------------------------------------------------------------------------------------- */
+.ui-pill { display: inline-block; padding: 2px var(--ui-space-2); border-radius: var(--ui-radius-pill);
+  font-size: var(--ui-fs-xs); font-weight: 500; line-height: 1.5; white-space: nowrap;
+  background: var(--ui-neutral-bg); color: var(--ui-neutral-fg); }
+.ui-pill-mono { font-family: var(--ui-font-mono); border-radius: var(--ui-radius-sm); }
+.ui-pill-count { background: var(--ui-primary); color: var(--ui-on-primary); }
+.ui-st-draft, .ui-st-cancelled, .ui-st-planned { background: var(--ui-st-draft-bg); color: var(--ui-st-draft-fg); }
+.ui-st-defined, .ui-st-released { background: var(--ui-st-defined-bg); color: var(--ui-st-defined-fg); }
+.ui-st-in_progress { background: var(--ui-st-progress-bg); color: var(--ui-st-progress-fg); }
+.ui-st-questions { background: var(--ui-st-questions-bg); color: var(--ui-st-questions-fg); }
+.ui-st-for_review { background: var(--ui-st-review-bg); color: var(--ui-st-review-fg); }
+.ui-st-changes_requested, .ui-st-aborted { background: var(--ui-st-rework-bg); color: var(--ui-st-rework-fg); }
+.ui-st-done, .ui-st-closed { background: var(--ui-st-done-bg); color: var(--ui-st-done-fg); }
+/* Project statuses: active = green (done), paused = amber (questions), archived/idea = grey (draft). */
+.ui-st-active { background: var(--ui-st-done-bg); color: var(--ui-st-done-fg); }
+.ui-st-paused { background: var(--ui-st-questions-bg); color: var(--ui-st-questions-fg); }
+.ui-st-archived, .ui-st-idea { background: var(--ui-st-draft-bg); color: var(--ui-st-draft-fg); }
+.ui-zone-cloud_ok { background: var(--ui-zone-cloud-bg); color: var(--ui-zone-cloud-fg); }
+.ui-zone-local_only { background: var(--ui-zone-local-bg); color: var(--ui-zone-local-fg); }
+.ui-zone-sealed { background: var(--ui-zone-sealed-bg); color: var(--ui-zone-sealed-fg); }
+.ui-pill-tier { background: var(--ui-tier-bg); color: var(--ui-tier-fg); }
+
+/* Priority: 22×22 square with the number; the title/aria-label names the priority. */
+.ui-prio { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 22px; height: 22px; border-radius: var(--ui-radius-sm); color: var(--ui-on-primary);
+  font-size: var(--ui-fs-xs); font-weight: 700; line-height: 1; background: var(--ui-prio-3); }
+.ui-prio-1 { background: var(--ui-prio-1); } .ui-prio-2 { background: var(--ui-prio-2); }
+.ui-prio-3 { background: var(--ui-prio-3); } .ui-prio-4 { background: var(--ui-prio-4); }
+.ui-prio-5 { background: var(--ui-prio-5); }
+
+/* Task key link (mono). */
+a.ui-key { font-size: var(--ui-fs-sm); font-weight: 500; color: var(--ui-primary); text-decoration: none;
+  white-space: nowrap; border-radius: 2px; }
+a.ui-key:hover { color: var(--ui-primary-hover); text-decoration: underline; }
+/* Task title in lists (Backlog rows, Planning rows, Kanban cards): one style for all three. Long words break only as
+   a last resort, never with automatic hyphenation. */
+.ui-task-title, a.ui-task-title { font-size: var(--ui-fs-base); font-weight: 600; line-height: 1.35; color: var(--ui-text);
+  overflow-wrap: anywhere; hyphens: manual; }
+
+/* Actor chip: initials avatar coloured by agent kind + name (20 px avatar, 14 px/500 text). The chip never grows
+   past its cell or card: long names end in an ellipsis, the full name is the tooltip (macro ui.actor). */
+.ui-actor { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; vertical-align: middle;
+  white-space: nowrap; font-size: var(--ui-fs-base); font-weight: 500; line-height: 20px; color: var(--ui-text); }
+.ui-actor-name, .ui-truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-truncate { display: block; max-width: 100%; }
+.ui-avatar { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--ui-avatar-other); color: var(--ui-on-primary);
+  font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0; }
+.ui-avatar-lg { width: 36px; height: 36px; font-size: var(--ui-fs-sm); font-weight: 600; }
+.ui-avatar-human { background: var(--ui-avatar-human); }
+.ui-avatar-codex { background: var(--ui-avatar-codex); }
+.ui-avatar-claude_code { background: var(--ui-avatar-claude_code); }
+.ui-avatar-opencode { background: var(--ui-avatar-opencode); }
+.ui-avatar-openclaw { background: var(--ui-avatar-openclaw); }
+.ui-avatar-hermes { background: var(--ui-avatar-hermes); }
+/* Agent kind badge (Users & agents): light tint, dark text, mono 11 px. */
+.ui-kind { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--ui-neutral-bg);
+  color: var(--ui-neutral-fg); font: 500 11px/1.5 var(--ui-font-mono); white-space: nowrap; vertical-align: middle; }
+.ui-kind-claude_code { background: var(--ui-kind-claude_code-bg); color: var(--ui-kind-claude_code-fg); }
+.ui-kind-openclaw { background: var(--ui-kind-openclaw-bg); color: var(--ui-kind-openclaw-fg); }
+.ui-kind-codex { background: var(--ui-kind-codex-bg); color: var(--ui-kind-codex-fg); }
+.ui-kind-hermes { background: var(--ui-kind-hermes-bg); color: var(--ui-kind-hermes-fg); }
+.ui-kind-opencode { background: var(--ui-kind-opencode-bg); color: var(--ui-kind-opencode-fg); }
+.ui-dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--ui-dot-offline); }
+.ui-dot-online { background: var(--ui-dot-online); } .ui-dot-idle { background: var(--ui-dot-idle); }
+
+/* --- Segmented control: grey track, active segment white with shadow (aria-pressed / aria-current). ---------- */
+.ui-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: var(--ui-radius);
+  background: var(--ui-track); }
+.ui-seg > :is(button, a) { display: inline-flex; align-items: center; gap: 6px; width: auto; height: 34px; margin: 0;
+  padding: 0 var(--ui-space-3); border: 0; border-radius: var(--ui-radius-sm); background: transparent;
+  color: var(--ui-text-3); font: 500 var(--ui-fs-base)/1 var(--ui-font); text-decoration: none; cursor: pointer;
+  box-shadow: none; }
+.ui-seg > :is(button:not([aria-pressed=true]), a:not([aria-current])):hover { background: transparent; color: var(--ui-text); }
+.ui-seg > :is(button[aria-pressed=true], a[aria-current]) { background: var(--ui-surface); color: var(--ui-text);
+  font-weight: 600; box-shadow: var(--ui-shadow-sm); }
+.ui-seg > :is(button, a):focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.ui-seg-sm > :is(button, a) { height: 26px; font-size: var(--ui-fs-sm); }
+/* Pico styles every [role=group] as a full-width joined button bar; undo that for segments and chip groups. */
+:is(.ui-seg, .ui-chips)[role=group] { width: auto; margin: 0; overflow: visible; box-shadow: none; }
+.ui-seg[role=group] > :is(button, a) { flex: none; margin: 0; border-radius: var(--ui-radius-sm); }
+.ui-chips[role=group] > label.ui-chip { flex: none; margin: 0; border-radius: var(--ui-radius-pill); }
+
+/* --- Filter chips: a real checkbox inside a pill-shaped label (keyboard: Tab + Space). ---------------------- */
+.ui-chips { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
+label.ui-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0; height: var(--ui-h-sm);
+  padding: 0 var(--ui-space-3); border: 1px solid var(--ui-control-border); border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface); color: var(--ui-text-3); font-size: var(--ui-fs-sm); font-weight: 500;
+  cursor: pointer; user-select: none; }
+label.ui-chip > input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+label.ui-chip:hover { border-color: var(--ui-primary); color: var(--ui-text); }
+label.ui-chip:has(input:checked) { background: var(--ui-primary-tint); border-color: var(--ui-primary);
+  color: var(--ui-primary-hover); font-weight: 600; }
+label.ui-chip:has(input:focus-visible) { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ui-chip-count { font-size: var(--ui-fs-xs); color: var(--ui-text-2); font-weight: 500; }
+label.ui-chip:has(input:checked) .ui-chip-count { color: var(--ui-primary-hover); }
+
+/* --- Toggle switch: the checkbox (role=switch) stays real and focusable; the track is drawn next to it. ------- */
+label.ui-switch { display: inline-flex; align-items: center; gap: 10px; margin: 0; cursor: pointer;
+  font-size: var(--ui-fs-base); color: var(--ui-text); position: relative; }
+label.ui-switch > input { position: absolute; opacity: 0; width: 36px; height: 20px; margin: 0; cursor: pointer; }
+.ui-switch-track { position: relative; flex: none; width: 36px; height: 20px; border-radius: 10px;
+  background: var(--ui-control-border); transition: background-color .12s; }
+.ui-switch-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--ui-surface); box-shadow: var(--ui-shadow-sm); transition: transform .12s; }
+label.ui-switch > input:checked + .ui-switch-track { background: var(--ui-primary); }
+label.ui-switch > input:checked + .ui-switch-track::after { transform: translateX(16px); }
+label.ui-switch > input:focus-visible + .ui-switch-track { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+label.ui-switch > input:disabled + .ui-switch-track { opacity: .55; }
+
+/* --- Select and search input (40 px, icon). ------------------------------------------------------------------ */
+select.ui-select, input.ui-input { height: var(--ui-h); margin: 0; padding: 0 var(--ui-space-3); width: auto;
+  border: 1px solid var(--ui-input-border); border-radius: var(--ui-radius); background-color: var(--ui-surface);
+  color: var(--ui-text); font: 400 var(--ui-fs-base) var(--ui-font); box-shadow: none; }
+select.ui-select { padding-right: 32px; }
+:is(select.ui-select, input.ui-input):focus { border-color: var(--ui-primary); box-shadow: none;
+  --pico-box-shadow: none; }
+:is(select.ui-select, input.ui-input):focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.ui-field { display: flex; flex-direction: column; gap: var(--ui-space-1); margin: 0; font-size: var(--ui-fs-sm);
+  color: var(--ui-text-2); }
+label.ui-search { display: inline-flex; align-items: center; gap: var(--ui-space-2); height: var(--ui-h);
+  margin: 0; padding: 0 var(--ui-space-3); min-width: 220px; border: 1px solid var(--ui-input-border);
+  border-radius: var(--ui-radius); background: var(--ui-surface); color: var(--ui-text-2); }
+label.ui-search:focus-within { border-color: var(--ui-primary); outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+label.ui-search > input { flex: 1; min-width: 0; height: auto; margin: 0; padding: 0; border: 0; outline: 0;
+  background: transparent; background-image: none; border-radius: 0; box-shadow: none; color: var(--ui-text); font: inherit; font-size: var(--ui-fs-base); }
+label.ui-search > input[type=search] { padding-inline-start: 0; background-image: none; }
+label.ui-search > input:focus { box-shadow: none; --pico-box-shadow: none; }
+label.ui-search > svg { flex: none; }
+
+/* --- Card / panel. ------------------------------------------------------------------------------------------- */
+.ui-card { background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-card);
+  padding: 14px var(--ui-space-4); margin: 0; box-shadow: none; color: var(--ui-text); }
+.ui-card-flush { padding: 0; overflow: hidden; }
+.ui-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--ui-space-2); padding: 14px var(--ui-space-4); border-bottom: 1px solid var(--ui-border); }
+.ui-card-body { padding: 14px var(--ui-space-4); }
+.ui-panel { border-radius: var(--ui-radius-lg); }
+
+/* --- Tables: uppercase 12 px headers, 10 px rows, dividers; .ui-table-scroll for wide tables. --------------- */
+.ui-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+table.ui-table { width: 100%; margin: 0; border-collapse: collapse; background: var(--ui-surface);
+  font-size: var(--ui-fs-base); color: var(--ui-text); }
+table.ui-table :is(th, td) { padding: 10px var(--ui-space-3); border: 0; border-bottom: 1px solid var(--ui-divider);
+  background: transparent; color: inherit; text-align: left; vertical-align: middle; }
+table.ui-table :is(th, td):first-child { padding-left: var(--ui-space-4); }
+table.ui-table :is(th, td):last-child { padding-right: var(--ui-space-4); }
+table.ui-table thead th { font-size: var(--ui-fs-xs); font-weight: 600; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--ui-text-2); border-bottom-color: var(--ui-border); white-space: nowrap; }
+table.ui-table tbody tr:last-child > * { border-bottom: 0; }
+table.ui-table tbody tr:hover > * { background: var(--ui-surface-2); }
+table.ui-table tbody tr[aria-selected=true] > * { background: var(--ui-primary-tint); }
+table.ui-table .ui-group-row > * { background: var(--ui-surface-2); font-weight: 600; }
+table.ui-table .ui-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- Tabs (underline). Links with aria-current="page" or buttons with aria-selected="true" ([data-tabs]). ------ */
+.ui-tabs { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: var(--ui-space-1); margin: 0 0 var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border); }
+.ui-tabs > :is(a, button) { display: inline-block; width: auto; margin: 0 0 -1px; padding: 10px 14px;
+  border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; box-shadow: none;
+  color: var(--ui-text-2); font: 500 var(--ui-fs-base)/1.3 var(--ui-font); text-decoration: none; cursor: pointer; }
+.ui-tabs > :is(a, button):hover { background: transparent; color: var(--ui-text); }
+.ui-tabs > :is(a[aria-current], button[aria-selected=true]) { color: var(--ui-primary);
+  border-bottom-color: var(--ui-primary); font-weight: 600; }
+.ui-tabs > :is(a, button):focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+
+/* --- Empty state. -------------------------------------------------------------------------------------------- */
+.ui-empty { display: flex; flex-direction: column; align-items: center; gap: var(--ui-space-2); text-align: center;
+  padding: var(--ui-space-6) var(--ui-space-4); border: 1px dashed var(--ui-input-border);
+  border-radius: var(--ui-radius-card); background: var(--ui-surface); color: var(--ui-text-2); }
+.ui-empty-title { margin: 0; font-size: var(--ui-fs-section); font-weight: 600; color: var(--ui-text); }
+.ui-empty p { margin: 0; max-width: 40rem; }
+
+/* --- Settings page (admin/settings.html, static/settings.js): group navigation, cards, secret field, save bar. - */
+.ui-pill-ok { background: var(--ui-st-done-bg); color: var(--ui-st-done-fg); }
+.ui-pill-warn { background: var(--ui-st-questions-bg); color: var(--ui-st-questions-fg); }
+.ui-settings { display: flex; flex-wrap: wrap; gap: var(--ui-space-6); align-items: flex-start; }
+nav.ui-settings-nav { flex: 0 1 220px; display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
+@media (min-width: 1024px) { nav.ui-settings-nav { position: sticky; top: var(--ui-space-4); } }
+@media (max-width: 1023.98px) { nav.ui-settings-nav { flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; } }
+nav.ui-settings-nav > a { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2);
+  margin: 0; padding: var(--ui-space-2) var(--ui-space-3); border-radius: var(--ui-radius-sm); color: var(--ui-text-3);
+  text-decoration: none; }
+nav.ui-settings-nav > a:hover { background: var(--ui-surface); color: var(--ui-text); }
+nav.ui-settings-nav > a[aria-current] { background: var(--ui-primary-tint); color: var(--ui-primary); font-weight: 600; }
+nav.ui-settings-nav > a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.ui-settings-content { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: var(--ui-space-4); }
+.ui-settings-card { display: flex; flex-direction: column; gap: var(--ui-space-4); padding: var(--ui-space-5); }
+.ui-settings-card[hidden] { display: none; }
+.ui-settings-card p { margin: 0; }
+.ui-settings-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+  gap: var(--ui-space-2); }
+.ui-settings-card-head p { margin-top: var(--ui-space-1); font-size: var(--ui-fs-sm); }
+.ui-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-space-4); }
+.ui-settings-grid:not(.ui-settings-grid-2) > .ui-settings-wide { grid-column: 1 / -1; }
+.ui-settings-card .ui-field { color: var(--ui-text); }
+.ui-settings-card :is(input.ui-input, select.ui-select) { width: 100%; }
+.ui-settings-label { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--ui-space-2); font-size: var(--ui-fs-sm); font-weight: 500; }
+.ui-settings-label > label { margin: 0; font: inherit; }
+.ui-settings-switch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--ui-space-2); }
+.ui-settings-test { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-2); }
+.ui-settings-test > .ui-field { flex: 1 1 240px; }
+/* "Reset to …": an extra-small secondary button; the real checkbox inside is visually hidden (the form still posts
+   reset_<key>), a check mark and the tinted "pressed" look show that the reset is queued for the next save. */
+label.ui-reset-toggle { position: relative; display: inline-flex; align-items: center; gap: 4px;
+  height: var(--ui-h-xs); margin: 0; padding: 0 var(--ui-space-2); border: 1px solid var(--ui-control-border);
+  border-radius: var(--ui-radius-sm); background: var(--ui-surface); color: var(--ui-text);
+  font: 500 var(--ui-fs-xs)/1 var(--ui-font); white-space: nowrap; cursor: pointer; }
+label.ui-reset-toggle:hover { border-color: var(--ui-primary); }
+label.ui-reset-toggle .ui-reset-mark { display: none; color: var(--ui-primary); font-weight: 700; }
+label.ui-reset-toggle:has(input:checked) { background: var(--ui-primary-tint); border-color: var(--ui-primary); }
+label.ui-reset-toggle:has(input:checked) .ui-reset-mark { display: inline; }
+label.ui-reset-toggle:has(input:focus-visible) { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ui-secret-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); }
+.ui-secret-mask { flex: 1 1 200px; display: flex; align-items: center; gap: var(--ui-space-2); min-height: 38px;
+  padding: 0 10px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-bg);
+  color: var(--ui-text-3); font-family: var(--ui-font-mono); font-size: var(--ui-fs-sm); }
+.ui-secret-mask .ui-pill { font-family: var(--ui-font); }
+.ui-secret-row label.ui-reset-toggle { height: var(--ui-h); padding: 0 var(--ui-space-3); font-size: var(--ui-fs-sm); }
+html:not(.js) [data-secret-replace] { display: none; }
+.js .ui-secret:not(.is-replacing) .ui-secret-new { display: none; }
+.ui-savebar { position: sticky; bottom: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: var(--ui-space-2); padding: var(--ui-space-3) var(--ui-space-4);
+  background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-card);
+  box-shadow: var(--ui-shadow-md); }
+.ui-savebar-status { font-size: var(--ui-fs-sm); color: var(--ui-text-2); }
+.ui-savebar-status > [aria-hidden] { color: var(--ui-text-2); }
+.ui-savebar-status.is-dirty, .ui-savebar-status.is-dirty > [aria-hidden] { color: var(--ui-st-questions-fg); }
+
+/* --- Sign-in and error pages (login.html, error.html): one centred card on the page background. ------------- */
+.ui-auth { display: flex; flex-direction: column; align-items: center; gap: var(--ui-space-5);
+  padding-block: var(--ui-space-6); }
+.ui-auth-card { display: flex; flex-direction: column; gap: var(--ui-space-4); width: 100%; max-width: 26rem;
+  padding: var(--ui-space-6); }
+.ui-auth-card .banner { margin: 0; }
+.ui-auth-card .ui-field { color: var(--ui-text); }
+.ui-auth-card input.ui-input, .ui-auth-card form > .ui-btn { width: 100%; }
+.ui-auth-note { margin: 0; font-size: var(--ui-fs-sm); }
+
+/* --- Forms on their own page (new project, admin database): page header + card. -------------------------- */
+.ui-form-card { display: flex; flex-direction: column; gap: var(--ui-space-4); max-width: 52rem; padding: var(--ui-space-5); }
+.ui-form-card > :is(label, fieldset, .grid, div) { margin: 0; }
+.ui-form-card .ui-field { color: var(--ui-text); }
+.ui-form-card :is(input.ui-input, select.ui-select) { width: 100%; }
+.ui-form-card .ui-row > .ui-btn { margin: 0; }
+.ui-db-status p { margin: 0; }
+.ui-stack > section { margin: 0; }
+
+/* --- Showcase page /admin/ui-kit (admin/ui_kit.html). ------------------------------------------------------- */
+.ui-kit { display: flex; flex-direction: column; gap: var(--ui-space-4); }
+.ui-kit > section { margin: 0; }
+.ui-kit p { margin: 0; }
+.ui-kit-bottom { align-items: flex-end; }
+.ui-kit .ui-row > .ui-label:first-child { min-width: 8rem; }
+.ui-kit-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--ui-space-2);
+  margin: 0; padding: 0; }
+.ui-kit-swatches li { display: flex; align-items: center; gap: var(--ui-space-2); margin: 0; list-style: none;
+  font-size: var(--ui-fs-xs); }
+.ui-kit-swatch { flex: none; width: 28px; height: 28px; border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm); }
+
+/* --- Project overview of the redesign (templates/projects.html). -------------------------------------------- */
+.ui-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); }
+.ui-toolbar > label.ui-search { flex: 1 1 240px; }
+/* The search grows to fill the row; the segmented controls, selects and view toggle stay compact and flush right.
+   Pico's `[role="search"] > * { flex: 1 1 auto }` would grow them all and stretch the toggle (leaving a gap). */
+.ui-toolbar > :is(.ui-seg, select.ui-select, .ui-toolbar-view) { flex: 0 1 auto; }
+.ui-toolbar :is(select.ui-select, .ui-seg > button) { min-height: 0; }
+label.ui-field > span.ui-label { display: block; }
+
+/* Stacked progress bar: done/review/in progress over the track (open tasks keep the track colour). */
+.ui-progress { display: inline-flex; width: 140px; max-width: 100%; height: 6px; border-radius: 3px;
+  overflow: hidden; background: var(--ui-track); }
+.ui-progress > span { display: block; height: 100%; }
+.ui-progress-done { background: var(--ui-st-done-fg); }
+.ui-progress-review { background: var(--ui-progress-review); }
+.ui-progress-progress { background: var(--ui-st-progress-fg); }
+
+/* Project cards: fixed column width on the phone, filling the row on wide screens. Cards in a row are equal
+   height (align-items: stretch) and the footer is pinned to the bottom. */
+.ui-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--ui-space-3); align-items: stretch; margin-bottom: var(--ui-space-4); }
+.ui-project-card { display: flex; flex-direction: column; gap: var(--ui-space-2); }
+/* The status pill stays top-right next to the key, never wrapping below the name. */
+.ui-project-card .ui-card-head { margin: calc(-1 * var(--ui-space-2)) 0 0; padding: 0 0 var(--ui-space-2);
+  flex-wrap: nowrap; align-items: flex-start; }
+.ui-project-card .ui-card-head > .ui-row { min-width: 0; }
+.ui-project-card .ui-card-head > .ui-pill { flex: none; margin-left: var(--ui-space-2); }
+.ui-project-card .ui-card-body { padding: 0; flex: 1; }
+/* The progress bar spans the full card width (the list view keeps the fixed 140px cell width). */
+.ui-project-card .ui-progress { width: 100%; }
+.ui-card-current { border-left: 3px solid var(--ui-primary); }
+.ui-project-counts { display: flex; flex-wrap: wrap; gap: var(--ui-space-4); font-size: var(--ui-fs-sm);
+  color: var(--ui-text-2); }
+.ui-project-counts strong { color: var(--ui-text); font-variant-numeric: tabular-nums; }
+.ui-card-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-3); margin: 0;
+  padding-top: var(--ui-space-2); border-top: 1px solid var(--ui-divider); font-size: var(--ui-fs-sm); }
+.ui-project-card .ui-card-footer { margin-top: auto; }
+.ui-project-new { display: flex; align-items: center; justify-content: center; min-height: 120px;
+  border: 1px dashed var(--ui-input-border); color: var(--ui-text-2); font-weight: 600; text-decoration: none; }
+.ui-project-new:hover { border-color: var(--ui-primary); color: var(--ui-primary-hover); }
+
+/* --- Responsive utilities. Phone < 640 px, tablet 640–1023 px, desktop >= 1024 px. --------------------------- */
+@media (max-width: 639.98px) {
+  .ui-hide-phone { display: none !important; }
+  .ui-page-title { font-size: 22px; }
+  .ui-page-actions { width: 100%; }
+  label.ui-search { min-width: 0; width: 100%; }
+  /* Table → card list: each row becomes a card, each cell shows its column name from data-label. */
+  table.ui-table-cards, table.ui-table-cards :is(thead, tbody, tr, th, td) { display: block; width: 100%; }
+  table.ui-table-cards { background: transparent; }
+  /* The rows are cards of their own: a surrounding card would frame them twice. */
+  .ui-card:has(> .ui-table-scroll > table.ui-table-cards) { background: transparent; border: 0; box-shadow: none; }
+  table.ui-table-cards tbody tr:last-child { margin-bottom: 0; }
+  table.ui-table-cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  table.ui-table-cards tbody tr { margin-bottom: var(--ui-space-3); padding: var(--ui-space-2) 0;
+    background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-card); }
+  table.ui-table-cards tbody tr:last-child > * { border-bottom: 0; }
+  table.ui-table-cards tbody td { display: flex; gap: var(--ui-space-3); justify-content: space-between;
+    align-items: baseline; padding: 6px var(--ui-space-4); border: 0; text-align: right; }
+  table.ui-table-cards tbody td::before { content: attr(data-label); flex: none; text-align: left;
+    font-size: var(--ui-fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--ui-text-2); }
+  table.ui-table-cards tbody td:not([data-label])::before { content: none; }
+  table.ui-table-cards tbody td.ui-card-title { justify-content: flex-start; text-align: left; font-weight: 600; }
+  table.ui-table-cards tbody td.ui-card-title > .ui-pill { margin-right: var(--ui-space-2); }
+  /* Project overview: the phone always shows the card list; the view switch is hidden (.ui-only-desktop). */
+  .ui-toolbar > select.ui-select { flex: 1 1 8rem; min-width: 0; }
+  .ui-toolbar .ui-seg { padding: 0; }
+  .ui-card-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Settings: one column; the save bar sits above the bottom tab bar (header.css: 66 px + safe area). */
+  .ui-settings { gap: var(--ui-space-3); }
+  .ui-settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .ui-settings-card { padding: var(--ui-space-4); }
+  body:has(.bottom-tabs) .ui-savebar { bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .ui-savebar > .ui-row { width: 100%; }
+  .ui-savebar > .ui-row > .ui-btn { flex: 1; white-space: normal; height: auto; min-height: var(--ui-h); }
+}
+/* --- Phone touch floor (< 640 px, checked by tests/test_ui_screens.py): controls are at least 44×44 px and form
+   fields use 16 px text, otherwise iOS zooms in on focus. !important because page styles set fixed control heights
+   for the desktop density; this block applies to every page, old (Pico) and redesigned alike. ------------------- */
+@media (max-width: 639.98px) {
+  :root { --ui-h: 44px; --ui-h-sm: 44px; --ui-h-xs: 44px; }
+  :is(button, [role=button], summary, select, .ui-btn,
+      input:not([type=checkbox], [type=radio], [type=hidden], [type=range], [type=color])) {
+    min-height: 44px !important; min-width: 44px !important; }
+  :is(input:not([type=checkbox], [type=radio], [type=hidden]), select, textarea) { font-size: 16px !important; }
+  :is(.ui-seg, .ui-tabs) > :is(a, button), .pd-tabs a, nav.ui-settings-nav > a {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }  /* flex drops the space before a count */
+  .ui-seg > :is(a, button), .ui-seg-sm > :is(a, button) { height: 44px; min-width: 44px; }
+  /* Stand-alone links next to other targets (keys, breadcrumbs, result and filter links). */
+  a:is(.ui-key, .task-key, .result-link, .plan-closed-toggle, .filter-reset, .pd-mono), .crumbs a, .pd-more li > a,
+  .backlog-meta a, .backlog-filters ~ a.small, a.small[href^="/backlog?workflow"], table.backlog .task-title > a {
+    display: inline-flex; align-items: center; min-height: 44px; }
+  /* On the phone a setting label takes the full width and its "Reset to …" button sits on its own line below,
+     so the label is never squeezed and its words don't break. */
+  .ui-settings-label { flex-wrap: wrap; }
+  .ui-settings-label > label:not(.ui-reset-toggle) { flex: 1 1 100%; min-width: 0; }
+  /* Underline tabs scroll sideways in one row instead of wrapping into a second row. */
+  .ui-tabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .ui-tabs > :is(a, button) { flex: 0 0 auto; white-space: nowrap; }
+  .crumbs a { min-width: 44px; justify-content: center; }
+  label.ui-switch, label:has(> input:is([type=checkbox], [type=radio])) { min-height: 44px; align-items: center; }
+  label:has(> input:is([type=checkbox], [type=radio])):not(.ui-chip, .ui-switch, .ui-reset-toggle) { display: flex;
+    gap: var(--ui-space-2); }
+  /* Small checkboxes without a label of their own (row selection) get a 44 px box around them. */
+  td > input[type=checkbox]:only-child, th > input[type=checkbox]:only-child { width: 24px; height: 24px;
+    margin: 10px; }
+}
+@media (min-width: 640px) { .ui-only-phone { display: none !important; } }
+@media (min-width: 640px) and (max-width: 1023.98px) { .ui-hide-tablet { display: none !important; } }
+@media (max-width: 1023.98px) { .ui-only-desktop { display: none !important; } }
+@media (min-width: 1024px) { .ui-hide-desktop { display: none !important; } }

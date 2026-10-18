@@ -1,0 +1,113 @@
+{#- Shared UI components of the redesign (static/ui.css, tokens --ui-* in static/app.css; showcase /admin/ui-kit).
+    Use: {% import "_ui.html" as ui %} … {{ ui.status(task.status) }}. Plain CSS classes (ui-btn, ui-card, ui-table …)
+    need no macro; the macros cover components with markup rules (labels, ARIA, initials). #}
+
+{# Status pill of a task (draft … cancelled), a sprint (`kind="sprint"`: planned, released, closed) or a project
+   (`kind="project"`: idea, active, paused, archived). -#}
+{% macro status(value, kind="task") -%}
+<span class="ui-pill ui-st-{{ value }}">{{ sprint_status_label(value) if kind == "sprint" else project_status_label(value) if kind == "project" else status_label(value) }}</span>
+{%- endmacro %}
+
+{#- Neutral pill (role, kind …); `tone`: "", "tier", "count", "mono" or a zone/status class suffix. -#}
+{% macro pill(text, tone="") -%}
+<span class="ui-pill{% if tone %} ui-pill-{{ tone }}{% endif %}">{{ text }}</span>
+{%- endmacro %}
+
+{#- Data zone pill: letter + label (the letter alone is not enough for screen readers). -#}
+{% macro zone(cls) -%}
+{%- set label = {"cloud_ok": _("Cloud ok"), "local_only": _("Local only"), "sealed": _("Sealed")}[cls] -%}
+<span class="ui-pill ui-zone-{{ cls }}" title="{{ _('Data class: %(label)s', label=label) }}"><span aria-hidden="true">{{ {"cloud_ok": "C", "local_only": "L", "sealed": "R"}[cls] }} · </span>{{ label }}</span>
+{%- endmacro %}
+
+{#- Priority 1 (highest) … 5 as a coloured square with the number. -#}
+{% macro prio(n) -%}
+<span class="ui-prio ui-prio-{{ n }}" title="{{ _('Priority %(label)s', label=prio_label(n)) }}" role="img" aria-label="{{ _('Priority %(label)s', label=prio_label(n)) }}">{{ n }}</span>
+{%- endmacro %}
+
+{#- Task key as a mono link to the task page. -#}
+{% macro key(task_nr, href=None) -%}
+<a class="ui-key" href="{{ href or '/tasks/' ~ task_nr }}">{{ task_nr }}</a>
+{%- endmacro %}
+
+{#- Agent kind badge (claude_code, codex …) as a light-tinted mono pill. -#}
+{% macro kind(value, text=None) -%}
+<span class="ui-kind ui-kind-{{ value }}">{{ text or value }}</span>
+{%- endmacro %}
+
+{#- Two initials: "claude-code" → "CL", "Alex Doe" → "AD". -#}
+{% macro initials(name) -%}
+{%- set words = (name or "?").split() -%}
+{{- ((words[0][0] ~ words[1][0]) if words | length > 1 else words[0][:2]) | upper -}}
+{%- endmacro %}
+
+{#- Actor chip: avatar coloured by agent kind (humans: kind=None) and the name; long names end in an ellipsis, the
+    full name is the tooltip. -#}
+{% macro actor(name, kind=None, show_name=True, large=False) -%}
+{%- set k = kind if kind in ("codex", "claude_code", "opencode", "openclaw", "hermes") else ("human" if not kind else "other") -%}
+<span class="ui-actor"><span class="ui-avatar ui-avatar-{{ k }}{% if large %} ui-avatar-lg{% endif %}" aria-hidden="true">{{ initials(name) }}</span>{% if show_name %}<span class="ui-actor-name" title="{{ name }}">{{ name }}</span>{% else %}<span class="ui-visually-hidden">{{ name }}</span>{% endif %}</span>
+{%- endmacro %}
+
+{#- Segmented control. `options`: [(value, label, count|None)]. Without `name` the buttons are in-page switches
+    (static/shell.js keeps aria-pressed and an optional hidden input in sync); with `name` they submit their value. -#}
+{% macro segmented(options, current, label, name=None, small=False) -%}
+<div class="ui-seg{% if small %} ui-seg-sm{% endif %}" role="group" aria-label="{{ label }}"{% if not name %} data-segmented{% endif %}>
+  {%- for value, text, count in options %}
+  <button type="{{ 'submit' if name else 'button' }}"{% if name %} name="{{ name }}"{% endif %} value="{{ value }}" aria-pressed="{{ 'true' if value == current else 'false' }}">{{ text }}{% if count is not none %} <span class="ui-chip-count">{{ count }}</span>{% endif %}</button>
+  {%- endfor %}
+</div>
+{%- endmacro %}
+
+{#- Filter chip: a real checkbox inside a pill. -#}
+{% macro chip(name, value, text, checked=False, count=None) -%}
+<label class="ui-chip"><input type="checkbox" name="{{ name }}" value="{{ value }}"{% if checked %} checked{% endif %}>{{ text }}{% if count is not none %} <span class="ui-chip-count">{{ count }}</span>{% endif %}</label>
+{%- endmacro %}
+
+{#- Toggle switch: checkbox with role=switch; the visible text is its label. `form_id` associates the control
+    with a form elsewhere on the page (HTML `form` attribute). -#}
+{% macro switch(name, text, checked=False, disabled=False, value="1", form_id=None) -%}
+<label class="ui-switch"><input type="checkbox" role="switch" name="{{ name }}" value="{{ value }}"{% if checked %} checked{% endif %}{% if disabled %} disabled{% endif %}{% if form_id %} form="{{ form_id }}"{% endif %}><span class="ui-switch-track" aria-hidden="true"></span><span>{{ text }}</span></label>
+{%- endmacro %}
+
+{#- Search input with icon; `label` is the accessible name (placeholder alone is not a label). -#}
+{% macro search(name, label, value="", placeholder=None, id=None) -%}
+<label class="ui-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><span class="ui-visually-hidden">{{ label }}</span><input type="search" name="{{ name }}"{% if id %} id="{{ id }}"{% endif %} value="{{ value }}" placeholder="{{ placeholder or label }}"></label>
+{%- endmacro %}
+
+{#- Select. `options`: [(value, label)]. -#}
+{% macro select(name, options, current, label) -%}
+<select class="ui-select" name="{{ name }}" aria-label="{{ label }}">
+  {%- for value, text in options %}<option value="{{ value }}"{% if value == current %} selected{% endif %}>{{ text }}</option>{% endfor -%}
+</select>
+{%- endmacro %}
+
+{#- Page header: title + subtitle left, the caller's content (actions) right. -#}
+{% macro page_header(title, subtitle=None) -%}
+<div class="ui-page-header">
+  <div><h1 class="ui-page-title">{{ title }}</h1>{% if subtitle %}<p class="ui-page-subtitle">{{ subtitle }}</p>{% endif %}</div>
+  {%- if caller %}<div class="ui-page-actions">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- Underline tabs as links. `tabs`: [(href, label)]; `current`: the active href. -#}
+{% macro tabs(items, current, label) -%}
+<nav class="ui-tabs" aria-label="{{ label }}">
+  {%- for href, text in items %}<a href="{{ href }}"{% if href == current %} aria-current="page"{% endif %}>{{ text }}</a>{% endfor -%}
+</nav>
+{%- endmacro %}
+
+{#- Empty state; the caller's content (e.g. an action button) goes below the text. -#}
+{% macro empty(title, text=None) -%}
+<div class="ui-empty">
+  <p class="ui-empty-title">{{ title }}</p>{% if text %}<p>{{ text }}</p>{% endif %}
+  {%- if caller %}{{ caller() }}{% endif %}
+</div>
+{%- endmacro %}
+
+{#- Language selection tracks the explicit cookie, even when it matches the default. -#}
+{% macro language_choices(request, next, css_class='') -%}
+{% set personal = normalize_language(request.cookies.get('tm_lang')) %}
+<a class="{{ css_class }}" href="/language?lang=default&amp;next={{ next | urlencode }}"{% if not personal %} aria-current="true"{% endif %}>{{ _("Default (%(lang)s)", lang=default_language() | upper) }}</a>
+{% for code, name in LANGUAGES.items() %}
+<a class="{{ css_class }}" href="/language?lang={{ code }}&amp;next={{ next | urlencode }}" hreflang="{{ code }}" lang="{{ code }}"{% if code == personal %} aria-current="true"{% endif %}>{{ code | upper }}</a>
+{% endfor %}
+{%- endmacro %}

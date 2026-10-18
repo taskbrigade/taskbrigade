@@ -25,7 +25,91 @@
   --st-red-bg: #FBE0DD;   --st-red-fg: #8E1F17;      /* Error / aborted */
   --st-violet-bg: #ECE4FB; --st-violet-fg: #4B2A8C;  /* For review */
   --st-grey-bg: #E8ECF0;  --st-grey-fg: #3B4B59;     /* Defined, draft, cancelled */
+  /* Data classes (zones C/L/R, research/konzept-datenzonen.md §8); the badge always shows letter and/or label too. */
+  --st-zone-cloud-bg: #E2EDE6;  --st-zone-cloud: #2E5240;    /* C  Cloud ok: green-grey */
+  --st-zone-local-bg: #FDE5CF;  --st-zone-local: #8A3A0C;    /* L  Local only: orange */
+  --st-zone-sealed-bg: #FADBD8; --st-zone-sealed: #8E1F17;   /* R  Sealed: red */
 }
+
+/* --- UI redesign tokens (sprint UI-Redesign, docs/ui-redesign/). Components in ui.css use only these. -------
+   Pages move from the --tb-* palette above to --ui-* one by one; text pairs keep >= 4.5:1 (tests/test_ui_kit.py). */
+:root {
+  --ui-bg: #F4F5F7;              /* Page background */
+  --ui-surface: #FFFFFF;         /* Cards, tables, inputs */
+  --ui-surface-2: #FAFBFC;       /* Group header rows, read-only fields */
+  --ui-text: #1B2430;
+  --ui-text-2: #5B6675;          /* Secondary text: >= 4.5:1 on white, page bg, track and tint */
+  --ui-text-3: #3A4554;          /* Inactive navigation, segmented and tab labels */
+  --ui-border: #E3E6EB;
+  --ui-divider: #EEF0F3;         /* Table row dividers */
+  --ui-input-border: #D6DAE0;
+  --ui-control-border: #C9CFD8;  /* Secondary buttons, switch track (off) */
+  --ui-track: #E8EBEF;           /* Segmented control track, progress bars */
+  --ui-progress-review: #D99A1E; /* Review segment of project progress bars */
+  --ui-primary: #24527A;
+  --ui-primary-hover: #163A59;
+  --ui-primary-tint: #E8EFF6;    /* Active navigation, selected rows */
+  --ui-on-primary: #FFFFFF;
+  --ui-brand-orange: #DA5E38;    /* Logo and small accents only (3.7:1 on white): never text or controls */
+  --ui-danger: #A13B2A;
+  --ui-focus: #24527A;
+  --ui-shadow-sm: 0 1px 2px rgba(27, 36, 48, .08);
+  --ui-shadow-md: 0 4px 12px rgba(27, 36, 48, .10);
+  /* Status pills (background / text). */
+  --ui-st-draft-bg: #EEF0F3;     --ui-st-draft-fg: #3A4554;
+  --ui-st-defined-bg: #E8EFF6;   --ui-st-defined-fg: #1E4566;
+  --ui-st-progress-bg: #DCE8F5;  --ui-st-progress-fg: #163A59;
+  --ui-st-questions-bg: #FFF0D9; --ui-st-questions-fg: #7A4B00;
+  --ui-st-review-bg: #EDE7F6;    --ui-st-review-fg: #4A3380;
+  --ui-st-rework-bg: #FBE5DD;    --ui-st-rework-fg: #8A3A1E;
+  --ui-st-done-bg: #E6F4EC;      --ui-st-done-fg: #1F5F3D;
+  /* Data zones (C/L/R) and the neutral pill for roles, kinds, tiers. */
+  --ui-zone-cloud-bg: #E2EDE6;   --ui-zone-cloud-fg: #2E5240;
+  --ui-zone-local-bg: #FDE5CF;   --ui-zone-local-fg: #8A3A0C;
+  --ui-zone-sealed-bg: #FADBD8;  --ui-zone-sealed-fg: #8E1F17;
+  --ui-neutral-bg: #EEF0F3;      --ui-neutral-fg: #3A4554;
+  --ui-tier-bg: #F1EEE2;         --ui-tier-fg: #5C4E14;
+  /* Priority badge 1 (highest) … 5: white number, every colour >= 4.5:1. */
+  --ui-prio-1: #A13B2A; --ui-prio-2: #B4541F; --ui-prio-3: #8A6100; --ui-prio-4: #5B6675; --ui-prio-5: #6B7480;
+  /* Actor avatar per kind (white initials). */
+  --ui-avatar-human: #24527A;  --ui-avatar-codex: #45327A;    --ui-avatar-claude_code: #8A3A1E;
+  --ui-avatar-opencode: #5C4E14; --ui-avatar-openclaw: #1E4E78; --ui-avatar-hermes: #7A4B00;
+  --ui-avatar-other: #3A4554;
+  /* Agent kind badges (light tint + dark text) */
+  --ui-kind-claude_code-bg: #F7E6DF; --ui-kind-claude_code-fg: #8A3A1E;
+  --ui-kind-openclaw-bg: #E3EEF8;    --ui-kind-openclaw-fg: #1E4E78;
+  --ui-kind-codex-bg: #E9E6F5;       --ui-kind-codex-fg: #45327A;
+  --ui-kind-hermes-bg: #E4F2EE;      --ui-kind-hermes-fg: #1F5F4E;
+  --ui-kind-opencode-bg: #F1EEE2;    --ui-kind-opencode-fg: #5C4E14;
+  /* Presence dots (non-text, shown with a label). */
+  --ui-dot-online: #2E9A62; --ui-dot-idle: #D99A1E; --ui-dot-offline: #9AA3AE;
+  /* Typography: self-hosted IBM Plex (static/vendor/fonts), system fallbacks if a file fails. */
+  --ui-font: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ui-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --ui-fs-base: 14px; --ui-fs-sm: 13px; --ui-fs-xs: 12px;
+  --ui-fs-title: 26px; --ui-fs-section: 16px;
+  /* Radius and spacing scale. */
+  --ui-radius-sm: 6px; --ui-radius: 8px; --ui-radius-card: 10px; --ui-radius-lg: 12px; --ui-radius-pill: 999px;
+  --ui-space-1: 4px; --ui-space-2: 8px; --ui-space-3: 12px; --ui-space-4: 16px; --ui-space-5: 20px; --ui-space-6: 24px;
+  /* Control heights. Breakpoints (media queries cannot read variables): phone < 640, tablet 640–1023, desktop >= 1024. */
+  --ui-h: 40px; --ui-h-sm: 32px; --ui-h-xs: 26px;
+}
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-sans-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: italic; font-weight: 400; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-sans-latin-400-italic.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-sans-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-sans-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-sans-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(/static/vendor/fonts/ibm-plex-mono-latin-600-normal.woff2) format("woff2"); }
 /* The palette is defined for the light theme only: base.html sets data-theme="light" (Pico dark mode off). */
 :root:not([data-theme=dark]), [data-theme=light] {
   --pico-background-color: var(--tb-bg);
@@ -88,9 +172,13 @@
   --pico-form-element-spacing-horizontal: .7rem;
   --pico-spacing: 1rem;
   --pico-typography-spacing-vertical: .9rem;
+  --pico-font-family-sans-serif: var(--ui-font);  /* IBM Plex everywhere; Pico derives --pico-font-family */
+  --pico-font-family-monospace: var(--ui-font-mono);
 }
 @media (min-width: 1024px) { :root { --pico-font-size: 93.75%; } }  /* 15 px */
-body { background: var(--tb-bg); color: var(--tb-text); }
+html, body { background: var(--ui-bg); color: var(--tb-text); }  /* Page canvas; cards, tables and inputs stay white */
+/* No automatic hyphenation anywhere; long words break with `overflow-wrap: anywhere` where a rule sets it. */
+html { hyphens: manual; }
 /* Page title ~24 px, content 14–15 px, metadata 12–13 px. */
 h1 { font-size: 1.75rem; } h2 { font-size: 1.6rem; } h3 { font-size: 1.2rem; } h4 { font-size: 1.05rem; }
 h1, h2, h3, h4, h5, h6 { font-weight: 600; }
@@ -125,35 +213,11 @@ section { margin-bottom: 2rem; }
 .join-token button { margin: 0; width: auto; }
 form.inline { margin: 0; }
 button.small { padding: .25rem .6rem; font-size: .85rem; margin: 0; }
-article.narrow { max-width: 28rem; margin: 2rem auto; }
-nav.subnav ul { gap: 1rem; }
-nav.subnav a[aria-current="page"] { font-weight: 600; color: var(--tb-blue); background: var(--tb-select);
-                                     border-radius: var(--tb-radius); text-decoration: none; }
 tr.inactive td { opacity: .5; }
 label.reset { font-size: .8rem; margin-top: -.6rem; }
 [hidden] { display: none !important; }
 
-/* --- Header: white with a subtle divider; active item light blue with blue text. ---------------------------- */
-.topbar { background: var(--tb-surface); padding-top: .35rem; padding-bottom: .35rem;
-          border-bottom: 1px solid var(--tb-line); margin-bottom: 1.25rem; }
-.topbar nav { padding: 0; }
-.topbar nav, .topbar nav ul { flex-wrap: wrap; }
-.topbar nav a.brand { display: inline-flex; align-items: center; text-decoration: none; padding: .2rem .3rem; }
 .tb-logo { display: block; max-width: 100%; height: auto; }
-.topbar nav ul li { padding-top: .25rem; padding-bottom: .25rem; }
-.topbar nav a:not(.brand) { color: var(--tb-text); border-radius: var(--tb-radius); padding: .35rem .7rem;
-                            margin: 0; text-decoration: none; font-weight: 500; }
-.topbar nav a:not(.brand):hover { background: var(--tb-hover); color: var(--tb-blue); }
-.topbar nav a[aria-current="page"] { background: var(--tb-select); color: var(--tb-blue); font-weight: 600; }
-.topbar .lang-switch a { font-size: .8rem; letter-spacing: .05em; color: var(--tb-text-2); }
-.login-brand { display: flex; justify-content: center; margin: 2.5rem 0 .5rem; }
-/* Pico sets form elements to width:100%; override in flex rows where needed. */
-.quick-capture { display: flex; gap: .4rem; align-items: center; margin: .2rem 0 .3rem; }
-.quick-capture > input, .quick-capture > select, .quick-capture > button {
-  margin: 0; width: auto; height: 2.2rem; padding-top: .2rem; padding-bottom: .2rem; font-size: .9rem; }
-.quick-capture > input[name="title"] { flex: 1 1 14rem; min-width: 0; }
-.quick-capture > select { flex: 0 1 14rem; min-width: 0; }
-.quick-capture > button { flex: 0 0 auto; padding-left: 1rem; padding-right: 1rem; }
 .muted { color: var(--tb-text-2); }
 /* Help text below a checkbox label: own line, indented to the label text (checkbox + gap ~ 2rem). width:auto
    because Pico's `input + small` rule sets width:100%, which overflows the form with the indent. */
@@ -198,6 +262,12 @@ td.date, td.meta { color: var(--tb-text-2); font-size: .85em; white-space: nowra
 .missing { color: var(--st-red-fg); }
 .sprint-progress { display: inline-block; width: 8rem; margin: 0 .4rem 0 0; vertical-align: middle; }
 .card-sprint { color: var(--tb-text-2); font-size: .8rem; }
+/* Project page: compact sprint list with the link to the planning board; late dependencies on the sprint page. */
+.sprint-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-bottom: .3rem; }
+.sprint-list .sprint-progress { width: 6rem; margin: 0; }
+.headline-link { float: right; font-size: .85rem; }
+.waits { color: var(--st-red-fg); }
+.release-waiting h6 { margin-bottom: .3rem; }
 /* Priority: neutral scale (red only for prio 1) – not mixed up with the brand or the status colours. */
 .prio { display: inline-block; min-width: 1.4rem; text-align: center; border-radius: var(--tb-radius);
         font-size: .8rem; font-weight: 700; border: 1px solid transparent; }
@@ -209,11 +279,13 @@ td.date, td.meta { color: var(--tb-text-2); font-size: .85em; white-space: nowra
         font-size: .75rem; color: var(--tb-text-2-tint); white-space: nowrap; }
 .tier-complex { border-color: var(--tb-text-2); color: var(--tb-text); font-weight: 600; }
 
-/* --- Kanban: framed, barely tinted columns, white cards. All columns share the width from 1024 px on (no
-   horizontal scrolling); titles wrap. Only narrower screens (tablet/phone) scroll horizontally. ----------- */
+/* --- Kanban. The planning board (planning.html) shares `.kanban`/`.kanban-col`; the task board adds the
+   `.kanban-board` modifier: always all 7 columns, equal width, min width 1260 px (horizontal scroll below), the
+   grey column backgrounds stretch to the tallest column. Phones (< 640 px) snap-scroll with ~85 vw columns. --- */
+.kanban-scroll { overflow-x: auto; padding-bottom: .5rem; }
 .kanban { display: grid; grid-auto-flow: column; grid-template-columns: repeat(var(--cols, 8), minmax(0, 1fr));
-          gap: .5rem; padding-bottom: .5rem; font-size: .875rem; }
-@media (max-width: 1023px) {  /* Tablets and phones in landscape: only the board scrolls sideways (snapping). */
+          gap: .5rem; font-size: .875rem; }
+@media (max-width: 1023px) {  /* Tablets and phones in landscape: only the board scrolls sideways. */
   .kanban { grid-template-columns: none; grid-auto-columns: minmax(15rem, 1fr); overflow-x: auto;
             overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding-left: 0; }
   .kanban-col { scroll-snap-align: start; } }
@@ -224,21 +296,40 @@ td.date, td.meta { color: var(--tb-text-2); font-size: .85em; white-space: nowra
                  margin: .1rem 0 .5rem; line-height: 1.2; }
 .kanban-col h4 .badge { white-space: normal; }  /* Long status names wrap in narrow columns. */
 .kanban-col h4 small { font-size: .8rem; color: var(--tb-text-2); font-weight: 500; }
+/* Board (task kanban): equal columns that stretch to the tallest, min width 1260 px. */
+.kanban-board { grid-template-columns: repeat(var(--cols, 7), minmax(0, 1fr)); gap: .625rem; align-items: stretch;
+                min-width: 1260px; }
+.kanban-board .kanban-col { min-height: 420px; display: flex; flex-direction: column; padding: .5rem; }
+.kanban-col-head { display: flex; align-items: center; gap: .35rem .5rem; margin: .1rem 0 .5rem; }
+.kanban-col-head .badge { white-space: normal; }
+.kanban-col-head .count { font-size: .8rem; color: var(--tb-text-2-tint); font-weight: 500; }
 .kanban-list { min-height: 4rem; }
+.kanban-board .kanban-list { flex: 1 1 auto; }
+.kanban-empty { margin: .3rem .2rem .5rem; }
 .kanban-hint { margin: 0 0 .5rem; line-height: 1.3; }
 .kanban-hint small { font-size: .75rem; color: var(--tb-text-2-tint); }
-.card { margin: 0 0 .4rem; padding: .45rem .5rem; cursor: grab; background: var(--tb-surface);
-        border: 1px solid var(--tb-line); border-radius: var(--tb-radius); }
+.kanban-add, .kanban-show-all { display: block; margin: .4rem 0 0; padding: .25rem .3rem; font-size: .8rem;
+                               color: var(--tb-text-2-tint); text-decoration: none; border-radius: var(--tb-radius); }
+.kanban-add:hover, .kanban-show-all:hover { color: var(--tb-blue); background: var(--tb-hover); }
+.kanban-add { font-weight: 600; color: var(--tb-text); }
+.card { margin: 0 0 .4rem; padding: .55rem .6rem; cursor: grab; background: var(--tb-surface);
+        border: 1px solid var(--tb-line); border-radius: var(--tb-radius); position: relative; }
 .card:hover { border-color: #A9BCCD; }
 .card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .2rem .4rem;
              font-size: .8rem; }
-.card-head a { white-space: nowrap; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* Use German hyphenation (lang="de") instead of arbitrary breaks inside words. */
-.card-title { font-size: .875rem; font-weight: 600; color: var(--tb-text); margin: .3rem 0; line-height: 1.3;
-              hyphens: auto; overflow-wrap: break-word; }
-.card-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem .4rem; font-size: .8rem;
-             color: var(--tb-text-2); min-width: 0; }
+.card-key { display: inline-flex; align-items: center; gap: .3rem; min-width: 0; }
+.card-head a.card-link { white-space: nowrap; font-weight: 500; min-width: 0; overflow: hidden;
+                         text-overflow: ellipsis; font-family: var(--pico-font-family-monospace); }
+.card-tags { display: inline-flex; align-items: center; gap: .25rem; }
+/* Font of the kanban card title: `.ui-task-title` (ui.css). */
+.card-title { margin: .35rem 0; }
+.card-sprint { font-size: .78rem; color: var(--tb-text-2); margin: 0 0 .15rem; }
+/* Only as wide as its text (own line), so its touch target stays clear of the "⋯" menu at the right below it. */
+.card > .card-sprint { display: table; max-width: calc(100% - 3.5rem); text-decoration: none; overflow-wrap: anywhere; }
+.card-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .1rem .4rem;
+             font-size: .8rem; color: var(--tb-text-2); min-width: 0; }
 .card-meta > * { min-width: 0; overflow-wrap: anywhere; }
+.card-project { font-family: var(--pico-font-family-monospace); color: var(--tb-text-2-tint); }
 .card-waiting { font-size: .8rem; margin: .2rem 0; overflow-wrap: anywhere; }
 .card .prio { min-width: 1.2rem; font-size: .75rem; }
 /* Shared column "questions / aborted": the status is also written on the card (.card-status); aborted cards are
@@ -249,24 +340,60 @@ td.date, td.meta { color: var(--tb-text-2); font-size: .85em; white-space: nowra
 .card[data-status="aborted"]:hover { border-color: var(--st-red-fg); }
 .card[data-status="aborted"] .card-meta, .card[data-status="aborted"] .card-sprint,
 .card[data-status="aborted"] .agent.none { color: var(--tb-text-2-tint); }
-.agent { display: inline-flex; align-items: center; gap: .25rem; color: var(--tb-text); font-weight: 600; }
-.agent::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: var(--tb-blue); }
+.agent { display: inline-flex; align-items: center; gap: .3rem; min-width: 0; max-width: 100%; color: var(--tb-text);
+         font-weight: 600; }
+.agent::before { content: ""; flex: none; width: .5rem; height: .5rem; border-radius: 50%; background: var(--tb-blue); }
 .agent.none { color: var(--tb-text-2); font-weight: 400; }
 .agent.none::before { background: transparent; border: 1px solid var(--tb-text-2); }
 .sortable-ghost { opacity: .4; }
+/* Swimlanes by agent: one labelled row per assignee, each holding the seven columns. */
+.kanban-swimlane-row { margin-bottom: 1rem; }
+.kanban-swimlane-label { padding: .3rem .4rem; font-size: .85rem; color: var(--tb-text-2); border-bottom: 1px solid
+                         var(--tb-line); margin-bottom: .4rem; }
+.kanban-swimlane { min-width: 1260px; }
+.kanban-swimlane .kanban-col { min-height: 0; }
+/* Sticky status tabs on phones: a button per column with a count, jumps to the column. */
+.kanban-tabs { display: none; }
 
-/* --- Task details: the cards of the new-task form (editor left, about 72 %), context cards on the right. ------- */
-.task-page { max-width: 80rem; margin: 0 auto 2rem; }
-.task-head { margin-bottom: 1rem; }
+/* --- Task details: read view (result, description, criteria, activity) with the editor behind "Edit".
+   Properties sit in the sidebar; phones (<640px) lift that grid above the description. --------------------- */
+.task-page { min-width: 0; }
+.task-head { margin-bottom: .75rem; }
 nav.crumbs ol { display: flex; flex-wrap: wrap; gap: .3rem; list-style: none; padding: 0; margin: 0 0 .35rem;
              font-size: .85rem; color: var(--tb-text-2-tint); }
-nav.crumbs li { list-style: none; margin: 0; padding: 0; }
+nav.crumbs li { list-style: none; margin: 0; padding: 0; display: inline-flex; align-items: center; }
 .crumbs li + li::before { content: "/"; margin-right: .3rem; }
 .crumbs a { color: var(--tb-text-2-tint); }
-.task-head h2 { margin: 0; overflow-wrap: anywhere; hyphens: auto; }
-.task-version { margin: .1rem 0 0; font-size: .85rem; color: var(--tb-text-2-tint); }
-.detail-grid { display: grid; grid-template-columns: minmax(0, 2.6fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
-@media (max-width: 900px) { .detail-grid { grid-template-columns: minmax(0, 1fr); } }
+.task-top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .75rem 1rem; }
+.task-identity { flex: 1 1 36rem; min-width: 0; }
+.task-keyline { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .5rem; }
+.task-key { font-family: var(--pico-font-family-monospace); font-size: .85rem; font-weight: 500; }
+/* Heading on the task page only. Table cells reuse the class name; an unscoped rule made those titles 24px. */
+h1.task-title { margin: .35rem 0 0; font-size: 24px; line-height: 1.3; overflow-wrap: anywhere; }
+.task-version { margin: 0; font-size: .85rem; color: var(--tb-text-2-tint); }
+.task-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; justify-content: flex-end;
+                position: relative; }
+.task-actions > .edit-toggle, .task-actions > [data-follow-up],
+.task-actions .duplicate > summary, .task-actions .more-actions > summary {
+  height: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 .9rem; border-radius: 8px; border: 1px solid var(--tb-control-line); background: var(--tb-surface);
+  color: var(--tb-text); font-size: .875rem; font-weight: 500; width: auto; margin: 0; }
+.task-actions .more-actions > summary { width: 40px; padding: 0; font-size: 1.25rem; line-height: 1; }
+.task-actions .action-fold { border: 0; padding: 0; background: transparent; margin: 0; position: relative; }
+.task-actions .action-fold > summary { border-bottom: 0; margin: 0; padding: 0 .9rem; }
+.task-actions .more-actions > summary { padding: 0; }
+.task-actions .more-actions > summary::after { content: none; }
+.task-actions .action-fold[open] > summary { margin-bottom: 0; border-bottom: 0; }
+.task-actions > [data-follow-up] { width: auto; margin: 0; text-decoration: none; }
+.task-actions .duplicate[open] > form, .task-actions .more-actions[open] > .more-actions-body {
+  position: absolute; z-index: 8; right: 0; top: calc(100% + .35rem); min-width: 16rem; max-width: min(22rem, 80vw);
+  background: var(--tb-surface); border: 1px solid var(--tb-line); border-radius: 10px; padding: .75rem;
+  box-shadow: 0 8px 24px rgba(27, 36, 48, .12); }
+.task-actions .more-empty { margin: 0; }
+.detail-grid { display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: flex-start; }
+.detail-main { flex: 999 1 38rem; min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
+.detail-side { flex: 0 1 380px; max-width: 380px; min-width: 0; }  /* Mockup: main column + 380 px sidebar */
+@media (max-width: 900px) { .detail-side { max-width: none; flex-basis: 100%; } }
 .task-page label > :is(select, input) + small { margin-top: -.6rem; margin-bottom: var(--pico-spacing); }
 .static-field[readonly] { background: var(--tb-col); border-color: var(--tb-line); color: var(--tb-text); cursor: default; }
 .spec-section { border-top: 1px solid var(--tb-line); padding-top: .8rem; margin-top: 1rem; }
@@ -329,6 +456,11 @@ dl.struct dd, dl.struct ul { margin: 0; }
 .ct-question { border-left-color: #C98A00; } .ct-answer { border-left-color: #2E8B57; }
 .ct-review { border-left-color: #6F4BC1; } .ct-system { border-left-color: #A9B4BF; }
 .md p:last-child { margin-bottom: 0; }
+/* Rendered Markdown headings stay below the page title (h1.task-title, 24px). */
+.md :is(h1, h2, h3, h4, h5, h6) { margin: 12px 0 4px; font-weight: 600; line-height: 1.3; }
+.md :is(h1, h2) { font-size: 16px; }
+.md :is(h3, h4, h5, h6) { font-size: 14px; }
+.md > :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
 ul.plain { list-style: none; padding-left: 0; } ul.plain li { list-style: none; }
 table.events td { padding: .2rem .4rem; font-size: .85rem; background: transparent; }
 .actions form, .actions details { margin-bottom: .8rem; }
@@ -381,14 +513,12 @@ table.events td { padding: .2rem .4rem; font-size: .85rem; background: transpare
 .se-actions button { width: auto; margin: 0; }
 .se-note { font-size: .85rem; text-align: right; margin-top: .5rem; }
 
-/* --- New-task form: centred cards on a calm tinted page; content first, planning below, rare options folded. -- */
-body.tinted { background: var(--tb-col); }
-.task-form { max-width: 72rem; margin: 0 auto 2rem; }
+/* --- New-task form: cards on the page canvas; content first, planning below, rare options folded. -- */
+.task-form { margin: 0 0 2rem; }
 .form-card { background: var(--tb-surface); border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg);
              padding: 1.25rem 1.5rem .5rem; margin-bottom: 1rem; }
 .form-card > h2 { margin-bottom: .15rem; }
 .form-card > h3 { margin-bottom: .9rem; }
-.form-card .form-lead { margin-bottom: 1rem; }
 /* Rows: 2/3 + 1/3 (project, status), two or three equal columns; one column on narrow screens. */
 .form-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 1rem; }
 @media (min-width: 768px) {
@@ -432,11 +562,8 @@ fieldset.form-fold > legend + * { clear: both; }
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .75rem; margin: 1rem 0; }
 .form-actions > :is(a, button) { width: auto; margin: 0; }
 
-/* --- Mobile app shell ("compact header" mockup). The layout follows the available width, never the
-   user agent or the orientation: below 960 px a small header with logo, "+ Task" and a menu button (static/shell.js
-   opens `.collapsible` elements); below 600 px phone layouts. Without JavaScript (no `html.js`) everything stays
-   visible. Touch targets >= 44 px and 16 px input text (no iOS zoom) on narrow screens. ----------------------- */
-.topbar-compact, .qc-label { display: none; }
+/* Responsive page controls. Header breakpoints and navigation live in header.css.
+   shell.js opens `.collapsible` filters and edit forms; without JavaScript content stays visible. */
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
                    white-space: nowrap; }
 html, body { max-width: 100%; overflow-x: clip; }
@@ -445,31 +572,7 @@ main { min-width: 0; }
   .topbar { padding-top: max(.35rem, env(safe-area-inset-top)); margin-bottom: 1rem;
             padding-left: max(var(--pico-spacing), env(safe-area-inset-left));
             padding-right: max(var(--pico-spacing), env(safe-area-inset-right)); }
-  main.container-fluid { padding-left: max(var(--pico-spacing), env(safe-area-inset-left));
-                         padding-right: max(var(--pico-spacing), env(safe-area-inset-right));
-                         padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
-  .topbar nav { flex-wrap: wrap; align-items: center; }
-  .topbar nav > ul:first-child { flex: 1 1 auto; min-width: 0; }
-  .topbar-compact { display: flex; align-items: center; gap: .5rem; }
-  .topbar-compact :is(button, [role=button]) { min-height: 44px; min-width: 44px; margin: 0; width: auto;
-                                              display: inline-flex; align-items: center; justify-content: center; }
-  .topbar-compact .menu-toggle { font-size: 1.25rem; padding: 0 .6rem; }
   .js .collapsible:not(.is-open) { display: none !important; }
-  /* Menu: the existing navigation as a vertical list below the header. */
-  .topbar nav > ul#main-nav.collapsible { flex: 1 0 100%; flex-direction: column; align-items: stretch;
-                                          margin: .35rem 0 .2rem; padding: .35rem 0 0; border-top: 1px solid var(--tb-line); }
-  .topbar nav > ul#main-nav.collapsible > li { padding: 0; }
-  .topbar nav > ul#main-nav.collapsible a:not(.brand) { display: flex; align-items: center; min-height: 44px;
-                                                        padding: .4rem .75rem; }
-  .topbar nav > ul#main-nav.collapsible form.inline button { width: 100%; min-height: 44px; margin: .3rem 0; }
-  .topbar nav > ul#main-nav.collapsible .lang-switch a { font-size: .9rem; }
-  /* "+ Task": the quick capture opens as a compact sheet below the header (same form, same defaults). */
-  .quick-capture.collapsible { flex-wrap: wrap; padding: .6rem 0 .3rem; border-top: 1px solid var(--tb-line);
-                               margin-top: .35rem; }
-  .quick-capture.collapsible > input[name="title"] { flex: 1 0 100%; }
-  .quick-capture.collapsible > select { flex: 1 1 10rem; }
-  .quick-capture > input, .quick-capture > select, .quick-capture > button { height: auto; min-height: 44px; }
-  .quick-capture .qc-label { display: inline; margin-left: .3rem; }
   select, input:not([type=checkbox],[type=radio]), textarea { font-size: 16px; }
   :is(button, [role=button], input[type=submit], select, summary[role=button]) { min-height: 44px; }
   input:not([type=checkbox],[type=radio],[type=hidden]) { min-height: 44px; }
@@ -478,12 +581,10 @@ main { min-width: 0; }
   :is(button, [role=button]):not(.menu-toggle) { display: inline-flex; align-items: center; justify-content: center; }
   details > summary:not([role=button]) { min-height: 44px; display: flex; align-items: center; }
   details > summary:not([role=button])::after { margin-left: auto; }
-  .topbar nav a.brand { min-height: 44px; }
   fieldset { min-width: 0; }
   .attach-row input[type=file] { min-width: 0; width: 100%; }
 }
-@media (max-width: 599px) { .topbar .tb-logo { height: 28px; width: auto; } }
-@media (min-width: 960px) { .topbar #main-nav { display: flex; } }
+
 @media (max-width: 599px) {
   h2 { font-size: 1.4rem; }
   .headline h2 { margin-bottom: .25rem; }
@@ -511,6 +612,15 @@ main { min-width: 0; }
   .filter-toggle .count { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: 1rem;
                           background: var(--tb-blue); color: #fff; font-size: .8rem; text-align: center; }
 }
+/* Kanban filter row: one row from 1200 px (search shrinks first, selects take only the width of their text); it
+   wraps below that and folds into "Filters" under 960 px like the backlog. */
+@media (min-width: 960px) {
+  .kanban-filters > input[type="search"] { flex: 1 1 200px; min-width: 140px; }
+  .kanban-filters > .filter-more > :is(select, details) { min-width: 0; max-width: 12rem; flex: 0 1 auto; }
+}
+.kanban-filters > .ui-seg { flex: none; }
+.kanban-filters > .ui-seg > button, .kanban-filters > .filter-reset { white-space: nowrap; }
+@media (min-width: 1200px) { .kanban-filters { flex-wrap: nowrap; } }
 .sort-ctl { display: none; }
 @media (max-width: 899px) {
   .sort-ctl { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 0 0 .6rem; }
@@ -530,7 +640,7 @@ main { min-width: 0; }
   table.cards td.task-nr a::after { content: ""; position: absolute; inset: 0; }
   table.cards td a:not(.task-nr a) { position: relative; z-index: 1; }
   table.cards td.task-title { order: 1; flex: 1 0 100%; font-size: 1rem; line-height: 1.35; white-space: normal;
-                              overflow-wrap: anywhere; hyphens: auto; }
+                              overflow-wrap: anywhere; }
   table.cards td.c2 { order: 2; }
   table.cards td.c3 { order: 3; }
   table.cards td.c3.first { margin-left: auto; }
@@ -567,73 +677,503 @@ main { min-width: 0; }
   .headline .filters > select { flex: 1 1 10rem; }
 }
 
-/* Kanban on phones (< 600 px): one column at a time, chosen with the "Status column" picker (view only). Without
-   JavaScript all columns are stacked. From 600 px the picker is hidden and the columns sit side by side. */
+/* Card footer: assignee/project, and the "⋯" card menu (28 px icon button) at its right edge. The summary sits
+   absolutely in the top-right corner, so the open menu list flows below the meta row on desktop and becomes the
+   "Move to …" bottom sheet on phones. Pico's summary chevron (::after) is switched off – it showed as a stray "ˎ". */
 .kanban-picker { display: none; }
-.kanban-empty { margin: .3rem .2rem .5rem; }
 .kanban-list:has(.card) > .kanban-empty { display: none; }
 #kanban-msg:empty { display: none; }
-.card { position: relative; }
-.card-move { margin: .3rem 0 0; }
-.card-move > summary { font-size: .8rem; color: var(--tb-blue); padding: .1rem 0; margin: 0; line-height: 1.4;
-                       width: fit-content; }
-.card-move[open] > summary { margin-bottom: .3rem; }
-.card-move-list { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; }
+.card-foot { position: relative; display: flex; flex-direction: column; justify-content: center; min-height: 28px;
+             padding-right: 32px; margin-top: .3rem; }
+.card-move { margin: 0; }
+.card-move > summary { position: absolute; top: 0; right: 0; z-index: 1; display: inline-flex; align-items: center;
+                       justify-content: center; width: 28px; height: 28px; padding: 0; margin: 0; line-height: 1;
+                       color: var(--tb-text-2); border-radius: var(--tb-radius); list-style: none; cursor: pointer; }
+.card-move > summary::-webkit-details-marker { display: none; }
+.card-move > summary::after { content: none; display: none; }
+.card-move > summary:hover { background: var(--tb-hover); color: var(--tb-blue); }
+.card-move[open] > summary { background: var(--tb-select); color: var(--tb-blue); margin: 0; }
+.card-move-list { position: relative; z-index: 1; display: flex; flex-direction: column; gap: .3rem; font-size: .8rem;
+                  margin-top: .4rem; }
 .card-move-list button { width: 100%; margin: 0; text-align: left; display: flex; align-items: center; }
 .card-move-list button .badge { white-space: normal; }
 .card-move-list p { margin: 0; }
-.card-sprint, .card-move { position: relative; z-index: 1; }
+.card-move-open { display: block; padding: .3rem .5rem; border: 1px solid var(--tb-line); border-radius: var(--tb-radius);
+                  color: var(--tb-blue); text-decoration: none; font-weight: 600; }
+.card-move-open:hover { background: var(--tb-hover); }
+.card-sprint { position: relative; z-index: 1; }
 @media (max-width: 1023px), (pointer: coarse) {
-  /* Touch: the whole card opens the task; "Move" and the sprint link sit above that area. */
+  /* Touch: the whole card opens the task; the "Move" menu and the sprint link sit above that area. */
   .card .card-link::after { content: ""; position: absolute; inset: 0; }
   .card { cursor: default; }
-  .card-move > summary { min-height: 44px; display: flex; align-items: center; font-size: .875rem; }
-  .card-move-list button { min-height: 44px; }
+  .card-foot { min-height: 44px; padding-right: 48px; }
+  .card-move > summary { width: 44px; height: 44px; }
+  .card-move-list button, .card-move-open { min-height: 44px; }
+  .card-move-open { display: flex; align-items: center; }
   .card-head a, .card-head { font-size: .85rem; }
 }
+/* Planning board on phones: one column at a time with the "Column" picker (view only), as before. */
 @media (max-width: 599px) {
   .kanban-picker { display: block; margin-bottom: .75rem; }
   .kanban-picker label { font-weight: 600; margin-bottom: .2rem; }
   .kanban-picker select { margin: 0; }
-  .kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: minmax(0, 1fr); overflow-x: visible;
-            font-size: .95rem; }
-  .js .kanban .kanban-col:not([data-current]) { display: none; }
-  .js .kanban-col h4 { justify-content: space-between; }
-  .card { padding: .65rem .75rem; margin-bottom: .55rem; }
-  .card-title { font-size: 1rem; }
-  .card-meta, .card-head { font-size: .85rem; }
+  .kanban.planning { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: minmax(0, 1fr);
+                     overflow-x: visible; font-size: .95rem; }
+  .js .kanban.planning .kanban-col:not([data-current]) { display: none; }
+  .js .kanban.planning .kanban-col h4 { justify-content: space-between; }
+}
+/* Task detail tabs (Details / Discussion / History / Attachments) on every width: the shared underline tabs
+   (`ui-tabs`, left-aligned, 4 px gap, 10 px 14 px, active = navy text + 2 px navy border). The read view is the
+   default; "Edit" opens #edit. Without JavaScript every panel and the form stay visible. */
+.detail-tabs { max-width: 100%; }
+.detail-tabs [role=tab] { display: inline-flex; align-items: center; gap: .4rem; flex: 0 0 auto; }
+.js .tab-hidden { display: none !important; }
+.js form#edit.collapsible:not(.is-open) { display: none; }
+.js #details:has(#edit.is-open) > .read-view { display: none; }
+.more-actions-body { padding-top: .1rem; }
+.more-actions-body > :is(form, details, a, p) { margin-bottom: .8rem; }
+.more-actions-body > :last-child { margin-bottom: 0; }
+.events-wrap { overflow-x: auto; max-width: 100%; }
+.read-card { background: var(--tb-surface); border: 1px solid var(--tb-line); border-radius: 10px;
+             padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.read-card .md, .task-page pre, .task-page code { overflow-wrap: anywhere; }
+.task-page pre { white-space: pre-wrap; max-width: 100%; }
+.read-card-head { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.card-kicker { margin: 0; font-size: .75rem; color: var(--tb-text-2); text-transform: uppercase;
+               letter-spacing: .04em; font-weight: 600; }
+.read-result { background: var(--st-green-bg); border-color: #9CCFB0; }
+.read-result .card-kicker { color: var(--st-green-fg); }
+.result-by { font-size: .8rem; }
+.read-result .result-by { color: var(--tb-text-2-tint); }
+.result-links { display: flex; flex-wrap: wrap; gap: .5rem; }
+.result-link { display: inline-flex; align-items: center; height: 32px; padding: 0 .65rem; border-radius: 6px;
+               border: 1px solid var(--tb-control-line); background: var(--tb-surface); color: var(--tb-text);
+               text-decoration: none; font-size: .85rem; }
+.criteria-met { font-size: .85rem; color: var(--tb-text-2); }
+.criteria-met.is-done { color: var(--st-green-fg); }
+.criteria-list { list-style: none; margin: 0; padding: 0; }
+.criteria-item, .criteria-note { display: flex; gap: .6rem; align-items: flex-start; padding: .35rem 0; margin: 0; }
+.criteria-list input[type=checkbox] { width: 18px; height: 18px; margin: .15rem 0 0; accent-color: var(--tb-blue);
+                                      flex: 0 0 auto; }
+.criteria-list input[type=checkbox]:disabled { opacity: 1; }
+.activity-list { list-style: none; margin: 0; padding: 0; }
+.activity-list li { display: flex; gap: .6rem; align-items: baseline; padding: .3rem 0; margin: 0; font-size: .85rem;
+                    min-width: 0; }
+.activity-list time { color: var(--tb-text-2); width: 2.8rem; flex: 0 0 auto; }
+.activity-list .ui-actor { flex: 0 0 auto; max-width: 50%; }
+.activity-list li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.actor-chip { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; flex: 0 1 auto;
+              min-width: 0; max-width: 100%; font-weight: 600; }
+.comment-actions { display: flex; justify-content: flex-end; }
+.comment-actions button { width: auto; margin: 0; }
+.activity-comment { flex-direction: column; }
+/* Properties: one grid row per property (label 110 px, value 1fr), label and value centred on the same line, 6 px
+   row padding. Values stay inside the card: chips truncate, long texts wrap to at most two lines (.prop-clamp). */
+.prop-list { display: grid; grid-template-columns: 110px minmax(0, 1fr); column-gap: .5rem; align-items: center; }
+.prop { display: contents; }
+.prop > * { padding: 6px 0; min-height: 34px; display: flex; align-items: center; }
+.prop-label { font-size: .85rem; color: var(--tb-text-2); line-height: 1.3; }
+.prop-value { min-width: 0; flex-wrap: wrap; gap: .25rem; overflow-wrap: anywhere; line-height: 1.35; }
+.prop-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+              overflow-wrap: anywhere; }
+.prop-pop { position: relative; display: inline-block; max-width: 100%; min-width: 0; margin: 0; }
+.prop-pop > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; max-width: 100%;
+                      min-width: 0; }
+.prop-pop > summary::-webkit-details-marker { display: none; }
+.prop-pop > summary::after { content: none; }
+.prop-pop[open] > form { position: absolute; z-index: 7; left: 0; top: calc(100% + .25rem);
+                         min-width: min(16rem, calc(100vw - 2rem)); background: var(--tb-surface);
+                         border: 1px solid var(--tb-line); border-radius: 8px; padding: .65rem;
+                         box-shadow: 0 8px 24px rgba(27, 36, 48, .12); }
+.prop-pop form :is(select, input) { margin-bottom: .35rem; }
+.prop-pop form button { width: auto; margin: 0; }
+button.linkish { background: none; border: 0; padding: 0; margin: .2rem 0 0; width: auto; color: var(--tb-blue);
+                 font-weight: 500; min-height: 0; }
+.override-row { display: flex; gap: .5rem; align-items: center; }
+.override-row select { flex: 1 1 auto; margin: 0; }
+.override-row button { width: auto; margin: 0; }
+.task-status-actions { display: flex; flex-direction: column; gap: .6rem; }
+.task-status-actions:empty { display: none; }
+.task-status-actions > .side-card { margin-bottom: 0; }
+.links-card h3 { font-size: 1rem; margin: .4rem 0; }
+.links-branch { margin: .4rem 0 0; }
+.links-branch a { display: inline-flex; align-items: center; gap: .3rem; max-width: 100%; }
+.links-branch code.links-branch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+@media (max-width: 639px) {
+  nav.detail-tabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; }  /* beats .ui-tabs */
+  .detail-tabs [role=tab] { flex: 0 0 auto; }
+  .task-actions > .edit-toggle, .task-actions > [data-follow-up], .task-actions > .duplicate { display: none; }
+  .task-actions:has(.more-actions[open]) { flex-direction: column; align-items: stretch; background: var(--tb-surface);
+                                           border: 1px solid var(--tb-line); border-radius: 10px; padding: .5rem; }
+  .task-actions:has(.more-actions[open]) > .edit-toggle,
+  .task-actions:has(.more-actions[open]) > [data-follow-up],
+  .task-actions:has(.more-actions[open]) > .duplicate { display: flex; }
+  .task-actions:has(.more-actions[open]) .duplicate[open] > form,
+  .task-actions:has(.more-actions[open]) .more-actions[open] > .more-actions-body {
+    position: static; box-shadow: none; min-width: 0; max-width: none; }
+  .detail-grid { flex-direction: column; align-items: stretch; }
+  .detail-main, .detail-side, #details:not(.tab-hidden) { display: contents; }
+  .read-result { order: 1; }
+  .props-card { order: 2; }
+  [data-block="description"] { order: 3; }
+  .read-criteria { order: 4; }
+  .read-activity { order: 5; }
+  #edit { order: 6; }
+  #thread, #history, #attachments { order: 7; }
+  .detail-side > :not(.props-card) { order: 8; }
+  .prop-list { grid-template-columns: 1fr 1fr; align-items: start; }
+  .prop { display: flex; flex-direction: column; gap: .15rem; min-width: 0; padding: .2rem 0; }
+  .prop > * { padding: 0; min-height: 0; }
+  .form-card, .side-card, .read-card { padding: .9rem; }
+  .comment-form { flex-direction: column; align-items: stretch; }
+  #thread .comment-form { position: sticky; bottom: 0; z-index: 4; background: var(--tb-surface);
+                          padding: .6rem 0; border-top: 1px solid var(--tb-line); }
+  #thread .comment-form button { width: 100%; }
+  dl.struct > div { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+  .task-page, .detail-grid, .read-card, .prop-value { max-width: 100%; }
 }
 
-/* Task details on narrow screens: primary actions first, then the tabs "Details" / "Discussion" (one panel at a
-   time), then the folded side cards. Managers read first; "Edit" opens the form. From 960 px both panels show. */
-.detail-tabs, .edit-toggle, .details-head { display: none; }
-.more-actions-body { padding-top: .1rem; }
-.more-actions-body > :is(form, details, a) { margin-bottom: .8rem; }
-.events-wrap { overflow-x: auto; }
-@media (min-width: 960px) {
-  .read-view { display: none; }
+/* Task kanban on phones (< 640 px): snap-scroll with ~85 vw columns, sticky status tabs jump to a column. */
+@media (max-width: 639px) {
+  .kanban-tabs { display: flex; gap: .3rem; overflow-x: auto; position: sticky; top: 0; z-index: 5;
+                 background: var(--ui-bg); padding: .4rem 0 .5rem; scroll-snap-type: x proximity; }
+  .kanban-tabs button { flex: 0 0 auto; margin: 0; padding: .3rem .6rem; width: auto; min-height: 44px;
+                        display: inline-flex; align-items: center; gap: .35rem; border: 1px solid var(--tb-line);
+                        border-radius: var(--tb-radius-lg); background: var(--tb-surface); color: var(--tb-text); }
+  .kanban-tabs button[aria-current="true"] { border-color: var(--tb-blue); background: var(--tb-select); }
+  .kanban-tabs button .count { color: var(--tb-text-2-tint); font-size: .8rem; }
+  .kanban-scroll { scroll-snap-type: x mandatory; }
+  .kanban.kanban-board:not(.kanban-swimlane) { grid-template-columns: none; grid-auto-columns: 85vw; min-width: 0;
+    overflow-x: visible; }
+  .kanban.kanban-board:not(.kanban-swimlane) .kanban-col { scroll-snap-align: start; min-height: 60vh; }
+  .card { padding: .65rem .75rem; margin-bottom: .55rem; }
+  .card-meta, .card-head { font-size: .85rem; }
+  /* "Move to …" opens as a bottom sheet above the tab bar on phones (like the "More" sheet). The open menu leaves
+     the card's stacking context, otherwise the tab bar and later cards paint over the sheet. */
+  .card-move-list { margin-top: 0; position: fixed; left: 0; right: 0; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 60;
+                    max-height: calc(100dvh - 100px); overflow-y: auto; background: var(--tb-surface);
+                    border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg) var(--tb-radius-lg) 0 0;
+                    box-shadow: 0 -8px 30px rgba(27, 36, 48, .13); padding: .6rem .9rem; gap: .4rem; }
 }
-@media (max-width: 959px) {
-  .detail-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--tb-line); margin: 0 0 1rem; }
-  .detail-tabs [role=tab] { flex: 1 1 0; margin: 0 0 -1px; border: 0; border-bottom: 3px solid transparent;
-                            border-radius: 0; background: transparent; color: var(--tb-text-2-tint); font-weight: 600;
-                            min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; }
-  .detail-tabs [role=tab][aria-selected="true"] { color: var(--tb-blue); border-bottom-color: var(--tb-blue); }
-  .detail-tabs [role=tab]:focus-visible { outline-offset: -2px; }
-  .js .tab-hidden { display: none !important; }
-  .details-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .6rem;
-                  overflow-wrap: anywhere; }
-  .edit-toggle { display: inline-flex; align-items: center; width: auto; flex: 0 0 auto; }
-  .js .read-view:has(+ #edit.is-open) { display: none; }
-  .detail-grid { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
-  .detail-main, .detail-side { display: contents; }
-  .detail-side > .actions { order: -2; }
-  .detail-tabs { order: -1; }
-  .detail-main > .tab-panel { order: 0; }
-  .detail-side > :not(.actions) { order: 1; }
-  .actions .grid { grid-template-columns: 1fr 1fr; }
-  .form-card, .side-card { padding: .9rem; }
-  .comment-form { flex-direction: column; align-items: stretch; }
-  .comment-form button { width: 100%; }
-  dl.struct > div { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+
+/* Data class badges (`_data_class.html`). */
+.zone { white-space: nowrap; }
+.zone-cloud_ok { background: var(--st-zone-cloud-bg); color: var(--st-zone-cloud); }
+.zone-local_only { background: var(--st-zone-local-bg); color: var(--st-zone-local); }
+.zone-sealed { background: var(--st-zone-sealed-bg); color: var(--st-zone-sealed); border: 1px solid var(--st-zone-sealed); }
+.zone-compact { padding: .05rem .4rem; font-size: .75rem; }
+.card-head .zone { margin-right: .3rem; }
+.runner-mark { color: var(--tb-text-2-tint); }
+
+/* Data store: dataset facts (data_detail.html) */
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: 0; }
+.facts dt { font-weight: 600; }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 599px) { .facts { grid-template-columns: 1fr; } .facts dd { margin-bottom: .4rem; } }
+
+/* --- Workflows (research/konzept-workflows.md §8): sub-navigation, run/step status with symbol and colour, pipeline
+   history, chain, editor. Status colours reuse the task palette: green succeeded, amber waiting for a human,
+   blue active, red failed/paused, grey skipped/cancelled/pending. ----------------------------------------- */
+.wf-tabs ul { display: flex; gap: .25rem; list-style: none; padding: 0; margin: 0 0 1rem;
+              border-bottom: 1px solid var(--tb-line); }
+.wf-tabs li { list-style: none; margin: 0; }
+.wf-tabs a { display: block; padding: .35rem .8rem; border-bottom: 2px solid transparent; text-decoration: none; }
+.wf-tabs a[aria-current="page"] { border-bottom-color: var(--tb-blue); font-weight: 600; color: var(--tb-text); }
+.wf-run-succeeded, .wf-succeeded { background: var(--st-green-bg); color: var(--st-green-fg); }
+.wf-run-running, .wf-active { background: var(--st-blue-bg); color: var(--st-blue-fg); }
+.wf-run-waiting, .wf-run-queued, .wf-waiting { background: var(--st-amber-bg); color: var(--st-amber-fg); }
+.wf-run-failed, .wf-run-paused, .wf-failed { background: var(--st-red-bg); color: var(--st-red-fg); }
+.wf-run-cancelled, .wf-cancelled, .wf-skipped { background: var(--st-grey-bg); color: var(--st-grey-fg); }
+.wf-pending { background: var(--tb-surface); color: var(--st-grey-fg); border: 1px dashed #8C99A6; }
+.wf-dot { display: inline-block; width: .8rem; height: .8rem; border-radius: 2px; margin-right: 2px;
+          vertical-align: middle; border: 1px solid rgba(0, 0, 0, .15); }
+.wf-dot.wf-run-succeeded { background: var(--st-green-fg); }
+.wf-dot.wf-run-failed, .wf-dot.wf-run-paused { background: var(--st-red-fg); }
+.wf-dot.wf-run-running, .wf-dot.wf-run-waiting, .wf-dot.wf-run-queued { background: var(--tb-surface);
+                                                                          border-color: var(--st-blue-fg); }
+.wf-dot.wf-run-cancelled { background: var(--st-grey-bg); }
+.wf-legend { margin-top: .5rem; }
+.wf-cell { display: inline-flex; align-items: center; justify-content: center; min-width: 1.8rem; height: 1.6rem;
+           padding: 0 .3rem; border-radius: var(--tb-radius); font-weight: 700; text-decoration: none;
+           border: 1px solid transparent; }
+a.wf-cell:hover { border-color: currentColor; }
+.wf-cell.wf-none { background: none; }
+.wf-history th.wf-col, .wf-history td.wf-col { text-align: center; }
+.wf-history td.wf-params small { white-space: nowrap; }
+.wf-badge { display: inline-block; padding: 0 .4rem; border-radius: var(--tb-radius); font-size: .75rem;
+            font-weight: 600; white-space: nowrap; background: var(--st-violet-bg); color: var(--st-violet-fg);
+            text-decoration: none; }
+.wf-type { background: var(--st-grey-bg); color: var(--st-grey-fg); }
+.wf-hidden-hint { margin: .5rem 0; }
+.wf-chain { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: 0 0 .5rem; }
+.wf-chain-step { list-style: none; display: flex; flex-direction: column; gap: .15rem; min-width: 9rem;
+                 flex: 1 1 9rem; max-width: 16rem; padding: .45rem .6rem; border-radius: var(--tb-radius-lg);
+                 border: 1px solid var(--tb-line); font-size: .85rem; }
+.wf-chain-step.current { box-shadow: inset 0 0 0 2px var(--tb-blue); }
+.wf-chain-step.this-task { outline: 2px solid var(--tb-text); outline-offset: 1px; }
+.wf-chain-step a { font-weight: 600; }
+.wf-task-context, .zone-chain-context { border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg);
+                   padding: .6rem .8rem; margin-bottom: 1rem; background: var(--tb-surface); }
+.wf-task-context p, .zone-chain-context p { margin-bottom: .5rem; }
+.wf-chain-handover { color: var(--tb-text-2); overflow-wrap: anywhere; }
+.side-card.data-refs dd { overflow-wrap: anywhere; }
+.side-card.data-refs .run-fields { margin-top: .5rem; }
+.wf-steps-read li { margin-bottom: .4rem; }
+.wf-steps { list-style: none; padding: 0; margin: 0 0 .75rem; }
+.wf-step { list-style: none; border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg); margin: 0 0 .5rem;
+           background: var(--tb-surface); }
+.wf-step > details { margin: 0; }
+.wf-step > details > summary { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .5rem .6rem; }
+.wf-step-body { padding: .25rem .9rem .5rem; border-top: 1px solid var(--tb-line); }
+.wf-handle { cursor: grab; color: var(--tb-text-2); user-select: none; }
+.wf-pos { font-weight: 700; min-width: 1.2rem; }
+.wf-step-title { font-weight: 600; flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
+.wf-step-actions, .wf-add-step, .wf-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
+                                               margin: .5rem 0; }
+.wf-step-actions button, .wf-add-step button, .wf-add-step select, .wf-controls button { width: auto; margin: 0; }
+.wf-controls form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 0; }
+.wf-controls :is(input, select) { width: auto; margin: 0; }
+.wf-insert-list { display: flex; flex-wrap: wrap; gap: .3rem; }
+.wf-insert-list button { width: auto; margin: 0; padding: .1rem .4rem; font-family: var(--pico-font-family-monospace);
+                         font-size: .75rem; }
+textarea.mono { font-family: var(--pico-font-family-monospace); font-size: .8rem; }
+.wf-param-table :is(input, select) { margin: 0; min-width: 6rem; }
+.wf-checks-body[data-state="ok"] .wf-ok { color: var(--st-green-fg); font-weight: 600; }
+.wf-issues li { margin-bottom: .3rem; }
+.wf-issue-error { color: var(--st-red-fg); } .wf-issue-warning { color: var(--st-amber-fg); }
+.wf-actions { position: sticky; bottom: 0; background: var(--ui-bg); padding: .5rem 0; }
+.wf-discard { margin-top: -.5rem; text-align: right; }
+.wf-diff { white-space: pre-wrap; font-size: .8rem; padding: .75rem; }
+.wf-diff > span { display: block; }
+.wf-diff-add { background: var(--st-green-bg); color: var(--st-green-fg); }
+.wf-diff-del { background: var(--st-red-bg); color: var(--st-red-fg); }
+.wf-diff-hunk { color: var(--tb-text-2); }
+.wf-attempt { border-left: 4px solid var(--tb-line); }
+.wf-attempt[data-status="succeeded"] { border-left-color: var(--st-green-fg); }
+.wf-attempt[data-status="active"] { border-left-color: var(--st-blue-fg); }
+.wf-attempt[data-status="waiting"] { border-left-color: #C99A1E; }
+.wf-attempt[data-status="failed"] { border-left-color: var(--st-red-fg); }
+.wf-attempt > header { margin-bottom: 0; }
+
+/* Output gate (data_result.html, research/konzept-datenzonen.md §8): status badges, check list, flagged cells. */
+.gate-status { background: var(--st-grey-bg); color: var(--st-grey-fg); }
+.gate-status.gate-pending_approval { background: var(--st-amber-bg); color: var(--st-amber-fg); }
+.gate-status.gate-released { background: var(--st-green-bg); color: var(--st-green-fg); }
+.gate-status.gate-checks_failed, .gate-status.gate-rejected { background: var(--st-red-bg); color: var(--st-red-fg); }
+.gate-status.gate-kept_sealed { background: var(--st-blue-bg); color: var(--st-blue-fg); }
+.gate-checks li { margin: .25rem 0; }
+.gate-check.gate-failed > span { color: var(--st-red-fg); }
+.gate-check.gate-warning > span { color: var(--st-amber-fg); }
+.gate-check.gate-ok > span, .gate-check.gate-applied > span { color: var(--st-green-fg); }
+.gate-check.gate-not_run { color: var(--tb-text-2); }
+.gate-output .gate-hit, dt.gate-hit { background: var(--st-amber-bg); color: var(--st-amber-fg); }
+.gate-log pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; }
+.gate-box ul { margin: .3rem 0; }
+/* Planning (/planning): sprint accordion list – one full-width card per sprint; the header row carries
+   expand/collapse, name, status, progress and "+ Task", the body the goal, the task rows and the sprint actions.
+   Closed sprints stay hidden by default and are dimmed when shown. */
+.ui-page-actions .plan-project { margin: 0; }
+.ui-page-actions .plan-project select { width: auto; margin: 0; }
+#planning-msg:empty { display: none; }
+.plan-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: .75rem; }
+.plan-closed-toggle { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; color: var(--tb-text);
+                text-decoration: none; white-space: nowrap; }
+.plan-switch { position: relative; width: 2.25rem; height: 1.25rem; border-radius: 1rem; background: var(--tb-control-line);
+                flex: none; }
+.plan-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 1rem; height: 1rem; border-radius: 50%;
+                background: #FFFFFF; transition: left .15s ease; }
+.plan-closed-toggle[aria-checked="true"] .plan-switch { background: var(--tb-blue); }
+.plan-closed-toggle[aria-checked="true"] .plan-switch::after { left: calc(100% - 1.125rem); }
+/* Spacing in px as in the mockup (10px between cards, 14px 16px header, 8px rows). Pico gives `section`, `li` and
+   `details` a bottom margin; on top of the flex gaps that doubled every distance, so the margins are reset here. */
+.plan-list { display: flex; flex-direction: column; gap: 10px; }
+.plan-no-sprints { margin: 0; }
+.plan-sprint { margin: 0; background: var(--tb-surface); border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg); }
+.plan-sprint.is-closed { opacity: .75; }
+.plan-sprint-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; }
+/* Expand/collapse: 32 px square with a 16 px chevron, ▸ collapsed / ▾ expanded (follows aria-expanded). */
+.plan-toggle { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+               min-width: 32px; padding: 0; margin: 0; border: 0; border-radius: var(--tb-radius); flex: none;
+               background: #F1F3F5; color: #3A4554; cursor: pointer; }
+.plan-toggle:hover { background: var(--ui-track); color: #3A4554; }
+.plan-caret { display: block; width: 16px; height: 16px; transition: transform .15s ease; }
+.plan-toggle[aria-expanded="true"] .plan-caret { transform: rotate(90deg); }
+.plan-name { margin: 0; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+.plan-name a { color: var(--tb-text); text-decoration: none; }
+.plan-name a:hover { text-decoration: underline; }
+.plan-sprint-meta { margin-left: auto; display: flex; align-items: center; gap: .625rem; min-width: 18rem; }
+.plan-bar { flex: 1 1 auto; height: .375rem; border-radius: 3px; background: var(--tb-line); overflow: hidden; }
+.plan-bar-fill { display: block; height: .375rem; border-radius: 3px; background: var(--st-green-fg); }
+.plan-done { font-size: .8125rem; color: var(--tb-text-2); white-space: nowrap; }
+.plan-add-btn { margin: 0; width: auto; }
+.plan-sprint-body { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+.plan-sprint-body > * { margin: 0; }
+.plan-goal { margin: 0; color: var(--tb-text-2); max-width: 60rem; }
+.plan-rows { list-style: none; margin: 0; padding: 0; }
+.plan-empty { padding: .875rem; border: 1px dashed var(--tb-control-line); border-radius: var(--tb-radius);
+                color: var(--tb-text-2); text-align: center; }
+.plan-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) 180px 90px 24px; gap: 4px 12px; margin: 0;
+                align-items: center; min-height: 40px; padding: 8px 0; border-top: 1px solid var(--ui-divider);
+                line-height: 1.3; cursor: grab; }
+.plan-row:first-child { border-top: 0; }
+.plan-key { font-family: var(--pico-font-family-monospace, ui-monospace); font-size: .8125rem; font-weight: 500;
+                color: var(--tb-blue); text-decoration: none; white-space: nowrap; }
+.plan-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-assignee { font-size: .8125rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-status { white-space: nowrap; }
+.plan-move { position: relative; margin: 0; }
+.plan-move > summary { list-style: none; cursor: pointer; width: 1.5rem; height: 1.5rem; border-radius: var(--tb-radius);
+                text-align: center; line-height: 1.5rem; color: var(--tb-text-2); }
+.plan-move > summary::-webkit-details-marker { display: none; }
+.plan-move > summary::after { content: none; }
+.plan-move > summary:hover, .plan-move[open] > summary { background: var(--tb-select); color: var(--tb-text); }
+.plan-move ul { position: absolute; right: 0; top: 100%; z-index: 5; margin: 0; padding: .25rem; list-style: none;
+                min-width: 12rem; max-width: calc(100vw - 2rem); background: var(--tb-surface);
+                border: 1px solid var(--tb-line); border-radius: var(--tb-radius);
+                box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+.plan-move li { margin: 0; }
+.plan-move ul button { display: block; width: 100%; margin: 0; padding: .35rem .5rem; border: 0; background: transparent;
+                color: var(--tb-text); text-align: left; font: inherit; font-size: .875rem; cursor: pointer;
+                border-radius: var(--tb-radius); }
+.plan-move ul button:hover { background: var(--tb-hover); }
+.plan-waits { grid-column: 2 / -1; font-size: .78rem; color: var(--st-amber-fg); overflow-wrap: anywhere; }
+.plan-waits a { color: inherit; }
+.plan-sprint-actions, .plan-sprint-actions button { display: flex; flex-wrap: wrap; gap: .5rem; }
+.plan-sprint-actions button { margin: 0; width: auto; }
+dialog .plan-dialog-body { min-height: 2rem; }
+dialog footer { display: flex; justify-content: flex-end; gap: .5rem; }
+dialog footer button { width: auto; margin: 0; }
+/* Phone (<640 px): the header row wraps (name + status, then progress + "+ Task"); task rows become 2-line items. */
+@media (max-width: 639px) {
+  .ui-page-actions .plan-project, .ui-page-actions .plan-project select { width: 100%; }
+  .plan-closed-toggle { margin-left: 0; }
+  /* Segmented sprint filter: one line that scrolls sideways instead of wrapping. */
+  .plan-toolbar > .plan-segments.ui-seg[role=group] { flex-wrap: nowrap; max-width: 100%; overflow-x: auto;
+                                                      overscroll-behavior-x: contain; scrollbar-width: none; }
+  .plan-toolbar > .plan-segments::-webkit-scrollbar { display: none; }
+  .plan-segments > .plan-segment { flex: none; white-space: nowrap; }
+  .plan-sprint-meta { min-width: 0; width: 100%; order: 3; }
+  /* Two-line rows: key, assignee, status and menu on the first line, the title below. */
+  .plan-sprint-head { gap: 8px 12px; }
+  .plan-row { grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 0 8px; padding: 8px 0; }
+  .plan-key { grid-column: 1; grid-row: 1; }
+  .plan-assignee { grid-column: 2; grid-row: 1; }
+  .plan-status { grid-column: 3; grid-row: 1; justify-self: end; white-space: nowrap; }
+  .plan-move { grid-column: 4; grid-row: 1; }
+  .plan-title { grid-column: 1 / -1; grid-row: 2; white-space: normal; overflow-wrap: anywhere; }
+  .plan-waits { grid-column: 1 / -1; }
 }
+
+/* --- Inbox redesign (UI 3): action cards on the left, notices panel on the right. --------------------------- */
+.inbox-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin-bottom: 1rem; }
+.inbox-filters > :is(select, input) { width: auto; min-width: 10rem; flex: 0 1 auto; margin: 0; }
+.inbox-action-title { display: flex; align-items: center; gap: .4rem; font-size: 1rem; margin: 0; }
+.inbox-action-title .count-pill { background: var(--tb-blue); color: #fff; }
+.inbox-filter-right { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.inbox-filter-right > select { width: auto; min-width: 12rem; margin: 0; }
+.inbox-cols { display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: flex-start; }
+.inbox-cards { flex: 999 1 40rem; min-width: 0; display: flex; flex-direction: column; gap: .75rem; }
+.inbox-notices { flex: 1 1 21rem; max-width: 440px; min-width: 0; background: var(--tb-surface);
+                 border: 1px solid var(--tb-line); border-radius: var(--tb-radius-lg); padding: .9rem 1rem; }
+/* Action card (review / question). */
+.action-card { background: var(--tb-surface); border: 1px solid var(--tb-line); border-radius: 10px;
+               padding: .85rem 1rem; margin: 0; display: flex; flex-direction: column; gap: .5rem; }
+.card-top { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.card-top .age { margin-left: auto; font-size: .8rem; color: var(--tb-text-2); }
+.card-top .task-key { font-family: ui-monospace, monospace; font-size: .85rem; font-weight: 600; }
+.card-top .prio { min-width: 1.4rem; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .78rem; font-weight: 500;
+        white-space: nowrap; }
+.pill-review { background: var(--st-violet-bg); color: var(--st-violet-fg); }
+.pill-question { background: var(--st-amber-bg); color: var(--st-amber-fg); }
+.pill-changes { background: var(--st-blue-bg); color: var(--st-blue-fg); }
+.action-card .card-title { font-weight: 600; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+.card-detail { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; font-size: .85rem;
+               color: var(--tb-text); }
+.card-detail .md { color: var(--tb-text-2); }
+.card-detail .md p { margin: 0; }
+.actor-chip { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; }
+.actor-chip::before { content: ""; flex: none; width: .5rem; height: .5rem; border-radius: 50%;
+                      background: var(--tb-blue); }
+.card-actions { margin: 0; }
+.action-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.action-buttons > :is(button, a) { width: auto; margin: 0; font-size: .85rem; }
+.action-buttons a { display: inline-flex; align-items: center; }
+.action-buttons button[aria-pressed] { width: auto; }
+.request-changes { margin-top: .4rem; }
+.request-changes > summary { font-size: .85rem; color: var(--tb-text-2); width: fit-content; }
+.request-changes[open] > summary { margin-bottom: .3rem; }
+.request-changes textarea { margin-bottom: .4rem; }
+.request-changes button { width: auto; margin: 0; }
+/* Inline answer (question card). */
+.action-card.question form.card-actions { display: flex; align-items: center; gap: .5rem; }
+.action-card.question textarea { flex: 1 1 16rem; margin: 0; min-height: 2.4rem; }
+.action-card.question button { flex: 0 0 auto; width: auto; margin: 0; }  /* Pico gives submit buttons width: 100%. */
+.inbox-sub { margin: 0; }
+.inbox-sub h4 { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.inbox-sub .mail-card { margin-bottom: .6rem; }
+/* Notices panel. */
+summary.inbox-notices-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: 0;
+                     padding: 0; height: auto; border: 0; background: none; color: var(--tb-text);
+                     border-radius: 0; box-shadow: none; font-weight: inherit; }
+summary.inbox-notices-head:not([role]), details.inbox-notices-body[open] > summary.inbox-notices-head:not([role]):not(:focus) { color: var(--tb-text); }
+.inbox-notices-title { font-size: 1rem; font-weight: 600; }
+.inbox-notices-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+                       gap: .6rem; margin-left: auto; max-width: 100%; }
+.inbox-notices-tools :is(button, a) { width: auto; margin: 0; }
+.inbox-notices-tools button { white-space: nowrap; }
+.inbox-notices-tools a { font-size: 13px; white-space: nowrap; }
+#inbox-notices-msg:empty { display: none; }
+.inbox-notices-list { list-style: none; margin: .5rem 0 0; padding: 0; }
+.inbox-notice-item { display: flex; gap: .6rem; padding: .6rem 0; border-bottom: 1px solid #EEF0F3; }
+.inbox-notice-item:last-child { border-bottom: 0; }
+.inbox-notice-item .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: .45rem; flex: none; }
+.dot-default { background: var(--tb-blue); }
+.dot-sprint { background: var(--st-green-fg); }
+.dot-conflict { background: #D99A1E; }
+.inbox-notice-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.inbox-notice-meta { font-size: .8rem; color: var(--tb-text-2); }
+.inbox-notice-time { font-size: .8rem; color: var(--tb-text-2); white-space: nowrap; }
+.inbox-notice-info { margin-top: .75rem; }
+.inbox-notices-body > a { display: inline-block; margin-top: .6rem; }
+
+@media (max-width: 639px) {
+  .inbox-filters { flex-direction: column; align-items: stretch; }
+  .inbox-filter-right { margin-left: 0; }
+  .inbox-filter-right > select { flex: 1 1 100%; }
+  /* Column direction: the row flex-bases (40rem / 21rem) would turn into heights. */
+  .inbox-cols { flex-direction: column; align-items: stretch; }
+  .inbox-cols > * { flex: none; }
+  .inbox-notices { max-width: none; }
+  .action-card.question form.card-actions { flex-direction: column; align-items: stretch; }
+  .action-card.question textarea { width: 100%; }
+  .action-card.question button { width: 100%; }
+  .action-buttons > :is(button, a) { flex: 1 1 auto; }
+}
+
+/* Inbox notice selection, swipe action and six-second undo. */
+.inbox-notice-item[hidden], .notice-selection[hidden], .notice-toast[hidden], .notice-checkbox[hidden] { display: none; }
+.inbox-notice-item { align-items: flex-start; }
+.inbox-notice-text { overflow-wrap: anywhere; }
+.inbox-notice-item .notice-checkbox { flex: none; margin: .35rem 0 0; }
+.inbox-notice-item .notice-read { flex: none; width: 2rem; min-height: 2rem; margin: 0; opacity: 0; }
+.inbox-notice-item:hover .notice-read, .inbox-notice-item:focus-within .notice-read { opacity: 1; }
+.is-selecting .notice-read { display: none; }
+.notice-selection { margin-top: .75rem; }
+.notice-selection label { font-size: .875rem; }
+.notice-bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .6rem; background: #E8EFF6; border: 1px solid #C5D6E8; border-radius: 6px; }
+.notice-bulk-bar button, .notice-toast button { width: auto; margin: 0; }
+.notice-toast { position: fixed; bottom: 1rem; right: 1rem; z-index: 100; max-width: min(32rem, calc(100vw - 2rem)); padding: .75rem; background: #E8EFF6; border: 1px solid #C5D6E8; border-radius: 6px; box-shadow: 0 3px 12px #0002; }
+@media (hover: none) {
+  .inbox-notice-item .notice-read { opacity: 1; width: 44px; min-height: 44px; }
+  .inbox-notice-item:not(.swiped):not(:focus-within) .notice-read { display: none; }
+}
+@media (max-width: 600px) {
+  .inbox-filter-right { width: 100%; min-width: 0; }
+  .inbox-filter-right > select { width: 100%; min-width: 0; max-width: 100%; flex-basis: 100%; }
+  .notice-toast { bottom: calc(5rem + env(safe-area-inset-bottom)); }
+}
+.inbox-notices .inbox-notices-tools [data-notice-select-mode] { background: transparent; border-color: transparent; padding-inline: .2rem; }
+summary.inbox-notices-head { position: relative; padding-right: 1.3rem; }
+summary.inbox-notices-head::after { position: absolute; right: 0; top: .25rem; margin: 0; }

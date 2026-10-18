@@ -164,14 +164,15 @@ def test_ui_choices_show_own_and_public_agents_and_keep_the_assignee(oenv):
     with _ui(e) as ui:
         assert 'name="show_all_agents"' in ui.get("/profile").text
         options = _agent_options(ui.get("/backlog").text)
-        assert {"codex", "claude-code", "anna"} <= options and "hermes" not in options
+        # Admin with the switch off: own agents only – not even public ones of other owners.
+        assert {"codex", "anna"} <= options and "hermes" not in options and "claude-code" not in options
         assert "hermes" in _agent_options(ui.get("/backlog?agent=hermes").text)  # Selected filter stays.
         assert "hermes" not in _agent_options(ui.get("/tasks/new").text, "assigned_to")
         detail = ui.get(f"/tasks/{nr}").text
         assert "<option selected>hermes</option>" in detail  # Already assigned: still shown.
         r = ui.post("/profile/display", data={"csrf_token": ui.csrf, "show_all_agents": "1"})
         assert r.status_code == 200 and "Gespeichert." in r.text
-        assert "hermes" in _agent_options(ui.get("/kanban").text)
+        assert {"hermes", "claude-code"} <= _agent_options(ui.get("/kanban").text)
     with db.session() as s:
         assert s.query(Actor).filter_by(name="admin").one().show_all_agents is True
 
@@ -193,19 +194,40 @@ def test_ui_switch_is_for_admins_only(oenv):
     assert "codex" not in _agent_options(ui.get("/backlog").text)
 
 
+def test_notification_form_leaves_the_display_switches_alone(oenv):
+    """The display switches have their own form (`/profile/display`); 'Save all changes' of the notification form
+    neither sets nor clears them."""
+    ui = TestClient(app)
+    r = ui.get("/login")
+    csrf = r.text.split('name="csrf_token" value="')[1].split('"')[0]
+    ui.post("/login", data={"username": "anna", "password": "anna-passwort-123", "csrf_token": csrf})
+    csrf = ui.get("/profile").text.split('"X-CSRF-Token": "')[1].split('"')[0]
+    r = ui.post("/profile/notifications", data={"csrf_token": csrf, "show_all_projects": "1", "show_all_agents": "1"})
+    assert "Gespeichert." in r.text
+    with db.session() as s:
+        anna = s.query(Actor).filter_by(name="anna").one()
+        assert anna.show_all_projects is False and anna.show_all_agents is False
+        anna.show_all_projects = True
+        s.commit()
+    ui.post("/profile/notifications", data={"csrf_token": csrf})
+    with db.session() as s:
+        assert s.query(Actor).filter_by(name="anna").one().show_all_projects is True
+
+
 def test_admin_list_shows_all_agents_with_filters(oenv):
     e = oenv
     with _ui(e) as ui:
+        ui.post("/profile/display", data={"csrf_token": ui.csrf, "show_all_agents": "1"})
         page = ui.get("/admin/users").text
-        assert "/admin/users/hermes" in page and "/admin/users/codex" in page  # Always all, switch off.
+        assert "detail=hermes" in page and "detail=codex" in page  # Switch on: all agents.
         page = ui.get("/admin/users?owner=anna").text
-        assert "/admin/users/hermes" in page and "/admin/users/codex" not in page and "1 von " in page
+        assert "detail=hermes" in page and "detail=codex" not in page and "1 von " in page
         page = ui.get("/admin/users?kind=codex&role=worker").text
-        assert "/admin/users/codex" in page and "/admin/users/hermes" not in page
+        assert "detail=codex" in page and "detail=hermes" not in page
         page = ui.get("/admin/users?owner=none").text
-        assert "/admin/users/codex" not in page and "/admin/users/claude-code" in page
+        assert "detail=codex" not in page and "detail=claude-code" in page
         page = ui.get("/admin/users?role=bogus").text  # Unknown values are ignored.
-        assert "/admin/users/hermes" in page and "Filter zurücksetzen" not in page
+        assert "detail=hermes" in page and "Filter zurücksetzen" not in page
 
 
 def test_admin_form_changes_owner_and_public(oenv):

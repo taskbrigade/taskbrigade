@@ -166,7 +166,8 @@ def test_exclusion_list_covers_internal_material_of_this_repository():
     assert globs and all(not any(c.isspace() for c in g) for g in globs)
     root = SCRIPT.parents[2]
     tracked = run("git", "ls-files", cwd=root).stdout.splitlines()
-    internal = [name for name in tracked if name.startswith(("research/", "docs/naming/", "media/", "tasks/"))
+    internal = [name for name in tracked
+                if name.startswith(("research/", "Marketing/", "Produktvideo/", "docs/naming/", "docs/ui-redesign/", "media/", "tasks/"))
                 or name.startswith("mediaassets/ChatGPT-Bild")]
 
     def excluded(name):

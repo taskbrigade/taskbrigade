@@ -1,0 +1,76 @@
+# TaskBrigade data-zone sandbox job (research/konzept-datenzonen.md §5, docs/operations.md → Data-zone runner).
+# Started per job by taskbrigade-runner.service as taskbrigade-job@<job>.service (polkit rule
+# 60-taskbrigade-runner.rules: tbr-runner may only start/stop these units). The runner prepares
+# /run/taskbrigade-runner/jobs/<job>/{in,script,out,log}; only these directories are visible in /job.
+# Resource limits come from Admin → Settings through the drop-in taskbrigade-job@.service.d/50-limits.conf
+# (tbr-admin runner limits --write); the values below are the defaults.
+# Installed by deploy/install.sh and deploy/update.sh with TBR_DATA_ZONES=1 (paths substituted).
+[Unit]
+Description=TaskBrigade sandbox job %i
+
+[Service]
+Type=oneshot
+User=tbr-job
+Group=tbr-job
+UMask=0007
+TemporaryFileSystem=/job /run/taskbrigade-runner
+BindReadOnlyPaths=/run/taskbrigade-runner/jobs/%i/in:/job/in /run/taskbrigade-runner/jobs/%i/script:/job/script
+BindPaths=/run/taskbrigade-runner/jobs/%i/out:/job/out /run/taskbrigade-runner/jobs/%i/log:/job/log
+ExecStart=/opt/taskbrigade/runner-venv/bin/python -I -B /job/script/entry.py
+# Status for the runner (it cannot rely on the unit staying loaded): systemd's result and exit status and the
+# cgroup's memory peak. Runs after every process of the job was killed, so the job cannot forge it. The chmod gives
+# the runner (group tbr-job) back access to whatever the job created.
+ExecStopPost=/bin/sh -c 'rm -f /job/log/status; cg=$$(cut -d: -f3 /proc/self/cgroup); printf "result=%%s\nexit_code=%%s\nexit_status=%%s\nmemory_peak=%%s\n" "$$SERVICE_RESULT" "$$EXIT_CODE" "$$EXIT_STATUS" "$$(cat "/sys/fs/cgroup$$cg/memory.peak" 2>/dev/null)" > /job/log/status; chmod -R g+rwX /job/out /job/log 2>/dev/null; exit 0'
+Environment=TBR_INPUT=/job/in TBR_OUTPUT_DIR=/job/out PYTHONHASHSEED=0 HOME=/nonexistent LANG=C.UTF-8
+WorkingDirectory=/job/script
+
+# Network: none at all
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+
+# File system / rights
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+KeyringMode=private
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+# Refused system calls fail with EPERM (a library probing them keeps working) instead of killing the job
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+InaccessiblePaths=-/srv/taskbrigade-data -/etc/taskbrigade -/var/lib/taskbrigade -/var/lib/taskbrigade-runner -/var/log/taskbrigade -/var/backups/taskbrigade -/opt/taskbrigade/app
+
+# Resources (defaults; Admin → Settings via the drop-in 50-limits.conf)
+MemoryMax=4096M
+MemorySwapMax=0
+CPUQuota=200%
+TasksMax=64
+# Time limit: for Type=oneshot the whole run is the start phase – RuntimeMaxSec= would not apply
+TimeoutStartSec=900
+LimitFSIZE=256M
+LimitNOFILE=256
+LimitCORE=0
+
+# stdout/stderr go to files, not the journal (they can contain data rows); the runner creates them empty and
+# encrypts them afterwards. `append:`, not `truncate:` – ExecStopPost opens them again and would empty them.
+StandardOutput=append:/run/taskbrigade-runner/jobs/%i/log/stdout.log
+StandardError=append:/run/taskbrigade-runner/jobs/%i/log/stderr.log

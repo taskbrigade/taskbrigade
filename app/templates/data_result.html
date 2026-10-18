@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Result #%(id)s", id=result.id) }} – TaskBrigade{% endblock %}
+{% block content %}
+{# Release view of the output gate (research/konzept-datenzonen.md §8). Shows the full output and the logs to the people
+   who decide (owner, admins, members with the data right); opening it is written to the data audit. #}
+{% set icons = {"ok": "✓", "failed": "✗", "warning": "⚠", "skipped": "–", "not_run": "·", "applied": "↻"} %}
+<div class="headline"><h2>{{ _("Release result #%(id)s", id=result.id) }} · <a href="/tasks/{{ task.task_nr }}">{{ task.task_nr }}</a>{% if dataset %} · <a href="/data/{{ dataset.dataset_key }}">{{ dataset.dataset_key }}</a>{% endif %}
+  {% with cls="sealed" %}{% include "_data_class.html" %}{% endwith %}</h2>
+  <span class="badge gate-status gate-{{ result.status }}">{{ status_label }}</span></div>
+{% if message %}<p class="banner ok" role="status">{{ message }}</p>{% endif %}
+{% if error %}<p class="banner error" role="alert">{{ error }}</p>{% endif %}
+
+<article class="gate-facts">
+  <dl class="facts">
+    <div><dt>{{ _("Script") }}</dt><dd><code>{{ result.script_path or "–" }}</code>{% if result.script_commit_sha %} @<code title="{{ result.script_commit_sha }}">{{ result.script_commit_sha[:10] }}</code>{% endif %}
+      {% if code_task %}<br><small>{{ _("merged in") }} <a href="/tasks/{{ code_task.task_nr }}">{{ code_task.task_nr }}</a>{% if code_task.pr_url %} (<a href="{{ code_task.pr_url }}" target="_blank" rel="noopener">PR #{{ code_task.pr_number }}</a>){% endif %}{% if merger %} {{ _("by %(name)s", name=merger) }}{% endif %}</small>{% endif %}
+      {% if diff %}<br><small><a href="{{ diff }}" target="_blank" rel="noopener">{{ _("Diff against the last released run") }} ↗</a></small>{% elif previous %}<br><small class="muted">{{ _("Same script as the last released run (#%(id)s)", id=previous.id) }}</small>{% endif %}</dd></div>
+    <div><dt>{{ _("Run") }}</dt><dd>{% if runtime is not none %}{{ _("%(s)s s", s=runtime) }}{% else %}–{% endif %} · {{ _("exit %(code)s", code=result.exit_code if result.exit_code is not none else "–") }}{% if result.peak_memory_mb is not none %} · {{ _("peak memory %(mb)s MB", mb=result.peak_memory_mb) }}{% endif %}</dd></div>
+    <div><dt>{{ _("Finished") }}</dt><dd>{{ result.finished_at | localtime if result.finished_at else "–" }}</dd></div>
+    <div><dt>{{ _("Minimum group size") }}</dt><dd>k = {{ summary.k or "–" }}</dd></div>
+  </dl>
+</article>
+
+{% if privacy %}
+<article>
+  <h3>{{ _("Output query budget") }}</h3>
+  <p>{{ _("Released queries") }}: {{ privacy.released_count }} / {{ privacy.query_limit if privacy.query_limit is not none else _("unlimited") }} ·
+    {{ _("Epsilon spent") }}: {{ privacy.epsilon_spent }} / {{ privacy.epsilon_limit if privacy.epsilon_limit is not none else _("unlimited") }}</p>
+  <p>{{ _("Noise per release") }}: {% if privacy.noise %}ε = {{ privacy.epsilon }} · {{ _("Total L1 sensitivity") }} = {{ privacy.sensitivity }}{% else %}{{ _("off") }}{% endif %}</p>
+  {% if privacy.exhausted and result.status == "pending_approval" %}<p class="banner warn">{{ _("The dataset's output query budget is exhausted") }}</p>{% endif %}
+  {% if release_policy %}<p>{{ _("Policy used for this release") }}: {{ release_policy.mechanism }} · ε = {{ release_policy.epsilon or "0" }} · {{ _("Total L1 sensitivity") }} = {{ release_policy.sensitivity or "–" }}</p>{% endif %}
+  {% if privacy.noise and result.status == "pending_approval" %}<p class="banner warn">{{ _("The output below is the exact quarantined output. On release, noise is added to all numeric cells, counts and metrics; negative or fractional counts are possible. The noisy output is stored once.") }}</p>{% endif %}
+</article>
+{% endif %}
+
+<h3>{{ _("Automatic checks") }}</h3>
+<ul class="plain gate-checks">
+  {% for c in checks %}
+  <li class="gate-check gate-{{ c.status }}"><span aria-hidden="true">{{ icons.get(c.status, "·") }}</span>
+    <strong>{{ c.n }}. {{ c.label }}</strong>{% if c.kind == "warning" %} <small class="muted">({{ _("warning") }})</small>{% endif %}
+    {% if c.text %} – {{ c.text }}{% endif %}
+    {% if c.where %}<br><small class="muted">{{ _("Where:") }} {% for w in c.where[:12] %}<code>{{ w }}</code>{% if not loop.last %} {% endif %}{% endfor %}{% if c.count > 12 %} …{% endif %}</small>{% endif %}</li>
+  {% else %}
+  <li class="muted">{{ _("No checks recorded.") }}</li>
+  {% endfor %}
+</ul>
+<p class="muted"><small>{{ _("Locations: t = table, r = row, c = column (counted from 0), m = metric. The checks store no values.") }}</small></p>
+
+<h3>{% if result.status == "released" %}{{ _("Released output") }}{% else %}{{ _("Output") }}{% endif %}</h3>
+{% if doc_error %}<p class="banner error">{{ doc_error }}</p>
+{% elif doc is mapping %}
+  {% if result.status != "released" %}<p class="muted"><small>{{ _("On release, numbers with decimals are rounded to two places") }}{% if helper_columns %}{{ _(" and the helper columns %(cols)s are removed", cols=helper_columns | join(", ")) }}{% endif %}.</small></p>{% endif %}
+  {% for t in doc.tables or [] if t is mapping %}{% set ti = loop.index0 %}
+  <h4 class="gate-table-name">{{ t.name }}{% if ("t%d.name" % ti) in hits %} <span class="gate-hit-mark" title="{{ _('flagged by a check') }}">⚠</span>{% endif %}</h4>
+  <div class="overflow-auto table-card"><table class="striped gate-output">
+    <thead><tr>{% for col in t.columns or [] %}{% set ci = loop.index0 %}<th{% if ("t%d.col%d" % (ti, ci)) in hits %} class="gate-hit"{% endif %}>{{ col }}{% if col == t.count_column %} <small>(n)</small>{% endif %}{% if t.max_contribution and col in t.max_contribution.values() %} <small class="muted">({{ _("removed on release") }})</small>{% endif %}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in t.rows or [] %}{% set ri = loop.index0 %}<tr>{% for cell in (row if row is iterable and row is not string else [row]) %}<td{% if ("t%d.r%d.c%d" % (ti, ri, loop.index0)) in hits %} class="gate-hit"{% endif %}>{{ "–" if cell is none else cell }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table></div>
+  {% endfor %}
+  {% if doc.metrics is mapping and doc.metrics %}<h4>{{ _("Metrics") }}</h4>
+  <dl class="facts">{% for k, v in doc.metrics.items() %}<div><dt{% if ("m%d" % loop.index0) in hits %} class="gate-hit"{% endif %}>{{ k }}</dt><dd>{{ v }}</dd></div>{% endfor %}</dl>{% endif %}
+{% else %}<p class="muted">{{ _("No output available.") }}</p>{% endif %}
+
+{% for name, log in logs.items() %}
+<details class="gate-log"><summary>{{ _("show %(name)s", name=name) }}{% if not log.text %} ({{ _("empty") }}){% endif %}</summary>
+  <pre>{{ log.text }}</pre>{% if log.truncated %}<p class="muted"><small>{{ _("Shortened to the first 64 KiB.") }}</small></p>{% endif %}
+</details>
+{% endfor %}
+
+{% if options.release or options.reject or options.keep_sealed %}
+<h3>{{ _("Decision") }}</h3>
+<form method="post" action="/data/results/{{ result.id }}/decide" class="form-card gate-decision">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  {% if privacy and privacy.noise and options.release %}
+  <input type="hidden" name="policy_token" value="{{ privacy.token }}">
+  <label><input type="checkbox" name="noise_reviewed" value="1"> <span>{{ _("I verified the query's total L1 sensitivity, bounded per-person contributions, and fixed public labels and output shape under this noise policy.") }}</span></label>
+  {% endif %}
+  <label>{{ _("Note") }} <textarea name="note" rows="2" maxlength="2000" placeholder="{{ _('Reason (required to reject)') }}"></textarea></label>
+  {% if options.four_eyes_blocked %}<p class="banner warn">ⓘ {{ _("Four-eyes rule: a second person must release (you created this run task or merged its script).") }}</p>
+  {% elif options.four_eyes %}<p class="muted"><small>ⓘ {{ _("Four-eyes rule is on: the person who releases neither created the run task nor merged the script.") }}</small></p>{% endif %}
+  <div class="grid">
+    {% if options.reject %}<button type="submit" name="decision" value="reject" class="secondary">{{ _("Reject") }}</button>{% endif %}
+    {% if options.keep_sealed %}<button type="submit" name="decision" value="keep_sealed" class="secondary" onclick="return confirm({{ _('Keep the result in zone R? It will not be released.') | tojson | forceescape }})">{{ _("Keep in zone R") }}</button>{% endif %}
+    {% if options.release %}<button type="submit" name="decision" value="release" onclick="return confirm({{ _('Release result #%(id)s? Its content may then leave zone R.', id=result.id) | tojson | forceescape }})">{{ _("Release – data leaves zone R") }}</button>{% endif %}
+  </div>
+</form>
+{% endif %}
+
+{% if approvals %}
+<h3>{{ _("Decisions") }}</h3>
+<ul class="plain gate-approvals">
+  {% for a in approvals %}<li><strong>{{ a.actor or _("system") }}</strong> · {{ {"release": _("released"), "reject": _("rejected"), "keep_sealed": _("kept in zone R")}.get(a.decision, a.decision) }} · {{ a.at.replace("T", " ") }} UTC{% if a.note %}<br><small>{{ a.note }}</small>{% endif %}</li>{% endfor %}
+</ul>
+{% endif %}
+
+<h3>{{ _("Audit") }}</h3>
+<div class="overflow-auto">
+<table class="striped">
+  <thead><tr><th>#</th><th>{{ _("Time") }}</th><th>{{ _("Action") }}</th><th>{{ _("By") }}</th><th>{{ _("Via") }}</th></tr></thead>
+  <tbody>
+  {% for e in entries %}
+    <tr><td>{{ e.id }}</td><td>{{ e.at | localtime }}</td><td><code>{{ e.action }}</code></td>
+      <td>{{ actor_names.get(e.actor_id, _("system")) if e.actor_id else _("system") }}</td><td>{{ e.via }}</td></tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">–</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

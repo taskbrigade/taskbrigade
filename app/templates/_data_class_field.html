@@ -1,0 +1,12 @@
+{#- Data class select (research/konzept-datenzonen.md §1/§8). `dc_value`: own class or "inherit"; `dc_project`: the
+    project's privacy (None on the new-task form, where the project is still chosen); `dc_disabled`: classes the
+    user may not choose (rule 2 looser than the project, rule 4 looser after work started). -#}
+{%- set dc_labels = {"cloud_ok": _("Cloud ok"), "local_only": _("Local only"), "sealed": _("Sealed")} -%}
+{%- set dc_disabled = dc_disabled or [] -%}
+<label>{{ _("Data class") }}
+  <select name="data_class" aria-describedby="data-class-help">
+    <option value="inherit"{% if dc_value == "inherit" %} selected{% endif %}{% if dc_project in dc_disabled %} disabled{% endif %}>{% if dc_project %}{{ _("inherited from project: %(label)s", label=dc_labels[dc_project]) }}{% else %}{{ _("– inherited from project –") }}{% endif %}</option>
+    {% for c in ("cloud_ok", "local_only", "sealed") %}<option value="{{ c }}"{% if dc_value == c %} selected{% endif %}{% if c in dc_disabled %} disabled{% endif %}>{{ dc_labels[c] }}</option>{% endfor %}
+  </select>
+  <small class="muted" id="data-class-help">{{ _("Stricter than the project is always allowed; looser only for the project owner and admins. Once work has started the class can only be made stricter. Sealed: runners and humans only, no LLM.") }}</small>
+</label>

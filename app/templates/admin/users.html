@@ -1,55 +1,57 @@
 {% extends "base.html" %}
-{% block title %}{{ _("Users") }} – {{ _("Admin") }} – TaskBrigade{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Admin: Users &amp; agents") }} – TaskBrigade{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/admin_users.css?v={{ static_v }}">{% endblock %}
 {% block content %}
-<h2>{{ _("Admin") }}</h2>
-{% include "admin/_nav.html" %}
-<p><a href="/admin/agents/new" role="button">{{ _("New agent") }}</a>
-  <a href="/admin/users/new" role="button" class="secondary">{{ _("New user / agent") }}</a></p>
-<form class="filters" method="get" action="/admin/users" id="actor-filter">
-  <select name="owner" aria-label="{{ _('Owner') }}" onchange="this.form.submit()">
-    <option value="">{{ _("All owners") }}</option>
-    <option value="none" {% if filters.owner == "none" %}selected{% endif %}>{{ _("no owner") }}</option>
-    {% for n in owner_choices %}<option {% if filters.owner == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
-  </select>
-  <select name="role" aria-label="{{ _('Role') }}" onchange="this.form.submit()">
-    <option value="">{{ _("All roles") }}</option>
-    {% for r in roles %}<option {% if filters.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
-  </select>
-  <select name="kind" aria-label="{{ _('Kind') }}" onchange="this.form.submit()">
-    <option value="">{{ _("All kinds") }}</option>
-    {% for k in kinds %}<option {% if filters.kind == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
-  </select>
-  <noscript><button type="submit" class="small secondary">{{ _("Filter") }}</button></noscript>
-  <small class="muted" id="actor-count">{% if filtered %}{{ _("%(count)s of %(total)s", count=actors | length, total=total) }} · <a href="/admin/users">{{ _("reset filters") }}</a>{% else %}{{ ngettext("%(num)d actor", "%(num)d actors", total) }}{% endif %}</small>
-</form>
-<div class="overflow-auto">
-<table class="striped">
-  <thead><tr>
-    <th>{{ _("Name") }}</th><th>{{ _("Type") }}</th><th>{{ _("Kind") }}</th><th>{{ _("Role") }}</th><th>{{ _("Owner") }}</th><th>{{ _("Public") }}</th><th>{{ _("Runtime") }}</th><th>{{ _("Active") }}</th><th>{{ _("Last seen") }}</th>
-    <th>{{ _("Current task") }}</th><th title="{{ _('Tasks in progress / max. parallel tasks') }}">{{ _("Parallel") }}</th><th>{{ _("Open") }}</th><th>{{ _("API token") }}</th><th>{{ _("Gitea") }}</th>
-  </tr></thead>
-  <tbody>
-  {% for a in actors %}
-    {% set c = counts.get(a.id, {}) %}
-    <tr{% if not a.is_active %} class="inactive"{% endif %}>
-      <td><a href="/admin/users/{{ a.name }}">{{ a.name }}</a><br><small>{{ a.display_name }}</small></td>
-      <td>{{ _("Human") if a.actor_type == "human" else _("Agent") }}</td>
-      <td>{{ a.agent_kind or "–" }}</td>
-      <td>{{ a.role }}</td>
-      <td>{% if a.actor_type == "agent" %}{{ owners.get(a.id) or "–" }}{% else %}–{% endif %}</td>
-      <td>{% if a.actor_type == "agent" %}{{ _("yes") if a.is_public else _("no") }}{% else %}–{% endif %}</td>
-      <td>{{ a.runtime }}</td>
-      <td>{{ "✅" if a.is_active else "⛔" }}</td>
-      <td>{{ a.last_seen_at | localtime }}</td>
-      <td>{{ c.current or "–" }}</td>
-      <td>{% if a.actor_type == "agent" %}{{ c.running or 0 }} / {{ a.max_parallel_tasks }}{% else %}–{% endif %}</td>
-      <td>{{ c.open or 0 }}</td>
-      <td>{% if a.api_key_hash %}<code>{{ a.api_key_prefix }}…</code><br><small>{{ a.api_key_created_at | localtime("date") }}</small>{% else %}–{% endif %}</td>
-      <td>{% if a.gitea_username %}{{ a.gitea_username }} <code>…{{ a.gitea_token_last4 }}</code><br>
-          <small>{{ _("checked %(date)s", date=a.gitea_token_checked_at | localtime) }}</small>{% else %}–{% endif %}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
+<section class="ui-page users-page">
+  {% call ui.page_header(_("Admin: Users &amp; agents")) %}<a class="ui-btn ui-btn-secondary" href="/admin/users/new?type=human">{{ _("+ Add human") }}</a><a class="ui-btn" href="/admin/agents/new">{{ _("+ New agent") }}</a>{% endcall %}
+  {% include "admin/_nav.html" %}
+  <div class="users-layout">
+    <div class="users-overview">
+      <form class="users-toolbar" method="get" action="/admin/users" id="actor-filter">
+        <input type="search" name="q" value="{{ filters.q }}" aria-label="{{ _('Search') }}" placeholder="{{ _('Search name, kind, Gitea user …') }}">
+        <div class="ui-seg" role="group" aria-label="{{ _('Type') }}">
+          {% for value, label, count in [('', _('All'), total), ('agent', _('Agents'), type_counts.agent), ('human', _('Humans'), type_counts.human)] %}
+          <a href="{{ list_url.include_query_params(type=value) }}" {% if filters.type == value %}aria-current="true"{% endif %}>{{ label }} {{ count }}</a>
+          {% endfor %}
+        </div>
+        <input type="hidden" name="type" value="{{ filters.type }}" id="actor-type">
+        <select name="role" aria-label="{{ _('Role') }}" onchange="this.form.submit()"><option value="">{{ _("All roles") }}</option>{% for r in roles %}<option {% if filters.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+        <select name="kind" aria-label="{{ _('Kind') }}" onchange="this.form.submit()"><option value="">{{ _("All kinds") }}</option>{% for k in kinds %}<option {% if filters.kind == k %}selected{% endif %}>{{ k }}</option>{% endfor %}</select>
+        {% if filters.owner %}<input type="hidden" name="owner" value="{{ filters.owner }}">{% endif %}
+        {% if all_agents %}<input type="hidden" name="all_agents" value="1">{% endif %}
+        <small id="actor-count" class="users-count">{{ _("%(count)s of %(total)s", count=actors|length, total=total) }}{% if filtered %} · <a href="/admin/users">{{ _("reset filters") }}</a>{% endif %}</small>
+        <noscript><button type="submit">{{ _("Filter") }}</button></noscript>
+      </form>
+      <div class="users-table-wrap"><table class="users-table">
+        <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Role") }}</th><th>{{ _("Runs in") }}</th><th>{{ _("Load") }}</th><th>{{ _("Last seen") }}</th><th>{{ _("Access") }}</th><th><span class="ui-visually-hidden">{{ _("Details") }}</span></th></tr></thead>
+        {% for group in groups %}
+        <tbody>
+          <tr class="users-group"><th colspan="7">{% if group.agents %}{{ _("Agents") }} · {{ group.owner or _('no owner') }} <small>{{ _("%(count)s agents · %(online)s online", count=group.rows|length, online=group.online) }}</small>{% else %}{{ _("Humans") }} <small>{{ _("%(count)s accounts", count=group.rows|length) }}</small>{% endif %}</th></tr>
+          {% for a in group.rows %}{% set c = counts.get(a.id, {}) %}{% set seen = presence[a.id] %}
+          <tr class="user-row{% if not a.is_active %} inactive{% endif %}" {% if actor and actor.id == a.id %}aria-selected="true"{% endif %}>
+            <td class="user-name"><span class="ui-dot ui-dot-{{ seen.state }}" title="{{ seen.status }}" aria-label="{{ seen.status }}"></span><div><a class="ui-truncate" href="{{ list_url.include_query_params(detail=a.name) }}" title="{{ a.name }}">{{ a.name }}</a><div class="user-subline">{{ ui.kind(a.agent_kind or 'human', a.agent_kind or _('Human')) }} {{ a.display_name }} {% if a.actor_type == 'agent' and not a.is_public %}<span class="ui-pill">{{ _("private") }}</span>{% endif %}{% if not a.is_active %}<span class="ui-pill">{{ _("Deactivated") }}</span>{% endif %}</div></div></td>
+            <td class="user-role"><span class="ui-pill role-{{ a.role }}">{{ a.role }}</span></td>
+            <td class="user-runtime">{{ _("Cloud runtime") if a.runtime == 'cloud' else _("Local runtime") }}{% set zone = zone_max[a.id] %}<small title="{{ _('Zone') }} · {{ _(model_locations[a.model_location]) }}">{% if zone == "cloud_ok" %}{{ _("Data: Cloud ok") }}{% else %}{{ _("Data:") }} {% with cls=zone, compact=False %}{% include "_data_class.html" %}{% endwith %}{% endif %}</small></td>
+            <td class="user-load">{% if a.actor_type == 'agent' %}{{ c.running or 0 }} / {{ a.max_parallel_tasks }}{% else %}–{% endif %} · {{ _("%(count)s open", count=c.open or 0) }}{% if a.actor_type == 'agent' %}<progress max="{{ a.max_parallel_tasks }}" value="{{ c.running or 0 }}"></progress>{% endif %}</td>
+            <td class="user-seen" title="{{ a.last_seen_at|localtime }}">{{ seen.label }}</td>
+            <td class="user-access"><span class="ui-pill {{ 'ui-st-done' if a.api_key_hash else '' }}">{{ _("Token") if a.api_key_hash else _("No token") }}</span> <span class="ui-pill {{ 'ui-st-done' if a.gitea_username else 'ui-st-questions' }}">{% if not a.gitea_username %}{{ _("Gitea missing") }}{% elif a.gitea_username == a.name %}Gitea ✓{% else %}Gitea: {{ a.gitea_username }}{% endif %}</span></td>
+            <td class="user-open"><a class="ui-btn ui-btn-secondary ui-btn-xs" href="{{ list_url.include_query_params(detail=a.name) }}" aria-label="{{ _('Details for %(name)s', name=a.name) }}">›</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        {% else %}<tbody><tr><td colspan="7">{{ _("No matching accounts.") }}</td></tr></tbody>{% endfor %}
+      </table></div>
+      {% if hidden_agents %}<p class="users-hidden-hint ui-muted"><small>{{ ngettext("%(num)d agent of other owners hidden", "%(num)d agents of other owners hidden", hidden_agents) }} – <a href="{{ all_agents_url }}">{{ _("Show all agents") }}</a></small></p>{% endif %}
+    </div>
+    {% if actor %}{% include 'admin/_user_panel.html' %}{% endif %}
+  </div>
+</section>
+<script>
+{% if actor %}
+const panel = document.getElementById('user-panel');
+panel.focus();
+panel.addEventListener('keydown', event => {if (event.key === 'Escape') document.getElementById('user-panel-close').click();});
+{% endif %}
+</script>
 {% endblock %}

@@ -30,6 +30,12 @@ EXPECTED = {
     # Failed agent → awaits reassignment; only humans reopen it.
     **{("abort", s): "aborted" for s in ("in_progress", "questions", "changes_requested", "for_review")},
     ("reopen", "aborted"): "defined",
+    # Output gate (app/services/output_gate.py): rights checked by the service, the result object in the payload.
+    ("gate_release", "for_review"): "done",
+    ("gate_reject", "for_review"): "changes_requested",
+    ("gate_keep", "for_review"): "done",
+    ("gate_keep", "changes_requested"): "done",
+    ("gate_return", "for_review"): "changes_requested",
 }
 ACTORS = ("assignee", "other", "creator", "admin", "agent_admin", "orchestrator", "system")
 
@@ -47,6 +53,7 @@ def allowed(action: str, status: str, who: str) -> bool:
         "reopen": who == "admin",
         "publish": who in ("admin", "agent_admin", "orchestrator", "creator"),
         "to_draft": who in ("admin", "agent_admin", "orchestrator"),
+        **{a: True for a in ("gate_release", "gate_reject", "gate_keep", "gate_return")},
     }[action]
 
 

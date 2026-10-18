@@ -1,0 +1,2 @@
+{#- Card/table badge of a workflow task (research/konzept-workflows.md §8.6): colour and text, links to the run. -#}
+{% if t.workflow %}<a class="wf-badge" href="/workflow-runs/{{ t.workflow.run_id }}" title="{{ _('Workflow %(name)s, run #%(seq)s', name=t.workflow.name, seq=t.workflow.seq) }}"><span aria-hidden="true">⟳</span><span class="visually-hidden">{{ _("Workflow") }}</span> {{ t.workflow.key }} #{{ t.workflow.seq }}</a>{% endif %}

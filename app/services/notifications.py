@@ -1,9 +1,10 @@
-"""Notifications to humans via Telegram: events, recipients, per-person settings, outbox and delivery.
+"""Notifications to humans via Telegram and email: events, recipients, per-person settings, outbox and delivery.
 
 Workflow code calls `task_event`/`sprint_done`; they write one `notifications` row per recipient (in the caller's
 transaction, or in an own one with `detached=True` when the caller rolls back afterwards, e.g. merge conflicts).
 `deliver` (scheduler job, only in the process that holds the bot lock) sends due rows with retries and clears the
-text once a row is sent or given up, so the table doubles as a delivery log without contents.
+text once a row is sent or given up, so the table doubles as a delivery log without contents. Every row has a
+`channel`: one row per recipient and channel. Email rows are sent by `mail.deliver` (job `email_deliver`).
 
 Recipients: the project owner, plus admins who opted into "all projects". Projects with privacy `local_only` only
 get task number, event and link – no title, agent or content.
@@ -14,14 +15,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, event, select
+from sqlalchemy import delete, event, func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.i18n import N_, date_format, default_language, use_language
 from app.i18n import gettext as _
 from app.models import Actor, NotificationPref, Notification, Project, Sprint, Task, TelegramLink
-from app.services import settings_store, telegram
+from app.services import settings_store, telegram, zones
 from app.services.actors import utcnow
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,17 @@ EVENTS = {
     "lease_expired": N_("Lease expired"),
     "agent_blocked": N_("Agent blocked or stalled"),
     "sprint_done": N_("Sprint completed"),
+    "workflow_paused": N_("Workflow paused"),
+    "workflow_budget_warning": N_("Workflow budget nearly exhausted"),
+    "workflow_wait_reminder": N_("Workflow waiting for a decision"),
+    "workflow_claim_reminder": N_("Workflow task has not been claimed"),
+    "workflow_schedule_overlap": N_("Workflow schedule skipped: another run is active"),
+    "workflow_schedule_failed": N_("Workflow schedule failed"),
+    "workflow_notify": N_("Workflow notification"),
+    "dataset_retention": N_("Dataset will be deleted soon (retention)"),
+    # Output gate (zone R): task number, event and link only, never contents; no buttons – releases are web-only.
+    "data_release": N_("Result waits for release (output gate)"),
+    "gate_failed": N_("Output gate refused a result"),
 }
 STATUS_LABELS = {"queued": N_("queued"), "held": N_("held (quiet hours)"), "sent": N_("sent"),
                  "failed": N_("failed"), "skipped": N_("skipped")}
@@ -47,6 +59,9 @@ CONTENT_CHARS = 300
 MAX_ATTEMPTS = 8
 MAX_SENDS_PER_RUN = 20  # Telegram allows about 30 messages per second; stay well below
 LOG_DAYS = 30
+CHANNELS = {"telegram": N_("Telegram"), "email": N_("Email")}
+EMAIL_DEFAULT_EVENTS = frozenset({"review", "sprint_done", "data_release"})  # Questions and blockers stay on Telegram by default
+BUNDLE_CHOICES = (0, 15, 60)  # Email: send immediately or collect for 15/60 minutes
 
 
 # --- Settings per human ------------------------------------------------------------------------
@@ -63,6 +78,37 @@ def enabled_events(pref: NotificationPref) -> set[str]:
         return {e for e in json.loads(pref.events) if e in EVENTS}
     except (ValueError, TypeError):
         return set(EVENTS)
+
+
+def _channel_data(pref: NotificationPref) -> dict:
+    try:
+        data = json.loads(pref.channels_json) if pref.channels_json else {}
+    except (ValueError, TypeError):
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
+def default_channels(event: str) -> set[str]:
+    return {"telegram", "email"} if event in EMAIL_DEFAULT_EVENTS else {"telegram"}
+
+
+def channels_for(pref: NotificationPref, event: str) -> set[str]:
+    """Channels for an event: the stored choice, else the default (Telegram; email too for review and sprint done).
+    An event switched off in `events` gets no channel."""
+    if event == SETTINGS_EVENT:
+        return {"telegram"}
+    if event not in enabled_events(pref):
+        return set()
+    stored = (_channel_data(pref).get("events") or {}).get(event)
+    if isinstance(stored, list):
+        return {c for c in stored if c in CHANNELS}
+    return default_channels(event)
+
+
+def bundle_minutes(pref: NotificationPref) -> int:
+    """Email bundling interval: 0 = immediately."""
+    value = _channel_data(pref).get("bundle", 0)
+    return value if value in BUNDLE_CHOICES else 0
 
 
 def is_muted(pref: NotificationPref, event: str, now: datetime) -> bool:
@@ -96,15 +142,31 @@ def quiet_until(pref: NotificationPref, now: datetime) -> datetime | None:
 
 def save_prefs(session: Session, actor: Actor, *, events: set[str] | None = None, quiet: tuple | None = None,
                mute_all: datetime | None | str = "keep", mute_review: datetime | None | str = "keep",
-               all_projects: bool | None = None) -> NotificationPref:
+               all_projects: bool | None = None, channels: dict[str, set[str]] | None = None,
+               bundle: int | None = None) -> NotificationPref:
     """Update settings; "keep" leaves a mute unchanged, None switches it off. `quiet` = (start, end) in minutes or
-    (None, None)."""
+    (None, None). `channels` (event → channels) replaces the channel choice and sets `events` to the events with at
+    least one channel; `bundle` is the email interval in minutes (`BUNDLE_CHOICES`)."""
     pref = session.get(NotificationPref, actor.id)
     if pref is None:
         pref = NotificationPref(actor_id=actor.id, all_projects=False)
         session.add(pref)
+    if channels is not None:
+        chosen = {e: sorted(set(channels.get(e) or ()) & set(CHANNELS)) for e in EVENTS}
+        events = {e for e, c in chosen.items() if c}
     if events is not None:
         pref.events = None if set(events) >= set(EVENTS) else json.dumps(sorted(set(events) & set(EVENTS)))
+    if channels is not None or bundle is not None:
+        data = _channel_data(pref)
+        if channels is not None:
+            data["events"] = chosen
+        if bundle is not None:
+            if bundle not in BUNDLE_CHOICES:
+                from app.errors import Unprocessable
+
+                raise Unprocessable(_("Unknown bundling interval"))
+            data["bundle"] = bundle
+        pref.channels_json = json.dumps(data, sort_keys=True)
     if quiet is not None:
         pref.quiet_start, pref.quiet_end = quiet
     if mute_all != "keep":
@@ -169,6 +231,7 @@ class _Row:
     status: str
     next_attempt_at: datetime | None
     last_error: str | None = None
+    channel: str = "telegram"
 
 
 def recipients(session: Session, project: Project, extra: int | None = None) -> list[Actor]:
@@ -196,13 +259,14 @@ def _short(text: str | None) -> str:
 
 
 def task_text(session: Session, task: Task, event: str, content: str | None = None) -> str:
-    """Message text in the server's default language. local_only: task number, event and link only."""
+    """Message text in the server's default language. `local_only`/`sealed` (the task's effective data class):
+    task number, event and link only."""
     project = session.get(Project, task.project_id)
     base = _app_url(session)
     link = f"{base}/tasks/{task.task_nr}" if base else None
     with use_language(default_language()):
         lines = [f"{task.task_nr} · {_(EVENTS[event])}"]
-        if project.privacy != "local_only":
+        if zones.effective_class(project, task) == "cloud_ok":
             lines.append(task.title)
             lines.append(_("Project: %(key)s – %(name)s", key=project.project_key, name=project.name))
             if task.assignee is not None:
@@ -215,22 +279,39 @@ def task_text(session: Session, task: Task, event: str, content: str | None = No
     return "\n".join(lines)
 
 
-def _rows(session: Session, project: Project, event: str, task_nr: str | None, text: str,
-          extra: int | None = None) -> list[_Row]:
-    if not telegram.enabled(session):
-        return []
-    now, rows = utcnow(), []
-    for actor in recipients(session, project, extra):
-        if session.get(TelegramLink, actor.id) is None:
-            continue
-        pref = prefs(session, actor.id)
-        if event not in enabled_events(pref):
-            continue
+def _reachable(session: Session, actor: Actor) -> set[str]:
+    """Channels that can reach the person now: Telegram with the bot on and a linked chat, email with the channel
+    on and a confirmed address."""
+    from app.services import mail
+
+    out = set()
+    if telegram.enabled(session) and session.get(TelegramLink, actor.id) is not None:
+        out.add("telegram")
+    if mail.enabled(session) and mail.verified_address(actor):
+        out.add("email")
+    return out
+
+
+def _actor_rows(session: Session, actor: Actor, event: str, task_nr: str | None, text: str,
+                now: datetime) -> list[_Row]:
+    """One row per channel the person chose for the event and can be reached on. Mute and quiet hours apply to
+    every channel."""
+    pref = prefs(session, actor.id)
+    rows = []
+    for channel in sorted(channels_for(pref, event) & _reachable(session, actor)):
         if is_muted(pref, event, now):
-            rows.append(_Row(actor.id, event, task_nr, "", "skipped", None, "muted"))
+            rows.append(_Row(actor.id, event, task_nr, "", "skipped", None, "muted", channel))
             continue
         until = quiet_until(pref, now)
-        rows.append(_Row(actor.id, event, task_nr, text, "held" if until else "queued", until))
+        rows.append(_Row(actor.id, event, task_nr, text, "held" if until else "queued", until, None, channel))
+    return rows
+
+
+def _rows(session: Session, project: Project, event: str, task_nr: str | None, text: str,
+          extra: int | None = None) -> list[_Row]:
+    now, rows = utcnow(), []
+    for actor in recipients(session, project, extra):
+        rows += _actor_rows(session, actor, event, task_nr, text, now)
     return rows
 
 
@@ -239,7 +320,7 @@ def _store(session: Session, rows: list[_Row], detached: bool) -> None:
         return
     objs = [Notification(actor_id=r.actor_id, event=r.event, task_nr=r.task_nr, text=r.text or None,
                          status=r.status, next_attempt_at=r.next_attempt_at, last_error=r.last_error,
-                         created_at=utcnow()) for r in rows]
+                         channel=r.channel, created_at=utcnow()) for r in rows]
     if not detached:
         session.add_all(objs)
         return
@@ -272,6 +353,59 @@ def store_settings_notice(session: Session, actor_id: int, text: str) -> None:
     _store(session, [_Row(actor_id, SETTINGS_EVENT, None, text, "queued", None)], False)
 
 
+def workflow_event(session: Session, run, event: str, content: str | None = None, to=None) -> None:
+    """Queue run notices atomically with activation; delivery uses the usual preferences and retries.
+
+    Restricted runs only include a numeric run id/event/link.
+    Unlike task_event this deliberately propagates queue errors: a notify step succeeds only after queueing.
+    """
+    from app.models import WorkflowStep
+
+    targets = to if to is not None else ["owner", "starter"]
+    if not isinstance(targets, list) or any(t not in ("owner", "starter") for t in targets):
+        from app.errors import Unprocessable
+
+        raise Unprocessable(_("Invalid workflow notification recipients"), code="workflow_config_invalid")
+    ids = set()
+    if "owner" in targets:
+        ids.add(run.template.owner_id)
+    if "starter" in targets and run.started_by:
+        ids.add(run.started_by)
+    classes = [s.data_class or run.project.privacy for s in session.scalars(
+        select(WorkflowStep).where(WorkflowStep.version_id == run.version_id))]
+    restricted = run.project.privacy != "cloud_ok" or any(cls != "cloud_ok" for cls in classes)
+    with use_language(default_language()):
+        text = f"#{run.id} · {_(EVENTS[event])}"
+        if not restricted:
+            text += f"\n{run.template.name} #{run.run_seq}"
+            if content:
+                text += "\n" + _short(content)
+    base = _app_url(session)
+    if base:
+        text += f"\n{base}/workflow-runs/{run.id}"
+    rows, now = [], utcnow()
+    for actor_id in sorted(ids):
+        actor = session.get(Actor, actor_id)
+        if actor is None or not actor.is_active or actor.actor_type != "human":
+            continue
+        rows += _actor_rows(session, actor, event, None, text, now)
+    _store(session, rows, False)
+
+
+def dataset_event(session: Session, project: Project, dataset_key: str, event: str) -> None:
+    """Queue a data store notice for the project's recipients: dataset key, event and link only – never the name
+    or contents (zone R, research/konzept-datenzonen.md §10 #13). Never raises."""
+    try:
+        base = _app_url(session)
+        with use_language(default_language()):
+            text = f"{dataset_key} · {_(EVENTS[event])}"
+        if base:
+            text += f"\n{base}/data/{dataset_key}"
+        _store(session, _rows(session, project, event, None, text), False)
+    except Exception:  # noqa: BLE001
+        log.exception("notify_failed", extra={"event": event, "dataset": dataset_key})
+
+
 def task_event(session: Session, task: Task, event: str, content: str | None = None,
                detached: bool = False) -> None:
     """Queue `event` for the task's recipients. Never raises: a notification problem must not break the workflow."""
@@ -300,7 +434,7 @@ def sprint_done_check(session: Session, task: Task) -> None:
         base = _app_url(session)
         with use_language(default_language()):
             head = _(EVENTS["sprint_done"])
-            text = (f"{project.project_key} · {head}" if project.privacy == "local_only"
+            text = (f"{project.project_key} · {head}" if project.privacy != "cloud_ok"
                     else f"{project.project_key} · {head}\n{sprint.name}")
         if base:
             text += f"\n{base}/projects/{project.project_key}/sprints/{sprint.id}"
@@ -350,7 +484,7 @@ def deliver(session: Session, api=None, now: datetime | None = None) -> dict:
     counts = {"sent": 0, "failed": 0, "retry": 0, "skipped": 0}
     session.execute(delete(Notification).where(Notification.created_at < now - timedelta(days=LOG_DAYS)))
     due = list(session.scalars(select(Notification).where(
-        Notification.status.in_(("queued", "held")),
+        Notification.channel == "telegram", Notification.status.in_(("queued", "held")),
         (Notification.next_attempt_at.is_(None)) | (Notification.next_attempt_at <= now))
         .order_by(Notification.id).limit(200)))
     if not due:
@@ -418,3 +552,113 @@ def recent_log(session: Session, actor_id: int | None = None, limit: int = 30) -
     if actor_id is not None:
         q = q.where(Notification.actor_id == actor_id)
     return list(session.scalars(q))
+
+
+# --- Inbox notices feed ----------------------------------------------------------------------
+
+def _notice_scope(actor_id: int, sprint: str | None = None):
+    conditions = [Notification.actor_id == actor_id]
+    if sprint:
+        tasks = select(Task.task_nr).where(Task.sprint_id.is_(None) if sprint == "none"
+                                            else Task.sprint_id == int(sprint))
+        conditions.append(Notification.task_nr.in_(tasks))
+    return conditions
+
+
+def notices_for(session: Session, actor: Actor | None, limit: int = 30, *,
+                sprint: str | None = None, until: datetime | None = None, include_read: bool = False,
+                max_id: int | None = None) -> list[dict]:
+    """Unread inbox feed; the older view also includes read deliveries. Group simultaneous channel copies."""
+    if actor is None:
+        return []
+    conditions = _notice_scope(actor.id, sprint)
+    if not include_read:
+        conditions.append(Notification.read_at.is_(None))
+    if until is not None:
+        conditions.append(Notification.created_at <= until)
+    if max_id is not None:
+        conditions.append(Notification.id <= max_id)
+    rows = session.scalars(select(Notification).where(*conditions)
+                           .order_by(Notification.id.desc()).limit(limit * 4))
+    out: list[dict] = []
+    seen = {}
+    for n in rows:
+        key = (n.event, n.task_nr, n.created_at, n.read_at is not None)
+        if key in seen:
+            seen[key]["ids"].append(n.id)
+        elif len(out) < limit:
+            notice = _notice(session, n)
+            notice["ids"] = [n.id]
+            seen[key] = notice
+            out.append(notice)
+    return out
+
+
+def set_notices_read(session: Session, actor_id: int, *, ids: list[int] | None = None,
+                     all_unread: bool = False, sprint: str | None = None,
+                     until: datetime | None = None, read: bool = True, max_id: int | None = None) -> list[int]:
+    """Return exactly the changed IDs for undo; ownership applies to every mutation. No deletion."""
+    conditions = _notice_scope(actor_id, sprint if all_unread else None)
+    conditions.append(Notification.read_at.is_(None) if read else Notification.read_at.is_not(None))
+    if all_unread:
+        if until is None or not read:
+            raise ValueError("A read-all action requires a page cutoff")
+        conditions.append(Notification.created_at <= until)
+        if max_id is not None:
+            conditions.append(Notification.id <= max_id)
+    else:
+        conditions.append(Notification.id.in_(ids or []))
+    rows = list(session.scalars(select(Notification).where(*conditions).with_for_update()))
+    stamp = utcnow() if read else None
+    for row in rows:
+        row.read_at = stamp
+    session.flush()
+    return [row.id for row in rows]
+
+
+def _notice(session: Session, n: Notification) -> dict:
+    key = actor = None
+    if n.task_nr:
+        task = session.scalar(select(Task).where(Task.task_nr == n.task_nr))
+        if task is not None:
+            key = task.task_nr
+            actor_id = task.reviewer_id if n.event == "agent_review" else task.assigned_to
+            if actor_id is not None:
+                who = session.get(Actor, actor_id)
+                actor = who.name if who is not None else None
+    return {"event": n.event, "key": key, "actor": actor, "created_at": n.created_at,
+            "read": n.read_at is not None}
+
+
+def unread_count(session: Session, actor_id: int) -> int:
+    return session.scalar(select(func.count()).select_from(Notification)
+                          .where(Notification.actor_id == actor_id, Notification.read_at.is_(None))) or 0
+
+
+def mark_all_read(session: Session, actor_id: int) -> int:
+    """Mark every notification of `actor_id` as read; return how many were still unread."""
+    result = session.execute(
+        update(Notification).where(Notification.actor_id == actor_id, Notification.read_at.is_(None))
+        .values(read_at=utcnow()))
+    return result.rowcount or 0
+
+
+def workflow_schedule_event(session: Session, schedule, event: str) -> None:
+    """Notify a schedule owner when no run exists, without inventing a run ID or leaking parameters."""
+    from app.models import WorkflowStep
+
+    template = schedule.template
+    actor = template.owner
+    if not actor or not actor.is_active or actor.actor_type != "human":
+        return
+    restricted = template.project.privacy != "cloud_ok" or any(
+        step.data_class and step.data_class != "cloud_ok" for step in session.scalars(
+            select(WorkflowStep).where(WorkflowStep.version_id == template.current_version_id)))
+    with use_language(default_language()):
+        content = _(EVENTS[event])
+        if not restricted:
+            content += f"\n{template.name} · {schedule.name}"
+    base = _app_url(session)
+    if base:
+        content += f"\n{base}/workflows/{template.project.project_key}/{template.workflow_key}/schedules"
+    _store(session, _actor_rows(session, actor, event, None, content, utcnow()), False)

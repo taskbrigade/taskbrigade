@@ -17,7 +17,9 @@ view of the workflow see [agent-skill.md](agent-skill.md).
 | CLI `tbr` | `cli/tm.py`, `cli/client.py` | Agent and orchestrator commands, Git credential helper |
 | Runner | `cli/prepare.py`, `cli/runner.py` | Claim, clone, worktree, `TASK.md`, start the agent, heartbeats, wrap-up |
 | MCP server | `cli/mcp_server.py` (`tbr mcp`) | Tools for desktop apps; does Git and networking on their behalf |
-| Operator CLI | `cli/tm_admin.py` (`tbr-admin`), `cli/admin_config.py` | Master key, password hashes, database emergency commands, `config get/set/unset/list` on the service env file |
+| Operator CLI | `cli/tm_admin.py` (`tbr-admin`), `cli/admin_config.py` | Master key, password hashes, database emergency commands, `config get/set/unset/list` on the service env file, `data …` (store, audit, SFTP inbox, push guard), `runner …`, `workflows …` |
+| Workflow engine | `app/services/workflows/` | Templates, versions, runs, placeholders, schedules, event triggers; the minutely tick (`taskbrigade-workflows.timer` or in-process) – see [workflows.md](workflows.md) |
+| Data zones | `app/services/zones.py`, `datasets.py`, `output_gate.py`, `data_refs.py`; `app/runner/` | Data classes, encrypted data store, output gate, task chain; the data-zone runner service and its sandbox jobs – see [data-zones.md](data-zones.md) |
 
 The application starts in **setup mode** when it has no database connection yet. The database password is
 entered in the UI, stored encrypted with a master key (`master.key` in the state directory), and the schema is
@@ -119,11 +121,16 @@ exactly as before. A sprint belongs to one project and moves through `planned` �
 Create, edit, assign and batch-create: admins, orchestrators and the project owner. Release and close: admins and
 the project owner. `GET /tasks?sprint=<id>[,<id>]` or `?sprint=none` filters the backlog.
 
-In the web UI (`app/web/sprints_ui.py`) the project page lists the sprints with status, period and task counts per
-status and has *New sprint*. The sprint page (`/projects/{key}/sprints/{id}`) shows goal, period,
-progress and the task table with the missing fields of each draft. *Release sprint* previews
-“Will be released” and “Stay drafts” (with the missing fields) and asks for
-confirmation; *Close sprint* offers “move to sprint …” or “detach from the
+In the web UI (`app/web/sprints_ui.py`) the project page lists the sprints with status and progress and links to
+the planning board (*Open in planning*), where sprints are created. The planning board (`app/web/planning_ui.py`,
+`/planning`) shows the sprints as a full-width accordion list with a segmented filter (Active/Planned/Closed/All),
+a *Show closed sprints* toggle, progress and a *+ Task* button per card; tasks move between sprints by drag & drop or
+the *Move to sprint …* row menu. The sprint page (`/projects/{key}/sprints/{id}`)
+shows goal, period, progress and the task table with the missing fields of each draft and a *Waits for* column;
+its headline links to the *Planning board*. *Release sprint* previews
+“Will be released” and “Stay drafts” (with the missing fields), warns about tasks that would be released but wait
+for a task that is not done and has no sprint, sits in a planned sprint or in a later one (`waiting`, also in the
+API's release response; releasing stays possible) and asks for confirmation; *Close sprint* offers “move to sprint …” or “detach from the
 sprint”. *Add tasks in batch* takes one task per line – `Title` or
 `Title | Agent | Prio | Reviewer` – shows a preview and creates the lines as drafts, which are then completed on
 their task pages. The task forms have a sprint field (open sprints of the task's project), and backlog, kanban and inbox filter
@@ -197,11 +204,72 @@ Stale entries block the merge and send the task back with instructions, like a m
 
 ## Privacy
 
-Agents have a runtime: `local` (the model runs on your hardware) or `cloud` (code goes to a model provider).
-Projects have a privacy level: `local_only` or `cloud_ok`. A cloud agent cannot become a member of a `local_only`
-project, so it can neither be assigned its tasks nor claim them; an agent that is a member of such a project cannot
-be switched to `cloud`, and a project with open tasks assigned to cloud agents cannot be switched to `local_only`. Set the runtime by what the agent's model actually does –
-an agent CLI configured for a hosted model is `cloud`, regardless of where the CLI itself runs.
+Agents have two locations:
+
+- **runtime** – where the agent process runs: `local` or `cloud`.
+- **model location** – where its model runs, i.e. where content goes for inference: `cloud` (a model provider),
+  `local` (your own hardware) or `none` (reserved for the runner, which runs no model). Claude Code and Codex always
+  talk to a cloud API, so their model location is fixed to `cloud`; for OpenCode, Hermes, OpenClaw and `other` the
+  admin sets it in *Admin → Users & agents* and confirms “local model” with a checkbox (“I have checked that this
+  agent uses no cloud model”). New and migrated agents start with `cloud`.
+
+Projects have a privacy level: `local_only` or `cloud_ok`. The setting “local_only only for agents with a local model
+(model location instead of runtime)” (`privacy_enforce_model_location`, *Admin → Settings*) decides what `local_only`
+means:
+
+| Setting | An agent may work on `local_only` when |
+| --- | --- |
+| on (default for new installations) | runtime `local` **and** model location `local` |
+| off (existing installations after the update) | runtime `local` (the old rule; a local Claude Code agent still counts as local) |
+
+Humans always follow the runtime rule. One helper (`app/services/zones.py`) makes every privacy decision: project
+access, assignment, reviewer entry and effective reviewer, review jobs, claim, and switches. An agent that may not
+work on a `local_only` project cannot become a member of it, so it can neither be assigned its tasks nor claim them;
+a task assigned before the setting was switched on is no longer claimed (a named claim answers `422
+privacy_violation`). An agent linked to such a project (member or open task) cannot be switched to runtime `cloud`
+or model location `cloud`, and a project with open tasks assigned to such agents cannot be switched to `local_only`.
+
+Before switching the setting on, check the list *Model location findings* on *Admin → Settings*: agents with a cloud
+model that are members of `local_only` projects, have open tasks there or are entered as reviewer. Set an agent to
+“local model” if it really runs one, otherwise reassign its tasks and remove its project access. A later release will
+always enforce the model location. Overview: [data-zones.md](data-zones.md).
+
+### Data class per task
+
+Each task has a data class. By default it inherits the project's privacy; a task can also set its own class
+(`tasks.data_class`, field “Data class” in the task form, `data_class` in the API, `tbr create|update --data-class`,
+MCP `create_task`/`update_task`). The class that applies is `data_class_effective` in every task payload.
+
+| Class | Zone | Badge | Who may work on the task |
+| --- | --- | --- | --- |
+| `cloud_ok` | C | “C Cloud ok” | every agent and human |
+| `local_only` | L | “L Local only” | agents with a local model (see the table above) and humans with runtime `local` |
+| `sealed` | R | “R Sealed” | runners (model location `none`) and humans with runtime `local`; no LLM agent |
+
+Rules:
+
+1. **Stricter is always allowed.** Anyone who may edit a task can make it stricter than its project, e.g. a `sealed`
+   task in a `cloud_ok` project.
+2. **Looser only with the right.** Only the project owner and admins may give a task a class looser than the project,
+   e.g. a `cloud_ok` code task in a `local_only` project (refused with `403 data_class_forbidden` otherwise). The
+   change is written to the audit log (`data_class_loosened`). A cloud agent assigned to such a task becomes a project
+   member (repo access), so loosen only tasks whose repository content may leave the local environment.
+3. **Runner tasks are sealed.** Tasks of kind `profile` or `run` must be `sealed` (`422 data_class_runner`). The
+   reference rule (a task with a dataset input is always `sealed`, released artifacts only in LLM zones) is
+   described in [data-store.md → Task chain across zones](data-store.md#task-chain-across-zones).
+4. **No downgrade after work started.** Once a task left `defined` (or was claimed once), its class can only be made
+   stricter (`422 data_class_downgrade`). When a `local_only` project is switched to `cloud_ok`, tasks that had
+   already started and inherited the class keep `local_only` as their own class.
+
+Assignment, reviewer entry, effective reviewer, claim and review jobs use the task's effective class; a stricter class
+is refused while the current assignee or reviewer cannot work on it (`422 privacy_violation`). Telegram messages,
+the Telegram inbox and spreadsheet attachments treat `sealed` like `local_only`. A duplicate keeps the original's
+class unless the class is looser than the project and the duplicating user may not set it (then it inherits).
+
+Badges (colour and text): the kanban card shows the zone letter left of the task number (label as tooltip and for
+screen readers) and a gear for runner tasks; the task detail shows the full badge with “inherited from the project”;
+*Projects* and the project page show the project's default class and “mixed” when tasks set their own class;
+*Admin → Users & agents* shows in the column “Zone” the strictest class each actor may work on.
 
 ## Concurrency
 
@@ -213,9 +281,15 @@ overwrite. Tests: `tests/test_claim_concurrency.py`.
 
 ## Attachments and notifications
 
-Attachments (UI, `tbr attach`, `POST /tasks/{nr}/attachments`) are committed by the service user to the project
-repository under `tasks/<TASK-NR>/` on the default branch; TaskBrigade stores only the metadata. Limit: 10 MB per
-file (`TBR_MAX_ATTACHMENT_MB`).
+Attachments (UI, `tbr attach`, `POST /tasks/{nr}/attachments`, MCP `attach_files` / `attach_text`) are committed by
+the service user to the project repository under `tasks/<TASK-NR>/` on the default branch; TaskBrigade stores only
+the metadata. Limit: 10 MB per file (`TBR_MAX_ATTACHMENT_MB`). On a task whose effective class is `local_only` or
+`sealed`, spreadsheet and archive files (`.xlsx`, `.xls`, `.xlsm`, `.csv`, `.tsv`, `.ods`, `.zip`) are refused with
+`422 use_dataset_upload`. The message points at the [data store](data-store.md); real tabular data must not travel
+as a task attachment, because the repository is cloned by cloud agents. `cloud_ok` tasks are unchanged.
+`tbr-admin data scan-attachments` lists attachments of those types that are already stored on such tasks. It deletes
+nothing — the files are already in Git history; the optional
+[Gitea push guard](operations.md#gitea-data-zone-push-guard-native-installation) keeps new ones out of the repository.
 
 Workflow notifications go to Telegram (`app/services/notifications.py`, `telegram.py`, `telegram_bot.py`). Events
 (question, review, abort by the agent, merge/brain/changelog conflict, expired lease, agent blocked or stalled as

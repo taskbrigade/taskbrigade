@@ -8,6 +8,7 @@ from app.db import db
 from app.main import app
 from app.models import Actor
 from app.services import settings_store
+from app.services.gitea import GiteaClient, GiteaError
 from tests.conftest import bearer, make_token
 from tests.gitea_fake import SERVICE_USER, FakeGitea
 
@@ -253,6 +254,23 @@ def test_claim_blocked_by_dependencies_and_inactive_project(env):
     assert claim(env).json()["task_nr"] == t["task_nr"]
 
 
+def test_dependencies_refuse_self_unknown_and_circle(env):
+    mkproject(env)
+    a, b = mktask(env, assigned_to="hermes"), mktask(env, assigned_to="hermes")
+    url = lambda t: f"/api/v1/tasks/{t['task_nr']}"  # noqa: E731
+
+    def patch(t, deps):
+        row = env["c"].get(url(t), headers=env["admin"]).json()["row_version"]
+        return env["c"].patch(url(t), headers={**env["admin"], "If-Match": str(row)}, json={"depends_on": deps})
+
+    assert patch(a, [a["task_nr"]]).status_code == 422
+    assert patch(a, ["KET-9999"]).status_code == 404
+    assert patch(b, [a["task_nr"]]).status_code == 200
+    r = patch(a, [b["task_nr"]])  # a -> b -> a would never become claimable
+    assert r.status_code == 422 and a["task_nr"] in r.text  # message language varies (DE/EN)
+    assert patch(b, []).status_code == 200 and patch(a, [b["task_nr"]]).status_code == 200
+
+
 def test_claim_foreign_task_forbidden(env):
     mkproject(env)
     t = mktask(env, assigned_to="hermes")
@@ -306,6 +324,9 @@ def test_full_workflow(env):
 
     r = c.post(f"/api/v1/tasks/{nr}/review", headers=env["admin"], json={"decision": "approve"})
     assert r.status_code == 200 and r.json()["status"] == "done" and r.json()["done_at"]
+    assert r.json()["merge_commit_sha"] == "c" * 40
+    assert r.json()["result_commit_sha"] == SHA
+    assert c.get(f"/api/v1/tasks/{nr}", headers=env["admin"]).json()["merge_commit_sha"] == "c" * 40
     assert pr["merged"] and pr["merge_style"] == "squash" and branch not in g.repo(SERVICE_USER, "ket").branches
 
     assert events(env, nr) == [
@@ -348,6 +369,36 @@ def test_merge_conflict_keeps_for_review(env):
     r = c.post(f"/api/v1/tasks/{nr}/review", headers=env["admin"], json={"decision": "approve"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "merge_failed" and "rebase" in r.json()["error"]["message"]
     assert c.get(f"/api/v1/tasks/{nr}", headers=env["admin"]).json()["status"] == "for_review"
+
+
+def test_approval_recovers_merge_sha_after_failed_read(env, monkeypatch):
+    c, g = env["c"], env["gitea"]
+    mkproject(env)
+    nr = mktask(env, assigned_to="claude-code")["task_nr"]
+    branch = claim(env).json()["branch_name"]
+    g.push_branch(SERVICE_USER, "ket", branch)
+    c.post(f"/api/v1/tasks/{nr}/submit", headers=env["claude"], json={"branch_name": branch,
+           "commit_sha": SHA, "summary": "Done"})
+    read_sha = GiteaClient._merged_pull_sha
+    calls = 0
+
+    def fail_once(self, *args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise GiteaError("Temporary read failure")
+        return read_sha(self, *args)
+
+    monkeypatch.setattr(GiteaClient, "_merged_pull_sha", fail_once)
+    r = c.post(f"/api/v1/tasks/{nr}/review", headers=env["admin"], json={"decision": "approve"})
+    assert r.status_code == 409
+    assert g.repo(SERVICE_USER, "ket").pulls[1]["merged"]
+    task = c.get(f"/api/v1/tasks/{nr}", headers=env["admin"]).json()
+    assert task["status"] == "for_review" and task["merge_commit_sha"] is None
+    r = c.post(f"/api/v1/tasks/{nr}/review", headers=env["admin"], json={"decision": "approve"})
+    assert r.status_code == 200 and r.json()["status"] == "done"
+    task = c.get(f"/api/v1/tasks/{nr}", headers=env["admin"]).json()
+    assert task["merge_commit_sha"] == "c" * 40 and task["result_commit_sha"] == SHA
 
 
 @pytest.mark.parametrize("body,code", [

@@ -1,6 +1,7 @@
 """Gitea REST-API v1 (httpx)."""
 from app.i18n import _
 import base64
+import re
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -182,6 +183,15 @@ class GiteaClient:
             raise GiteaError(_("File %(path)s: HTTP %(status)d – %(message)s", path=path, status=r.status_code, message=_message(r)), r.status_code)
         return r.text
 
+    def raw_bytes(self, owner: str, repo: str, path: str, ref: str) -> bytes | None:
+        """File content as bytes (binary files such as PDFs); None if the file or ref does not exist."""
+        r = self._request("GET", f"{self._repo_path(owner, repo)}/raw/{quote(path)}", params={"ref": ref})
+        if r.status_code == 404:
+            return None
+        if r.status_code != 200:
+            raise GiteaError(_("File %(path)s: HTTP %(status)d – %(message)s", path=path, status=r.status_code, message=_message(r)), r.status_code)
+        return r.content
+
     def create_files(self, owner: str, repo: str, files: dict[str, str | bytes], message: str, branch: str) -> str | None:
         """Add multiple text or binary files in one commit (`POST /repos/{o}/{r}/contents`, Gitea ≥ 1.20).
         Return the commit SHA if Gitea provides it."""
@@ -243,6 +253,21 @@ class GiteaClient:
 
     # --- Branches / PRs ---------------------------------------------------------------------
 
+    def commit_on_branch(self, owner: str, repo: str, sha: str, branch: str) -> bool:
+        """True when `sha` is the tip of `branch` or an ancestor of it.
+
+        Compare `branch...sha` lists commits reachable from `sha` but not from `branch`.
+        An empty list means the commit is already on the branch.
+        """
+        spec = f"{quote(branch, safe='')}...{quote(sha, safe='')}"
+        r = self._request("GET", f"{self._repo_path(owner, repo)}/compare/{spec}")
+        if r.status_code == 404:
+            return False
+        if r.status_code != 200:
+            raise GiteaError(_("Commit %(sha)s: HTTP %(status)d – %(message)s",
+                               sha=sha[:10], status=r.status_code, message=_message(r)), r.status_code)
+        return int((r.json() or {}).get("total_commits") or 0) == 0
+
     def branch_exists(self, owner: str, repo: str, branch: str) -> bool:
         r = self._request("GET", f"{self._repo_path(owner, repo)}/branches/{quote(branch, safe='/')}")
         if r.status_code == 404:
@@ -272,15 +297,34 @@ class GiteaClient:
         self._json("POST", f"{self._repo_path(owner, repo)}/issues/{number}/comments", json={"body": body})
 
     def merge_pull(self, owner: str, repo: str, number: int, style: str = "squash", title: str | None = None,
-                   delete_branch: bool = True) -> None:
-        """Raise GiteaError with status 405/409 for merge conflicts or nonmergeable PRs."""
+                   delete_branch: bool = True) -> str:
+        """Merge and return the PR's merge commit, never the branch tip or submitted commit.
+
+        A retry after a failed post-merge read can recover the SHA from an already merged PR.
+        """
         self._require_token()
         body = {"Do": style, "delete_branch_after_merge": delete_branch}
         if title:
             body["MergeTitleField"] = title
         r = self._request("POST", f"{self._repo_path(owner, repo)}/pulls/{number}/merge", json=body)
         if r.status_code not in (200, 204):
+            if r.status_code in (405, 409):
+                try:
+                    sha = self._merged_pull_sha(owner, repo, number)
+                except GiteaError:
+                    sha = None
+                if sha:
+                    return sha
             raise GiteaError(_("Merge failed: HTTP %(status)d – %(message)s", status=r.status_code, message=_message(r)), r.status_code)
+        sha = self._merged_pull_sha(owner, repo, number)
+        if not sha:
+            raise GiteaError(_("Unexpected response from Gitea (is this a Gitea URL?)"))
+        return sha
+
+    def _merged_pull_sha(self, owner: str, repo: str, number: int) -> str | None:
+        pr = self._json("GET", f"{self._repo_path(owner, repo)}/pulls/{number}") or {}
+        sha = pr.get("merge_commit_sha")
+        return sha if pr.get("merged") and isinstance(sha, str) and re.fullmatch(r"[0-9a-fA-F]{40}", sha) else None
 
     def pull_conflicts(self, owner: str, repo: str, number: int, base: str) -> list[str] | None:
         """None means the PR is mergeable. Otherwise return files changed on both task and base branches

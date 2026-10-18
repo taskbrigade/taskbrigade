@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Data") }} – TaskBrigade{% endblock %}
+{% block content %}
+<div class="headline"><h2>{{ _("Data") }}</h2>{% if can_upload %}<a href="/data/upload{% if f.project %}?project={{ f.project | urlencode }}{% endif %}" role="button" class="small">{{ _("+ Upload") }}</a>{% endif %}</div>
+{% if problem %}<p class="banner {{ 'error' if enabled else 'warn' }}">{{ problem }}</p>{% endif %}
+<p class="muted">{{ _("Datasets are encrypted on arrival and never stored in Git. Tasks refer to them by key only; agents never see names or contents.") }}</p>
+<form method="get" action="/data" class="filters" role="search">
+  <select name="project" aria-label="{{ _('Project') }}">
+    <option value="">{{ _("All projects") }}</option>
+    {% for p in projects %}<option value="{{ p.project_key }}"{% if f.project == p.project_key %} selected{% endif %}>{{ p.project_key }} – {{ p.name }}</option>{% endfor %}
+  </select>
+  <input type="search" name="q" value="{{ f.q }}" placeholder="{{ _('Search…') }}" aria-label="{{ _('Search') }}">
+  <select name="status" aria-label="{{ _('Status') }}">
+    <option value="live"{% if f.status == "live" %} selected{% endif %}>{{ _("Not deleted") }}</option>
+    <option value="all"{% if f.status == "all" %} selected{% endif %}>{{ _("All") }}</option>
+    {% for st, label in status_labels.items() %}<option value="{{ st }}"{% if f.status == st %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+  <select name="data_class" aria-label="{{ _('Class') }}">
+    <option value="">{{ _("All classes") }}</option>
+    {% for c in classes %}<option value="{{ c }}"{% if f.data_class == c %} selected{% endif %}>{{ class_labels[c] }}</option>{% endfor %}
+  </select>
+  <button type="submit" class="small secondary">{{ _("Filter") }}</button>
+</form>
+<div class="overflow-auto">
+<table class="striped">
+  <thead><tr><th>{{ _("Key") }}</th><th>{{ _("Name") }}</th><th>{{ _("Project") }}</th><th>{{ _("Class") }}</th><th>{{ _("Size") }}</th><th>{{ _("Status") }}</th><th>{{ _("Retention") }}</th></tr></thead>
+  <tbody>
+  {% for d in rows %}
+    {% set left = retention_left.get(d.id) %}
+    <tr>
+      <td><a href="/data/{{ d.dataset_key }}"><strong>{{ d.dataset_key }}</strong></a></td>
+      <td>{{ d.name }}</td>
+      <td>{{ project_keys.get(d.project_id, "–") }}</td>
+      <td>{% with cls=d.data_class %}{% include "_data_class.html" %}{% endwith %}</td>
+      <td>{{ d.size_bytes | filesize }}</td>
+      <td>{{ status_labels.get(d.status, d.status) }}</td>
+      <td>{% if d.status == "deleted" %}{{ _("deleted %(date)s", date=d.deleted_at | localtime("date")) }}
+          {% elif left is none %}–
+          {% elif left < 0 %}{{ _("deletion pending") }}
+          {% elif left <= warn_days %}<strong>{{ ngettext("deleted in %(num)d day", "deleted in %(num)d days", left) }}</strong>
+          {% else %}{{ _("until %(date)s", date=d.retention_until.isoformat()) }}{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted">{{ _("No datasets yet.") }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -11,7 +11,9 @@
 
   <h4>{{ _("1. Gitea access") }}</h4>
   {% if gitea_error %}<p class="banner error">{{ gitea_error }}</p>{% endif %}
-  {% if a.gitea_username %}
+  {% if a.agent_kind == "runner" %}
+  <p>{{ _("A runner needs no Gitea access: TaskBrigade fetches the merged script of each run task for it.") }}</p>
+  {% elif a.gitea_username %}
   <p>✅ {{ _("Gitea user <strong>%(user)s</strong>, token <code>…%(last4)s</code>, last checked successfully %(date)s", user=a.gitea_username, last4=a.gitea_token_last4, date=a.gitea_token_checked_at | localtime) }}</p>
   <form method="post" action="/admin/agents/{{ a.name }}/gitea/check">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -59,6 +61,12 @@ sudo -u git gitea --config /etc/gitea/app.ini admin user generate-access-token -
     <code id="join-token">{{ code }}</code>
     <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('join-token').innerText)">{{ _("Copy token") }}</button>
   </div>
+  {% if a.agent_kind == "runner" %}
+  <p>{{ _("Run as root on the TaskBrigade host (installed with TBR_DATA_ZONES=1):") }}</p>
+  <pre id="join-cmd">{{ commands.join }}</pre>
+  <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('join-cmd').innerText)">{{ _("Copy command") }}</button>
+  <p><small>{{ _("It writes /etc/taskbrigade/runner.toml and the token file and starts taskbrigade-runner.service. <code>tbr-admin runner check</code> checks the setup.") }}</small></p>
+  {% else %}
   <p>{{ _("Run as the agent's user on the agent machine:") }}</p>
   <pre id="join-cmd">{{ commands.join }}</pre>
   <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('join-cmd').innerText)">{{ _("Copy command") }}</button>
@@ -68,6 +76,7 @@ sudo -u git gitea --config /etc/gitea/app.ini admin user generate-access-token -
   <p><small>{{ _("<code>tbr join</code> exchanges the code for a fresh API token, creates the work directory with <code>.taskbrigade.toml</code> (mode 600) and checks <code>tbr whoami</code> and the Git access. It never overwrites an existing file without <code>--force</code>. The code only works over HTTPS (tailscale serve) or from trusted peers.") }}</small></p>
   {% if actor.agent_kind in ("hermes", "openclaw") %}<p><small>{{ _("With <code>--setup</code> it also installs the TaskBrigade skill and the check script into the agent framework and creates its cron job or automation – the agent then looks for tasks every 10 minutes. <code>tbr doctor</code> checks the machine.") }}</small></p>
   {% elif "--setup" in commands.join %}<p><small>{{ _("With <code>--setup</code> it also writes the runner configuration for the agent kind, checks tmux and the agent command and installs a timer (Linux: systemd user timer, macOS: launchd) – the agent then looks for tasks every 10 minutes. <code>tbr doctor</code> checks the machine.") }}</small></p>{% endif %}
+  {% endif %}
   {% else %}
   {% if pending %}<p>{{ _("An unused join code is valid until %(time)s; it is not shown again.", time=pending.expires_at | localtime) }}</p>{% endif %}
   {% endif %}

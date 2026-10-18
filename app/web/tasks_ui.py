@@ -1,24 +1,28 @@
 """UI: Inbox, Backlog, Kanban, Task-Detail, Quick-Capture (Spec 11)."""
 from datetime import UTC, date, datetime, time, timedelta
+from typing import Literal
+from pydantic import BaseModel, Field
+
 from urllib.parse import quote, quote_plus, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 from markupsafe import escape
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 
 from app.auth import UiUser, csrf_protect, current_user, LoginRequired
 from app.config import get_settings
-from app.errors import AppError
+from app.errors import AppError, Conflict, Unprocessable
 from app.i18n import N_, ngettext
 from app.i18n import gettext as _
 from app.logging_setup import audit
-from app.models import TASK_STATUSES, Actor, Project, Sprint, Task
-from app.services import access, model_choice, reviews, sprints, state_machine, telegram_actions
+from app.models import TASK_STATUSES, Actor, Notification, Project, Sprint, Task
+from app.services import (access, data_refs, model_choice, notifications, output_gate, result_mail, reviews,
+                          sprints, state_machine, telegram_actions, zones)
 from app.services import tasks as svc
 from app.services.state_machine import InvalidTransition
-from app.web.common import is_htmx, render, render_markdown, ui_actor, ui_actor_or_none, web_session
+from app.web.common import inbox_badge, is_htmx, render, render_markdown, ui_actor, ui_actor_or_none, web_session
 
 router = APIRouter()
 POST = [Depends(csrf_protect)]
@@ -116,6 +120,39 @@ def _with_owner_cookie(response, ctx: dict):
     return response
 
 
+WORKFLOW_COOKIE = "tm_workflow"
+WORKFLOW_DEFAULT = "hide"
+
+
+def _valid_workflow(value: str) -> bool:
+    return value in ("hide", "all", "only") or value.isdigit()
+
+
+def _workflow_ctx(session, request: Request, me) -> dict:
+    """Workflow filter of kanban and backlog (research/konzept-workflows.md §8.6): `workflow` parameter, else the last
+    cookie choice, default `hide` – run tasks stay off the boards unless asked for."""
+    from app.services.workflows.ui import filter_options
+
+    changed = "workflow" in request.query_params
+    value = (request.query_params.get("workflow") if changed else request.cookies.get(WORKFLOW_COOKIE)) or ""
+    if not _valid_workflow(value):
+        value, changed = WORKFLOW_DEFAULT, changed or bool(value)
+    return {"workflow_filter": value, "workflow_changed": changed, "workflow_options": filter_options(session, me)}
+
+
+def _with_workflow_cookie(response, ctx: dict):
+    if ctx.get("workflow_changed"):
+        response.set_cookie(WORKFLOW_COOKIE, ctx["workflow_filter"], max_age=365 * 24 * 3600, httponly=True,
+                            samesite="lax")
+    return response
+
+
+def _show_workflow_url(request: Request, path: str) -> str:
+    """Same page with `workflow=all` (link of the "workflow tasks hidden" hint)."""
+    qp = [(k, v) for k, v in request.query_params.multi_items() if k != "workflow"]
+    return path + "?" + urlencode([*qp, ("workflow", "all")])
+
+
 # --- Inbox --------------------------------------------------------------------------------
 
 def _last_question(session, task_nr: str) -> str | None:
@@ -126,6 +163,12 @@ def _last_question(session, task_nr: str) -> str | None:
                           .order_by(TaskComment.id.desc()).limit(1))
 
 
+def _segment_param(request: Request) -> str:
+    """Segmented filter of the inbox: `tab` = all (default) | reviews | questions."""
+    value = request.query_params.get("tab") or ""
+    return value if value in ("reviews", "questions") else "all"
+
+
 @router.get("/")
 def inbox(request: Request, user: UiUser = Depends(require_user)):
     with web_session() as s:
@@ -133,16 +176,112 @@ def inbox(request: Request, user: UiUser = Depends(require_user)):
         octx = _owner_ctx(s, request, me) if me else {"owner": "all", "owner_id": None, "owner_changed": False,
                                                        "owner_locked": False, "owner_hint": False}
         sprint = _sprint_param(request)
+        tab = _segment_param(request)
         data = svc.inbox(s, octx["owner_id"], sprint)
+        # Reviews by reviewer agents (running and sent back) are action cards too; the owner/admins may overrule.
+        n_reviews = len(data["for_review"]) + len(data["agent_review"]) + len(data["agent_decided"])
+        n_questions = len(data["questions"])
         for t in data["questions"]:
             t["last_question"] = _last_question(s, t["task_nr"])
         telegram_actions.mark_questions_read(s, me, [t["task_nr"] for t in data["questions"]])
-        for t in data["for_review"]:
+        for t in data["for_review"] + data["agent_review"]:
             t["result_summary"] = s.scalar(select(Task.result_summary).where(Task.task_nr == t["task_nr"]))
         managed = access.owned_project_keys(s, me)
         opts = _filter_options(s, me)
+        mail_approvals = result_mail.pending_for(s, me)
+        data_releases = output_gate.pending_for(s, me)
+        on_approve = {m["task_nr"] for m in mail_approvals if m["on_approve"]}
+        for t in data["for_review"]:
+            t["on_approve_mails"] = t["task_nr"] in on_approve
+        workflow_group(data)
+        # Separate list, so the notices panel keeps showing `agent_review` whatever the tab.
+        data["agent_cards"] = data["agent_review"] + data["agent_decided"]
+        # The header badge counts before the segmented filter empties categories.
+        badge = inbox_badge(request, {"inbox": data, "mail_approvals": mail_approvals, "data_releases": data_releases})
+        if tab == "reviews":
+            data["questions"] = []
+            data["workflow_questions"] = []
+        elif tab == "questions":
+            data["for_review"] = []
+            data["workflow_review"] = []
+            data["agent_cards"] = []
+        notices_all = request.query_params.get("notices") == "all"
+        notices_limit = 1000 if notices_all else 15
+        # MariaDB timestamps have second precision: the ID ceiling also preserves same-second arrivals.
+        notices_max_id = s.scalar(select(func.max(Notification.id)).where(Notification.actor_id == me.id)) if me else 0
+        notices_max_id = notices_max_id or 0
+        notices_until = datetime.now(UTC).replace(tzinfo=None)
+        notices = notifications.notices_for(s, me, limit=notices_limit, sprint=sprint,
+                                            until=notices_until, include_read=notices_all, max_id=notices_max_id)
+        for n in notices:
+            n["label"] = _(notifications.LOG_EVENTS.get(n["event"], n["event"]))
+        # "Show older" keeps the active filters (tab, sprint, owner) so the view stays linkable.
+        notices_more = None
+        if not notices_all:
+            params = dict(request.query_params)
+            params["notices"] = "all"
+            notices_more = "?" + urlencode(params)
     return _with_owner_cookie(render(request, "inbox.html", inbox=data, managed=managed, sprint_filter=sprint,
+                                     tab=tab, n_reviews=n_reviews, n_questions=n_questions, notices=notices,
+                                     notices_all=notices_all, notices_more=notices_more,
+                                     notices_until=notices_until.isoformat() + "Z", notices_max_id=notices_max_id,
+                                     mail_approvals=mail_approvals, data_releases=data_releases, inbox_badge=badge,
                                      **octx, **opts), octx)
+
+
+def _notice_origin(request: Request):
+    # Fetch Metadata describes the browser-facing origin, even when TLS terminates
+    # at Tailscale and the backend deliberately runs with --no-proxy-headers.
+    # Browsers control this header; the session CSRF token is still mandatory.
+    site = request.headers.get("sec-fetch-site")
+    if site == "same-origin":
+        return
+    if site is not None:
+        raise HTTPException(403, _("Invalid CSRF token"))
+    # Older clients without Fetch Metadata retain the strict Origin check.
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(403, _("Invalid CSRF token"))
+
+
+class NoticeAction(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+    all: bool = False
+    sprint: str | None = Field(default=None, pattern=r"^(none|[0-9]+)$")
+    until: datetime | None = None
+    max_id: int | None = Field(default=None, ge=0)
+
+
+@router.post("/inbox/notices/read", dependencies=[*POST, Depends(_notice_origin)])
+def notices_read(body: NoticeAction, user: UiUser = Depends(require_user)):
+    if body.all and body.until is None:
+        raise Unprocessable(_("A page timestamp is required."), "validation_error")
+    until = body.until
+    if until is not None and until.tzinfo is not None:
+        until = until.astimezone(UTC).replace(tzinfo=None)
+    with web_session() as s:
+        me = ui_actor(s, user)
+        ids = notifications.set_notices_read(s, me.id, ids=body.ids, all_unread=body.all,
+                                             sprint=body.sprint, until=until, max_id=body.max_id)
+    return {"ids": ids, "count": len(ids)}
+
+
+@router.post("/inbox/notices/unread", dependencies=[*POST, Depends(_notice_origin)])
+def notices_unread(body: NoticeAction, user: UiUser = Depends(require_user)):
+    with web_session() as s:
+        me = ui_actor(s, user)
+        ids = notifications.set_notices_read(s, me.id, ids=body.ids, read=False)
+    return {"ids": ids, "count": len(ids)}
+
+
+def workflow_group(data: dict) -> dict:
+    """Group "Workflow steps" (research/konzept-workflows.md §8.6): questions, reviews/approvals and aborted tasks of
+    workflow runs move out of their categories into `workflow_questions`, `workflow_review`, `workflow_aborted`,
+    shown first. Workflow tasks are never filtered out of the inbox – that is where a human must act."""
+    for key in ("questions", "for_review", "aborted"):
+        data["workflow_" + ("review" if key == "for_review" else key)] = [t for t in data[key] if t.get("workflow")]
+        data[key] = [t for t in data[key] if not t.get("workflow")]
+    return data
 
 
 # --- Backlog ------------------------------------------------------------------------------
@@ -151,8 +290,14 @@ def _backlog_params(request: Request) -> dict:
     qp = request.query_params
     statuses = [x for v in qp.getlist("status") for x in v.split(",") if x in TASK_STATUSES]
     prios = [int(p) for p in qp.getlist("prio") if p.isdigit() and 1 <= int(p) <= 5]
-    return {"project": qp.get("project") or None, "assigned_to": qp.get("agent") or None,
-            "status": statuses or ([] if qp.get("all") else DEFAULT_BACKLOG_STATUS), "prio": prios,
+    size = qp.get("limit", "50")
+    limit = int(size) if size in ("25", "50", "100", "200") else 50
+    page = qp.get("page", "1")
+    page = min(max(int(page), 1), 1000000) if page.isdigit() and len(page) < 8 else 1
+    return {"limit": limit, "page": page, "project": qp.get("project") or None, "assigned_to": qp.get("agent") or None,
+            "status_set": "status_set" in qp,
+            "status": statuses if "status_set" in qp else statuses or ([] if qp.get("all") else DEFAULT_BACKLOG_STATUS),
+            "prio": prios,
             "q": qp.get("q") or None, "sort": qp.get("sort") or "prio", "desc": qp.get("desc") == "1",
             "sprint": _sprint_param(request)}
 
@@ -163,27 +308,97 @@ def backlog(request: Request, user: UiUser = Depends(require_user)):
     with web_session() as s:
         me = ui_actor(s, user)
         octx = _owner_ctx(s, request, me)
-        items, total = svc.search(s, me, project=params["project"], assigned_to=params["assigned_to"],
-                                  status=params["status"] or None, prio=params["prio"] or None, q=params["q"],
-                                  sort=params["sort"], desc=params["desc"], limit=500,
-                                  owner=None if octx["owner_id"] is None else octx["owner"], sprint=params["sprint"])
+        wctx = _workflow_ctx(s, request, me)
+        query = dict(project=params["project"], assigned_to=params["assigned_to"],
+                     status=params["status"] or (["__none__"] if params["status_set"] else None),
+                     prio=params["prio"] or None, q=params["q"],
+                     owner=None if octx["owner_id"] is None else octx["owner"], sprint=params["sprint"])
+        items, total = svc.search(s, me, **query, sort=params["sort"], desc=params["desc"], limit=params["limit"],
+                                  offset=(params["page"] - 1) * params["limit"], workflow=wctx["workflow_filter"])
+        counts = svc.status_counts(s, me, **query, workflow=wctx["workflow_filter"])
+        scope_total = svc.search(s, me, owner=query["owner"], project=params["project"],
+                                 workflow=wctx["workflow_filter"], limit=1)[1]
+        actor_kinds = dict(s.execute(select(Actor.name, Actor.agent_kind)).all())
+        hidden = svc.search(s, me, **query, limit=1, workflow="only")[1] if wctx["workflow_filter"] == "hide" else 0
         opts = _filter_options(s, me, keep_agents=[params["assigned_to"]])
         can_plan = me.role in ("admin", "orchestrator") or bool(access.owned_project_keys(s, me))
 
     def sort_url(col: str) -> str:
-        qp = [(k, v) for k, v in request.query_params.multi_items() if k not in ("sort", "desc")]
+        qp = [(k, v) for k, v in request.query_params.multi_items() if k not in ("sort", "desc", "page")]
         qp += [("sort", col), ("desc", "0" if params["sort"] == col and params["desc"] else "1"
                                 if params["sort"] == col else "0")]
         return "/backlog?" + urlencode(qp)
 
+    def page_url(page: int) -> str:
+        qp = [(k, v) for k, v in request.query_params.multi_items() if k != "page"]
+        return "/backlog?" + urlencode([*qp, ("page", page)])
+
     active = [params["assigned_to"], params["project"], params["sprint"], params["prio"],
-              sorted(params["status"]) != sorted(DEFAULT_BACKLOG_STATUS)]
-    ctx = dict(items=items, total=total, params=params, sort_url=sort_url, statuses=TASK_STATUSES,
+              sorted(params["status"]) != sorted(DEFAULT_BACKLOG_STATUS),
+              wctx["workflow_filter"] != WORKFLOW_DEFAULT]
+    ctx = dict(items=items, total=total, scope_total=scope_total, status_counts=counts, actor_kinds=actor_kinds,
+               page_url=page_url, params=params, sort_url=sort_url, statuses=TASK_STATUSES,
                sprint_filter=params["sprint"], can_plan_sprints=can_plan, active_filters=sum(map(bool, active)),
-               **opts, **octx)
+               workflow_hidden=hidden, workflow_show_url=_show_workflow_url(request, "/backlog"),
+               **opts, **octx, **wctx)
     if is_htmx(request) and request.headers.get("HX-Target") == "backlog-table":
-        return _with_owner_cookie(render(request, "_backlog_table.html", **ctx), octx)
-    return _with_owner_cookie(render(request, "backlog.html", **ctx), octx)
+        page = render(request, "_backlog_table.html", **ctx)
+    elif is_htmx(request) and request.headers.get("HX-Target") == "backlog-content":
+        page = render(request, "_backlog_content.html", **ctx)
+    else:
+        page = render(request, "backlog.html", **ctx)
+    return _with_workflow_cookie(_with_owner_cookie(page, octx), wctx)
+
+
+class BulkTask(BaseModel):
+    task_nr: str = Field(min_length=1, max_length=80)
+    row_version: int = Field(ge=1)
+
+
+class BulkEdit(BaseModel):
+    tasks: list[BulkTask] = Field(min_length=1, max_length=200)
+    action: Literal["assigned_to", "sprint", "prio", "status"]
+    value: str = Field(max_length=200)
+    comment: str = Field(default="", max_length=10000)
+
+
+@router.post("/backlog/bulk", dependencies=POST)
+def backlog_bulk(request: Request, body: BulkEdit, user: UiUser = Depends(require_user)):
+    """Apply each ordinary edit/transition in its own transaction, with required row versions.
+
+    Failures do not undo other tasks. Status changes never use implicit admin overrides.
+    """
+    results = []
+    seen = set()
+    for item in body.tasks:
+        if item.task_nr in seen:
+            continue
+        seen.add(item.task_nr)
+        try:
+            with web_session() as s:
+                me = ui_actor(s, user)
+                task = svc.get(s, item.task_nr, for_update=True)
+                if task.row_version != item.row_version:
+                    raise Conflict(_("Task changed concurrently (version %(actual)s, expected %(expected)s)",
+                                     actual=task.row_version, expected=item.row_version), code="version_conflict")
+                if body.action == "status":
+                    state_machine.transition_to(s, task, body.value, me, body.comment or None)
+                else:
+                    value = body.value
+                    if body.action == "prio":
+                        if value not in ("1", "2", "3", "4", "5"):
+                            raise Unprocessable(_("prio must be between 1 and 5"))
+                        value = int(value)
+                    elif body.action == "sprint":
+                        value = _sprint_id(value)
+                    else:
+                        value = value or None
+                    svc.update(s, me, task, {body.action: value}, item.row_version)
+            results.append({"task_nr": item.task_nr, "ok": True})
+        except AppError as e:
+            results.append({"task_nr": item.task_nr, "ok": False,
+                            "error": {"code": e.code, "message": e.message, "status": e.status}})
+    return JSONResponse({"results": results})
 
 
 # --- Kanban -------------------------------------------------------------------------------
@@ -191,36 +406,54 @@ def backlog(request: Request, user: UiUser = Depends(require_user)):
 @router.get("/kanban")
 def kanban(request: Request, user: UiUser = Depends(require_user)):
     qp = request.query_params
-    project, agent, sprint = qp.get("project") or None, qp.get("agent") or None, _sprint_param(request)
+    project = qp.get("project") or None
+    agent = qp.get("agent") or None
+    sprint = _sprint_param(request)
+    q = qp.get("q") or None
     with web_session() as s:
         me = ui_actor(s, user)
         octx = _owner_ctx(s, request, me)
+        wctx = _workflow_ctx(s, request, me)
+        vctx = _view_ctx(request)
         owner = None if octx["owner_id"] is None else octx["owner"]
-        items, _total = svc.search(s, me, project=project, assigned_to=agent,
-                                   status=[c for c in KANBAN_STATUSES if c != "done"], limit=500, owner=owner,
-                                   sprint=sprint)
+        query = dict(project=project, assigned_to=agent, owner=owner, sprint=sprint, q=q)
+        open_statuses = [c for c in KANBAN_STATUSES if c != "done"]
+        workflow = wctx["workflow_filter"]
+        items, _total = svc.search(s, me, **query, status=open_statuses, limit=500, workflow=workflow)
         done_range, done_changed = _done_range_choice(request)
         since = done_since(done_range, svc.utcnow())
-        done, done_total = svc.search(s, me, project=project, assigned_to=agent, status=["done"],
-                                      limit=KANBAN_DONE_LIMIT, sort="done_at", desc=True, owner=owner, sprint=sprint,
-                                      done_since=since)
+        done, done_total = svc.search(s, me, **query, status=["done"], limit=KANBAN_DONE_LIMIT, sort="done_at",
+                                      desc=True, done_since=since, workflow=workflow)
         done_all = done_total if since is None else svc.search(  # For "(n of N)" in the column head.
-            s, me, project=project, assigned_to=agent, status=["done"], limit=1, owner=owner, sprint=sprint)[1]
+            s, me, **query, status=["done"], limit=1, workflow=workflow)[1]
+        hidden = 0
+        if workflow == WORKFLOW_DEFAULT:  # "N workflow tasks hidden – show" below the board.
+            hidden = (svc.search(s, me, **query, status=open_statuses, limit=1, workflow="only")[1] +
+                      svc.search(s, me, **query, status=["done"], limit=1, done_since=since, workflow="only")[1])
         can_drag = me is not None and (me.role in ("admin", "orchestrator") or bool(access.owned_project_keys(s, me)))
         opts = _filter_options(s, me, keep_agents=[agent])
     columns = _kanban_columns(items, done)
-    # Column shown on phones (portrait): `col` parameter, kept in the URL by static/kanban.js.
+    view = vctx["view"]
+    swimlanes = _kanban_swimlanes(items, done) if view == "swimlanes" else None
+    # Column shown on phones (portrait): `col` parameter (static/kanban.js keeps the filter form's hidden `col` on the
+    # column in view), otherwise the first column.
     active_col = qp.get("col") if qp.get("col") in {c["key"] for c in columns} else KANBAN_DEFAULT_COLUMN
     response = render(request, "kanban.html", columns=columns, project=project, agent=agent, sprint_filter=sprint,
-                      active_col=active_col, active_filters=sum(map(bool, (project, agent, sprint))),
+                      q=q, swimlanes=swimlanes, active_col=active_col,
+                      active_filters=sum(map(bool, (project, agent, sprint, q, workflow != WORKFLOW_DEFAULT))),
                       can_drag=can_drag, done_range=done_range, done_ranges=DONE_RANGES, done_total=done_total,
-                      done_all=done_all, done_backlog_url=_done_backlog_url(project, agent, sprint), **opts, **octx)
+                      done_all=done_all,
+                      done_backlog_url=_done_backlog_url(project, agent, sprint,
+                                                         None if workflow == WORKFLOW_DEFAULT else workflow),
+                      draft_add_url="/tasks/new" + (f"?project={quote(project)}" if project else ""),
+                      workflow_hidden=hidden, workflow_show_url=_show_workflow_url(request, "/kanban"),
+                      **opts, **octx, **wctx, **vctx)
     if done_changed:
         response.set_cookie(DONE_RANGE_COOKIE, done_range, max_age=365 * 24 * 3600, httponly=True, samesite="lax")
-    return _with_owner_cookie(response, octx)
+    return _with_view_cookie(_with_workflow_cookie(_with_owner_cookie(response, octx), wctx), vctx)
 
 
-KANBAN_DEFAULT_COLUMN = "in_progress"
+KANBAN_DEFAULT_COLUMN = KANBAN_COLUMNS[0][0]  # "draft"
 
 
 # Kanban filter for the done column: key → label. Days count back from now; "today" starts at local midnight
@@ -233,9 +466,11 @@ DONE_RANGE_COOKIE = "tm_done_range"
 KANBAN_DONE_LIMIT = 100
 
 
-def _done_backlog_url(project: str | None, agent: str | None, sprint: str | None) -> str:
+def _done_backlog_url(project: str | None, agent: str | None, sprint: str | None,
+                      workflow: str | None = None) -> str:
     """Backlog with status Done, newest first, keeping the kanban filters (for done tasks beyond the limit)."""
-    qp = [(k, v) for k, v in (("project", project), ("agent", agent), ("sprint", sprint)) if v]
+    qp = [(k, v) for k, v in (("project", project), ("agent", agent), ("sprint", sprint), ("workflow", workflow))
+          if v]
     return "/backlog?" + urlencode([*qp, ("status", "done"), ("sort", "done_at"), ("desc", "1")])
 
 
@@ -280,6 +515,37 @@ def _kanban_columns(items: list[dict], done: list[dict]) -> list[dict]:
     return columns
 
 
+KANBAN_VIEW_COOKIE = "tm_kanban_view"
+KANBAN_VIEWS = ("board", "swimlanes")
+
+
+def _view_ctx(request: Request) -> dict:
+    """Board vs. "Swimlanes by agent" (remembered): `view` parameter, else the cookie, default `board`."""
+    changed = "view" in request.query_params
+    value = request.query_params.get("view") if changed else request.cookies.get(KANBAN_VIEW_COOKIE)
+    if value not in KANBAN_VIEWS:
+        value, changed = "board", changed or bool(value)
+    return {"view": value, "view_changed": changed}
+
+
+def _with_view_cookie(response, ctx: dict):
+    if ctx.get("view_changed"):
+        response.set_cookie(KANBAN_VIEW_COOKIE, ctx["view"], max_age=365 * 24 * 3600, httponly=True, samesite="lax")
+    return response
+
+
+def _kanban_swimlanes(items: list[dict], done: list[dict]) -> list[dict]:
+    """One row per assignee (None = not assigned) with the seven columns holding only that assignee's cards."""
+    names: list[str | None] = []
+    for t in [*items, *done]:
+        a = t.get("assigned_to")
+        if a not in names:
+            names.append(a)
+    return [{"name": a, "columns": _kanban_columns(
+        [t for t in items if t.get("assigned_to") == a],
+        [t for t in done if t.get("assigned_to") == a])} for a in names]
+
+
 def allowed_moves(session, task: Task, me: Actor) -> list[str]:
     """Drop targets of the kanban columns `me` may move the card to by the normal rules (a generic state machine
     rule from the task's status that `check_allowed` accepts) – never an override. The card's own column is left
@@ -322,7 +588,8 @@ def kanban_move(request: Request, user: UiUser = Depends(require_user), task_nr:
             if override:
                 audit(me.name, "status_override", task=task.task_nr, to=to, via="kanban")
             names = {task.assigned_to: s.scalar(select(Actor.name).where(Actor.id == task.assigned_to))}
-            card = svc.summary(task, s.get(Project, task.project_id).project_key, names)
+            card = svc.summary(task, s.get(Project, task.project_id).project_key, names,
+                               svc.workflow_badges(s, [task]).get(task.id))
             sprint_names = {task.sprint_id: s.get(Sprint, task.sprint_id).name} if task.sprint_id else {}
     except InvalidTransition as e:
         with web_session() as s:
@@ -397,12 +664,12 @@ def create_task(request: Request, user: UiUser = Depends(require_user), project:
                 prio: int = Form(3), assigned_to: str = Form(""), due_date: str = Form(""),
                 parent_task_nr: str = Form(""), depends_on: str = Form(""), create_spec_file: bool = Form(False),
                 status: str = Form("draft"), sprint: str = Form(""), model_tier: str = Form(""),
-                model: str = Form(""), reviewer: str = Form(""), back: str = Form(""),
+                model: str = Form(""), reviewer: str = Form(""), back: str = Form(""), data_class: str = Form(""),
                 attachments: list[UploadFile] = File(default=[])):
     form = dict(project=project, title=title, description=description, acceptance_criteria=acceptance_criteria,
                 prio=prio, assigned_to=assigned_to, due_date=due_date, parent_task_nr=parent_task_nr,
                 depends_on=depends_on, status=status, sprint=sprint, model_tier=model_tier, model=model,
-                reviewer=reviewer, create_spec_file=create_spec_file)
+                reviewer=reviewer, create_spec_file=create_spec_file, data_class=data_class)
     try:
         with web_session() as s:
             task = svc.create(s, ui_actor(s, user), project=project, title=title, description=description,
@@ -412,7 +679,8 @@ def create_task(request: Request, user: UiUser = Depends(require_user), project:
                               depends_on=[x.strip() for x in depends_on.replace(",", " ").split() if x.strip()],
                               create_spec_file=create_spec_file, status=status, sprint=_sprint_id(sprint),
                               model_tier=model_tier or None, model=model or None,  # `none` = no choice
-                              reviewer=reviewer or None)  # empty = project default, `none` = nobody
+                              reviewer=reviewer or None,  # empty = project default, `none` = nobody
+                              data_class=data_class or None)  # empty/`inherit` = the project's privacy
             nr = task.task_nr
             notice = sprints.planned_notice(s.get(Sprint, task.sprint_id)) \
                 if status == "defined" and task.status == "draft" and task.sprint_id else None
@@ -507,8 +775,29 @@ def _detail(request: Request, user: UiUser, nr: str, status_code: int = 200, **c
             # Duplicate into a new draft: admins, orchestrators, owners.
             "can_duplicate": svc.can_duplicate(s.get(Project, task_obj.project_id), me),
         }
-    return render(request, "task_detail.html", status_code, t=task, me=me, statuses=TASK_STATUSES,
-                  project_sprints=project_sprints, **rights, **opts, **ctx)
+        dc = data_class_choices(s.get(Project, task_obj.project_id), task_obj, me)
+        emails = result_mail.listing(s, task_obj)
+        can_decide_mail = result_mail.may_decide(s, me, task_obj)
+        from app.services.workflows.ui import task_context
+
+        workflow = task_context(s, task_obj)
+        gate_results = output_gate.for_task(s, task_obj) if task_obj.task_kind in zones.RUNNER_TASK_KINDS else []
+        zone_chain = data_refs.chain(s, task_obj)  # Chain across zones (DZ 9); workflow tasks show their run
+        # Avatar colour of the actor chips (assignee, reviewer, activity).
+        names = {task["assigned_to"], task["reviewer"], *(e["actor"] for e in task["events"])} - {None}
+        actor_kinds = dict(s.execute(select(Actor.name, Actor.agent_kind).where(Actor.name.in_(names))).all())
+    return render(request, "task_detail.html", status_code, t=task, me=me, statuses=TASK_STATUSES, emails=emails,
+                  can_decide_mail=can_decide_mail, workflow=workflow, gate_results=gate_results, zone_chain=zone_chain,
+                  project_sprints=project_sprints, actor_kinds=actor_kinds, **dc, **rights, **opts, **ctx)
+
+
+def data_class_choices(project: Project, task: Task, me: Actor | None) -> dict:
+    """Context of `_data_class_field.html`: classes the user may not choose for this task (rules 2 and 4)."""
+    rank, current = zones.CLASS_RANK, zones.effective_class(project, task)
+    disabled = [c for c in zones.DATA_CLASSES
+                if (rank[c] < rank[project.privacy] and not zones.may_loosen(project, me))
+                or (zones.started(task) and rank[c] < rank[current])]
+    return {"dc_project": project.privacy, "dc_disabled": disabled}
 
 
 @router.get("/tasks/{nr}")
@@ -526,6 +815,17 @@ def _run(request: Request, user: UiUser, nr: str, fn, message: str, **error_ctx)
         return _detail(request, user, nr, 422 if e.status < 500 else e.status, error=e.message,
                        merge_conflict=e.code in ("merge_conflict", "brain_conflict", "changelog_invalid"), **error_ctx)
     return RedirectResponse(f"/tasks/{nr}?msg={quote_plus(message)}", 303)
+
+
+@router.post("/tasks/{nr}/run-fields", dependencies=POST)
+def run_fields(request: Request, nr: str, user: UiUser = Depends(require_user), script_path: str = Form(""),
+               commit_sha: str = Form(""), dataset: str = Form("")):
+    """Complete the runner fields of a run draft (e.g. the script path of a follow-up draft of the chain)."""
+    def fn(s, me):
+        task = svc.get(s, nr)
+        svc.update(s, me, task, {"run": {"script_path": script_path.strip(), "commit_sha": commit_sha.strip(),
+                                         "dataset": dataset.strip()}}, None)
+    return _run(request, user, nr, fn, _("Run fields saved"))
 
 
 @router.get("/tasks/{nr}/follow-up")
@@ -592,7 +892,7 @@ def edit_task(request: Request, nr: str, user: UiUser = Depends(require_user), r
               prio: int = Form(...), assigned_to: str = Form(""), due_date: str = Form(""),
               sprint: str = Form(""), then_publish: bool = Form(False), model_tier: str = Form(""),
               model: str = Form(""), structure: bool = Form(False), parent_task_nr: str = Form(""),
-              depends_on: str = Form(""), reviewer: str = Form("")):
+              depends_on: str = Form(""), reviewer: str = Form(""), data_class: str = Form("")):
     def fn(s, me):
         task = svc.get(s, nr, for_update=True)
         changes = {"title": title, "description": description or None,
@@ -612,6 +912,8 @@ def edit_task(request: Request, nr: str, user: UiUser = Depends(require_user), r
         current_reviewer = s.scalar(select(Actor.name).where(Actor.id == task.reviewer_id)) if task.reviewer_id else None
         if reviewer and (None if reviewer == "none" else reviewer) != current_reviewer:  # `none` clears, empty keeps
             changes["reviewer"] = None if reviewer == "none" else reviewer
+        if data_class and zones.normalize_class(data_class) != task.data_class:  # `inherit` clears, empty keeps
+            changes["data_class"] = data_class
         if structure:  # Parent/dependency fields are on the form (drafts); without the marker they stay unchanged.
             changes["parent_task_nr"] = parent_task_nr.strip() or None
             changes["depends_on"] = [x.strip() for x in depends_on.replace(",", " ").split() if x.strip()]
@@ -620,7 +922,7 @@ def edit_task(request: Request, nr: str, user: UiUser = Depends(require_user), r
     # that holds the faulty field open.
     entered = dict(row_version=row_version, title=title, description=description,
                    acceptance_criteria=acceptance_criteria, prio=prio, assigned_to=assigned_to, due_date=due_date,
-                   sprint=sprint, model_tier=model_tier, model=model, reviewer=reviewer)
+                   sprint=sprint, model_tier=model_tier, model=model, reviewer=reviewer, data_class=data_class)
     if structure:
         entered.update(parent_task_nr=parent_task_nr, depends_on=depends_on)
     # Save and publish: save in a separate commit before publishing. If publishing fails

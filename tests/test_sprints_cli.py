@@ -90,6 +90,20 @@ def test_sprint_flow_via_cli(senv, tm_as, tmp_path):  # noqa: F811
     r = tm_as(e["orch"], "sprint", "list", "-p", "KET", "--status", "closed")
     assert "Sprint A [closed]" in r.stdout and "Sprint B" not in r.stdout
 
+    # Reopen: closed again, the tasks moved to Sprint B come back; only admins/owner. KET-0003 was moved out by
+    # hand before the close and stays in Sprint B (it is not a close-time move).
+    r = tm_as(e["orch"], "sprint", "reopen", "Sprint A", "-p", "KET")
+    assert r.exit_code == 1 and "403" in r.output
+    r = tm_as(e["admin"], "sprint", "reopen", "Sprint A", "-p", "KET")
+    assert r.exit_code == 0 and "reopened – status is 'released' again" in r.stdout, r.output
+    assert "2 task(s) moved back into the sprint" in r.stdout
+    assert "KET-0001" in r.stdout and "KET-0002" in r.stdout
+    assert task(e, "KET-0001")["sprint_name"] == "Sprint A" and task(e, "KET-0001")["status"] == "in_progress"
+    assert task(e, "KET-0003")["sprint_name"] == "Sprint B"
+    assert "Sprint A [released]" in tm_as(e["orch"], "sprint", "list", "-p", "KET").stdout
+    r = tm_as(e["admin"], "sprint", "reopen", "Sprint A", "-p", "KET", "--no-restore-tasks")
+    assert r.exit_code == 1  # Already released again.
+
 
 @pytest.fixture
 def mcp_as(senv, tm_as, monkeypatch):  # noqa: F811
@@ -136,3 +150,79 @@ def test_sprint_flow_via_mcp(senv, mcp_as):  # noqa: F811
     out = admin.close_sprint("KET", "Sprint M", detach=True)
     assert "detached from the sprint (KET-0001, KET-0002)" in out
     assert task(e, "KET-0001")["sprint"] is None and "Sprint M [closed]" in orch.list_sprints("KET")
+    assert "403" in orch.reopen_sprint("KET", "Sprint M")
+    out = admin.reopen_sprint("KET", "Sprint M")
+    # KET-0003 was moved out by hand before the close and stays out; only the two detached at close return.
+    assert "reopened – status is 'released' again" in out and "2 task(s) moved back into the sprint" in out
+    assert task(e, "KET-0001")["sprint_name"] == "Sprint M"
+    assert task(e, "KET-0003")["sprint"] is None
+    assert "Sprint M [released]" in orch.list_sprints("KET")
+
+
+def test_sprint_update_and_reopen_without_restore(senv, tm_as, mcp_as):  # noqa: F811
+    e = senv
+    assert tm_as(e["orch"], "sprint", "create", "-p", "KET", "--name", "Sprint U", "--goal", "Old goal",
+                 "--start", "2026-10-12", "--end", "2026-10-23").exit_code == 0
+    assert tm_as(e["orch"], "sprint", "create", "-p", "KET", "--name", "Other").exit_code == 0
+    r = tm_as(e["orch"], "sprint", "update", "Sprint U", "-p", "KET")
+    assert r.exit_code == 2 and "--name" in r.output
+
+    r = tm_as(e["orch"], "sprint", "update", "Sprint U", "-p", "KET", "--name", "Sprint U2")
+    assert r.exit_code == 0 and "Sprint U2 [planned] 2026-10-12 – 2026-10-23" in r.stdout, r.output
+    assert "Goal: Old goal" in r.stdout
+    r = tm_as(e["orch"], "sprint", "update", "Sprint U2", "-p", "KET", "--goal", "New goal")
+    assert r.exit_code == 0 and "Goal: New goal" in r.stdout and "Sprint U2 [planned]" in r.stdout
+    r = tm_as(e["orch"], "sprint", "update", "Sprint U2", "-p", "KET", "--goal", "")
+    assert r.exit_code == 0 and "Goal: –" in r.stdout and "2026-10-12 – 2026-10-23" in r.stdout
+    r = tm_as(e["orch"], "sprint", "update", "sprint u2", "-p", "KET", "--end", "none")
+    assert r.exit_code == 0 and "Sprint U2 [planned] 2026-10-12 – ?" in r.stdout, r.output
+    r = tm_as(e["orch"], "sprint", "update", "Sprint U2", "-p", "KET", "--end", "2026-10-01")
+    assert r.exit_code == 1 and "invalid_dates" in r.output and "Traceback" not in r.output
+    r = tm_as(e["orch"], "sprint", "update", "Sprint U2", "-p", "KET", "--name", "Other")
+    assert r.exit_code == 1 and "sprint_exists" in r.output
+    r = tm_as(e["orch"], "sprint", "update", "Nope", "-p", "KET", "--name", "X")
+    assert r.exit_code == 2 and "has no sprint 'Nope'" in r.output
+    r = tm_as(e["claude"], "sprint", "update", "Sprint U2", "-p", "KET", "--goal", "nope")
+    assert r.exit_code == 1 and "403" in r.output and "No permission" in r.output
+    r = tm_as(e["orch"], "sprint", "update", "Sprint U2", "-p", "KET", "--start", "12.11.")
+    assert r.exit_code == 2 and "YYYY-MM-DD" in r.output
+
+    assert tm_as(e["admin"], "sprint", "release", "Sprint U2", "-p", "KET").exit_code == 0
+    r = tm_as(e["orch"], "sprint", "update", "Sprint U2", "-p", "KET", "--start", "2026-11-01", "--json")
+    assert r.exit_code == 0 and '"status": "released"' in r.stdout and "2026-11-01" in r.stdout, r.output
+    assert '"goal": null' in r.stdout  # Cleared earlier; this update did not touch the goal.
+
+    orch, admin, worker = mcp_as("orch"), mcp_as("admin"), mcp_as("claude")
+    out = orch.update_sprint("KET", "Sprint U2", goal="Via MCP")
+    assert "Goal: Via MCP" in out and "Sprint U2 [released]" in out
+    listing = e["c"].get("/api/v1/projects/KET/sprints", headers=e["admin"]).json()
+    sid = next(s["id"] for s in listing if s["name"] == "Sprint U2")
+    out = orch.update_sprint("KET", str(sid), name="Sprint U3")
+    assert "Sprint U3 [released]" in out and "Goal: Via MCP" in out
+    assert "sprint_exists" in orch.update_sprint("KET", "Sprint U3", name="Other")
+    assert "invalid_dates" in orch.update_sprint("KET", "Sprint U3", end_date="2020-01-01")
+    assert "has no sprint 'Missing'" in orch.update_sprint("KET", "Missing", name="Z")
+    assert "403" in worker.update_sprint("KET", "Sprint U3", name="Nope")
+    out = orch.update_sprint("KET", "Sprint U3", start_date="none")
+    assert "Sprint U3 [released] –" in out  # Both dates are empty; the status did not change.
+    assert "invalid_sprint_status" in admin.reopen_sprint("KET", "Sprint U3")
+
+    # Reopen without putting the moved-out tasks back, via the CLI flag and the MCP argument.
+    created = tm_as(e["orch"], "create", "--project", "KET", "--title", "Stay out", "--assign", "claude-code",
+                    "--sprint", "Sprint U3", *DEF)
+    assert created.exit_code == 0, created.output
+    nr = created.stdout.strip()
+    assert tm_as(e["admin"], "sprint", "close", "Sprint U3", "-p", "KET", "--detach").exit_code == 0
+    r = tm_as(e["admin"], "sprint", "reopen", "Sprint U3", "-p", "KET", "--no-restore")
+    assert r.exit_code == 0 and "reopened – status is 'released' again" in r.stdout, r.output
+    assert "moved back" not in r.stdout and task(e, nr)["sprint"] is None
+    # Still released: a second task, closed out again, stays out when restore_tasks is false.
+    created = tm_as(e["orch"], "create", "--project", "KET", "--title", "Stay out too", "--assign", "claude-code",
+                    "--sprint", "Sprint U3", *DEF)
+    assert created.exit_code == 0, created.output
+    nr2 = created.stdout.strip()
+    assert tm_as(e["admin"], "sprint", "close", "Sprint U3", "-p", "KET", "--detach").exit_code == 0
+    out = admin.reopen_sprint("KET", "Sprint U3", restore_tasks=False)
+    assert "reopened – status is 'released' again" in out and "moved back" not in out
+    assert task(e, nr2)["sprint"] is None
+    assert "403" in orch.reopen_sprint("KET", "Sprint U3")  # Already released, and an orchestrator may not reopen.

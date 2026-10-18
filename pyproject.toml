@@ -1,6 +1,6 @@
 [project]
 name = "taskbrigade"
-version = "0.13.4"
+version = "0.14.0"
 description = "Task system that coordinates humans and AI agents through assignment, leases, review, and merge."
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"
@@ -38,6 +38,9 @@ dependencies = [
     # via a client callback before the password is sent, and a built-in SFTP server for the tests – paramiko would
     # add bcrypt/pynacl and needs a hand-written test server.
     "asyncssh>=2.14",
+    "holidays>=0.63,<1",
+    # Canonical YAML export/import of workflow templates (WF 14); already pulled in by uvicorn[standard].
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
@@ -55,7 +58,13 @@ Issues = "https://github.com/taskbrigade/taskbrigade/issues"
 Changelog = "https://github.com/taskbrigade/taskbrigade/blob/main/CHANGELOG.md"
 
 [dependency-groups]
-dev = ["pytest>=8", "respx>=0.21"]
+dev = [
+    "defusedxml==0.7.1",
+    "openpyxl==3.1.5",
+    "playwright==1.63.0",
+    "pytest>=8",
+    "respx>=0.21",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -244,7 +244,7 @@ def test_ui_own_projects_only_by_default_also_for_admins(env):
         assert "KET-Task" in kanban and "Zwei-Task" not in kanban and _options(kanban, "project") == {"KET"}
         projects = ui.get("/projects").text
         assert "/projects/KET" in projects and "/projects/ZWEI" not in projects
-        assert "Angezeigt werden nur deine eigenen Projekte." in projects
+        assert "Du bist noch Owner keines Projekts" not in projects  # The admin owns KET.
         assert _options(ui.get("/tasks/new").text, "project") == {"KET"}
         assert _options(ui.get("/").text, "project") == {"KET"}  # Quick capture "+".
         assert _options(ui.get("/sprints/new").text, "project") == {"KET"}
@@ -267,7 +267,7 @@ def test_ui_inbox_shows_own_projects_only(env):
     anna = _ui_login("anna", "anna-passwort-123")
     inbox = anna.get("/").text
     assert "Zwei-Task" in inbox and "Frage zu Zwei?" in inbox
-    assert "(1)" in inbox.split("inbox-group act", 1)[1].split("</h3>", 1)[0]  # Counter.
+    assert 'class="count-pill">1</span>' in inbox.split("Aktion erforderlich", 1)[1].split("</h2>", 1)[0]  # Counter.
 
 
 def test_ui_show_all_projects_switch_persists_and_restores_owner_filter(env):

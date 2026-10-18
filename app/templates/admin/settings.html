@@ -1,51 +1,151 @@
 {% extends "base.html" %}
-{% block title %}{{ _("Settings") }} – {{ _("Admin") }} – TaskBrigade{% endblock %}
-{% block content %}
-<h2>{{ _("Admin") }}</h2>
-{% include "admin/_nav.html" %}
-<article>
-  <form method="post" action="/admin/settings">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    {% for key, s in settings.items() %}
-      {% if s.kind == "bool" %}
-      <label><input type="checkbox" name="{{ key }}" value="1" {% if s.value == "true" %}checked{% endif %}> {{ _(s.label) }}</label>
-      {% elif s.kind == "choice" %}
-      <label>{{ _(s.label) }}
-        <select name="{{ key }}">{% for c in s.choices %}<option value="{{ c }}" {% if c == s.value %}selected{% endif %}>{{ LANGUAGES[c] if key == "ui_language" else c }}</option>{% endfor %}</select>
-      </label>
-      {% elif s.secret %}
-      <label>{{ _(s.label) }} {% if s.is_set %}<small>{{ _("(set: <code>%(value)s</code>, source %(source)s)", value=s.value, source=s.source) }}</small>{% endif %}
-        <input type="password" name="{{ key }}" autocomplete="off" placeholder="{{ _('leave empty = unchanged') if s.is_set else _('not set') }}">
-      </label>
-      {% else %}
-      <label>{{ _(s.label) }} <input name="{{ key }}" value="{{ s.value or '' }}" {% if s.kind == "int" %}type="number"{% endif %}></label>
-      {% endif %}
-      {% if s.source == "db" %}<label class="reset"><input type="checkbox" name="reset_{{ key }}" value="1"> {{ _("reset to the .env default") }}</label>{% endif %}
-    {% endfor %}
-    <button type="submit">{{ _("Save") }}</button>
-  </form>
-  <button class="secondary" hx-post="/admin/settings/test-gitea" hx-target="#gitea-test">{{ _("Test Gitea connection") }}</button>
-  <div id="gitea-test"></div>
-  <button class="secondary" hx-post="/admin/settings/test-telegram" hx-target="#telegram-test">{{ _("Test Telegram connection") }}</button>
-  <div id="telegram-test"></div>
-  <button class="secondary" hx-post="/admin/settings/test-sftp" hx-target="#sftp-test">{{ _("Test SFTP connection") }}</button>
-  <div id="sftp-test"></div>
-  <small>{{ _("SFTP: agents upload results with <code>tbr sftp put</code> into the storage pattern below the base folder; every agent has its own SFTP login (Admin → Users & agents). The host key fingerprint is pinned: “Test SFTP connection” shows it for confirmation.") }}</small><br>
-  <small>{{ _("Telegram: create a bot with @BotFather, enter its token and enable it. Every human links their own chat under Profile.") }}</small>
-</article>
-{% if notification_log %}
-<article id="notification-log">
-  <h3>{{ _("Notification delivery log") }}</h3>
-  <small>{{ _("Without message contents; entries are kept for 30 days.") }}</small>
-  <table class="striped">
-    <thead><tr><th>{{ _("Time") }}</th><th>{{ _("Recipient") }}</th><th>{{ _("Event") }}</th><th>{{ _("Task") }}</th><th>{{ _("Status") }}</th><th>{{ _("Attempts") }}</th><th>{{ _("Error") }}</th></tr></thead>
-    <tbody>
-    {% for n, who in notification_log %}
-      <tr><td>{{ n.created_at | localtime }}</td><td>{{ who.name if who else "–" }}</td><td>{{ events.get(n.event, n.event) }}</td>
-          <td>{{ n.task_nr or "–" }}</td><td>{{ status_labels.get(n.status, n.status) }}</td><td>{{ n.attempts }}</td><td>{{ n.last_error or "" }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</article>
+{% import "_ui.html" as ui %}
+{% block title %}{{ _("Admin: Settings") }} – TaskBrigade{% endblock %}
+{% block head %}<script src="/static/settings.js?v={{ static_v }}" defer></script>{% endblock %}
+
+{#- One setting. Secrets only show whether they are set and where from; their value never reaches the page. -#}
+{% macro field(key, s) -%}
+{#- "Reset": a checkbox shown as an extra-small secondary button (pressed while checked); saving drops the DB value. -#}
+{%- set reset_label = _("Reset to .env") if s.secret else _("Reset to .env default") -%}
+{%- set reset -%}
+{% if s.source == "db" %}<label class="ui-reset-toggle" title="{{ _('Saving removes the value stored in the database; the .env value or the built-in default applies again.') }}"><input type="checkbox" class="ui-visually-hidden" name="reset_{{ key }}" value="1"><span aria-hidden="true" class="ui-reset-mark">✓</span>{{ reset_label }}</label>{% endif %}
+{%- endset -%}
+{% if s.kind == "bool" %}
+<div class="ui-settings-switch ui-settings-wide">{{ ui.switch(key, _(s.label), s.value == "true") }}{{ reset }}</div>
+{% elif s.secret %}
+<div class="ui-field ui-secret ui-settings-wide" data-secret>
+  <span class="ui-settings-label" id="set-{{ key }}-label">{{ _(s.label) }}</span>
+  <div class="ui-secret-row">
+    <span class="ui-secret-mask">{% if s.is_set %}<span aria-hidden="true">••••••••••••</span>{% endif %}
+      {%- if s.source == "db" %}{{ ui.pill(_("set · stored in DB"), "ok") }}
+      {%- elif s.is_set %}{{ ui.pill(_("set · from .env")) }}
+      {%- else %}{{ ui.pill(_("not set"), "warn") }}{% endif %}</span>
+    <button type="button" class="ui-btn ui-btn-secondary" data-secret-replace aria-controls="set-{{ key }}" aria-expanded="false">{{ _("Replace") if s.is_set else _("Set") }}</button>
+    {{ reset }}
+  </div>
+  <input class="ui-input ui-secret-new" type="password" id="set-{{ key }}" name="{{ key }}" autocomplete="new-password"
+         aria-labelledby="set-{{ key }}-label" placeholder="{{ _('New value (stored encrypted)') }}">
+</div>
+{% else %}
+<div class="ui-field{% if s.kind == 'str' %} ui-settings-wide{% endif %}">
+  <span class="ui-settings-label"><label for="set-{{ key }}">{{ _(s.label) }}</label>{{ reset }}</span>
+  {% if s.kind == "choice" %}
+  <select class="ui-select" id="set-{{ key }}" name="{{ key }}">{% for c in s.choices %}<option value="{{ c }}"{% if c == s.value %} selected{% endif %}>{{ LANGUAGES[c] if key == "ui_language" else c }}</option>{% endfor %}</select>
+  {% if key == "ui_language" %}
+  <div class="ui-muted">
+  <small>{{ _("Applies to everyone without a personal language choice.") }}</small>
+  {% set personal = normalize_language(request.cookies.get('tm_lang')) %}
+  {% if personal %}<br><small>{{ _("Your own choice: %(lang)s", lang=personal | upper) }} – <a href="/language?lang=default&amp;next=/admin/settings">{{ _("use the default") }}</a></small>{% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <input class="ui-input" id="set-{{ key }}" name="{{ key }}" value="{{ s.value or '' }}"{% if s.kind == "int" %} type="number"{% endif %}>
+  {% endif %}
+</div>
 {% endif %}
+{%- endmacro %}
+
+{% block content %}
+<div class="ui-page ui-settings-page" data-settings>
+  {{ ui.page_header(_("Admin: Settings")) }}
+  {% include "admin/_nav.html" %}
+
+  <div class="ui-settings">
+    <nav class="ui-settings-nav ui-hide-phone" aria-label="{{ _('Settings groups') }}">
+      {% for g in groups %}<a href="#{{ g.key }}" data-group-link="{{ g.key }}">{{ _(g.title) }}{% if g.off %} {{ ui.pill(_("off"), "warn") }}{% endif %}</a>{% endfor %}
+    </nav>
+    <div class="ui-settings-content">
+      <label class="ui-field ui-only-phone">{{ _("Settings group") }}
+        <select class="ui-select" data-group-select>{% for g in groups %}<option value="{{ g.key }}">{{ _(g.title) }}{% if g.off %} ({{ _("off") }}){% endif %}</option>{% endfor %}</select>
+      </label>
+      <form method="post" action="/admin/settings" id="settings-form" class="ui-stack" data-settings-form data-guard="settings">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        {% for g in groups %}
+        <section class="ui-card ui-settings-card" id="settings-{{ g.key }}" data-group="{{ g.key }}" aria-labelledby="settings-{{ g.key }}-title">
+          <div class="ui-settings-card-head">
+            <div>
+              <h2 class="ui-section-title" id="settings-{{ g.key }}-title">{{ _(g.title) }}</h2>
+              <p class="ui-muted">{{ _(g.hint) }}</p>
+            </div>
+            {% if g.key == "gitea" %}
+            <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" hx-post="/admin/settings/test-gitea" hx-params="none" hx-target="#gitea-test">{{ _("Test connection") }}</button>
+            {% elif g.key == "telegram" %}
+            <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" hx-post="/admin/settings/test-telegram" hx-params="none" hx-target="#telegram-test">{{ _("Test Telegram connection") }}</button>
+            {% elif g.key == "sftp" %}
+            <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" hx-post="/admin/settings/test-sftp" hx-params="none" hx-target="#sftp-test">{{ _("Test SFTP connection") }}</button>
+            {% endif %}
+          </div>
+          {% if g.key in ("gitea", "telegram", "sftp") %}<div id="{{ g.key }}-test" aria-live="polite"></div>{% endif %}
+          {% if g.key == "workflows" %}
+          <p><a href="/workflows/schedules">{{ _("Workflow schedules") }}</a> · {{ _("Last tick") }}: {{ workflow_tick_status.last or '–' }} UTC</p>
+          {% if workflow_tick_status.enabled and workflow_tick_status.stale %}<p role="status">{{ _("No workflow tick in the last five minutes. Check the scheduler trigger.") }}</p>{% endif %}
+          {% endif %}
+          {% for row in g.rows %}
+          <div class="ui-settings-grid{% if row | length > 1 %} ui-settings-grid-2{% endif %}">{% for key, s in row %}{{ field(key, s) }}{% endfor %}</div>
+          {% endfor %}
+          {% if g.key == "email" %}
+          <div class="ui-settings-test">
+            <div class="ui-field"><label for="email-test-to">{{ _("Test mail to") }}</label>
+              <input class="ui-input" type="email" id="email-test-to" name="to" form="email-test-form" value="{{ admin_email or '' }}"></div>
+            <button type="button" class="ui-btn ui-btn-secondary" hx-post="/admin/settings/test-email" hx-params="to" hx-include="#email-test-to" hx-target="#email-test">{{ _("Send test mail") }}</button>
+          </div>
+          <div id="email-test" aria-live="polite"></div>
+          {% endif %}
+        </section>
+        {% endfor %}
+      </form>
+      <form id="email-test-form" hidden></form>
+
+      <section class="ui-card ui-settings-card" id="model-location-findings" data-group="agents" aria-labelledby="model-location-title">
+        <div><h2 class="ui-section-title" id="model-location-title">{{ _("Model location findings") }}</h2>
+          <p class="ui-muted">{{ _("Agents that work on local_only projects today but use a cloud model: once “local_only only for agents with a local model” is on, they can no longer be assigned, review or claim there. Set the agent's model location to “local model” (Admin → Users & agents) if it really runs a local model, otherwise reassign its tasks and remove its project access.") }}</p></div>
+        {% if zone_findings %}
+        {% if zone_enforced %}<p class="banner error">{{ _("Enforcement is on: these agents are blocked from the listed projects and tasks.") }}</p>{% endif %}
+        <div class="ui-table-scroll">
+        <table class="ui-table ui-table-cards">
+          <thead><tr><th>{{ _("Agent") }}</th><th>{{ _("Model location") }}</th><th>{{ _("Runtime") }}</th><th>{{ _("Project access") }}</th><th>{{ _("Assigned open tasks") }}</th><th>{{ _("Entered as reviewer") }}</th></tr></thead>
+          <tbody>
+          {% for f in zone_findings %}
+            <tr><td class="ui-card-title"><a href="/admin/users/{{ f.actor.name }}">{{ f.actor.name }}</a><br><small>{{ f.actor.agent_kind }}</small></td>
+                <td data-label="{{ _('Model location') }}">{{ _(model_locations[f.actor.model_location]) }}</td><td data-label="{{ _('Runtime') }}">{{ f.actor.runtime }}</td>
+                <td data-label="{{ _('Project access') }}">{{ f.projects | join(", ") or "–" }}</td>
+                <td data-label="{{ _('Assigned open tasks') }}">{% for nr in f.tasks %}<a href="/tasks/{{ nr }}">{{ nr }}</a>{% if not loop.last %}, {% endif %}{% else %}–{% endfor %}</td>
+                <td data-label="{{ _('Entered as reviewer') }}">{% for nr in f.reviews %}<a href="/tasks/{{ nr }}">{{ nr }}</a>{% if not loop.last %}, {% endif %}{% else %}–{% endfor %}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p>{{ _("No findings – every agent linked to a local_only project has a local model.") }}</p>
+        {% endif %}
+      </section>
+
+      {% if notification_log %}
+      <section class="ui-card ui-settings-card" id="notification-log" data-group="telegram email" aria-labelledby="notification-log-title">
+        <div><h2 class="ui-section-title" id="notification-log-title">{{ _("Notification delivery log") }}</h2>
+          <p class="ui-muted">{{ _("Without message contents; entries are kept for 30 days.") }}</p></div>
+        <div class="ui-table-scroll">
+        <table class="ui-table">
+          <thead><tr><th>{{ _("Time") }}</th><th>{{ _("Recipient") }}</th><th>{{ _("Channel") }}</th><th>{{ _("Event") }}</th><th>{{ _("Task") }}</th><th>{{ _("Status") }}</th><th>{{ _("Attempts") }}</th><th>{{ _("Error") }}</th></tr></thead>
+          <tbody>
+          {% for n, who in notification_log %}
+            <tr><td>{{ n.created_at | localtime }}</td><td>{{ who.name if who else "–" }}</td><td>{{ channels.get(n.channel, n.channel) }}</td><td>{{ events.get(n.event, n.event) }}</td>
+                <td>{{ n.task_nr or "–" }}</td><td>{{ status_labels.get(n.status, n.status) }}</td><td>{{ n.attempts }}</td><td>{{ n.last_error or "" }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </section>
+      {% endif %}
+
+      <div class="ui-savebar" data-savebar>
+        <span class="ui-savebar-status" data-savebar-status role="status"><span aria-hidden="true">● </span><span data-savebar-text>{{ _("No unsaved changes") }}</span></span>
+        <div class="ui-row">
+          <button type="reset" form="settings-form" class="ui-btn ui-btn-secondary">{{ _("Discard") }}</button>
+          <button type="submit" form="settings-form" class="ui-btn">{{ _("Save settings") }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

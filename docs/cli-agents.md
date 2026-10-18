@@ -5,6 +5,7 @@
 The [quickstart](quickstart.md) runs Claude Code on the TaskBrigade server itself. This guide sets up terminal
 coding agents on **another Linux or macOS machine** – a workstation or a GPU box with a local model – and lets them
 pick up tasks unattended with the runner.
+For workflow run commands and previews, see [Workflow API, CLI and MCP](workflows-api.md#cli).
 
 > Tested with all three agents on Ubuntu 24.04 (task → tmux window → commit → `tbr submit` → pull request → done).
 > The snags found along the way – the trust dialog swallowing a keystroke, approval prompts for `&&` chains and
@@ -263,19 +264,24 @@ keep using `tm`. `tbr setup` writes absolute paths into timers, MCP entries and 
 
 ## 2. Check privacy (local or cloud?)
 
-`runtime` decides whether an agent may get tasks from projects marked "local agents only" (`local_only`).
+`runtime` (where the agent runs) and the **model location** (where its model runs) decide whether an agent may get
+tasks from projects marked "local agents only" (`local_only`): with *Admin → Settings* “local_only only for agents
+with a local model” on (the default for new installations) both must be `local` (details:
+[architecture.md](architecture.md#privacy)).
 
-- **Claude Code** and **Codex** send code to Anthropic or OpenAI → `cloud`.
+- **Claude Code** and **Codex** send code to Anthropic or OpenAI → model location `cloud` (fixed). Running the CLI on
+  your own machine does not make it local.
 - **OpenCode:** depends on the configured model, for example a local Qwen3-Coder 30B behind your own provider.
   Look at the configuration (`~/.config/opencode/opencode.json` or `.jsonc`, sections `provider` / `model`): if
-  `baseURL` points to your own host, localhost or the LAN → `local`. If it uses a cloud provider →
-  `cloud`. **⏸ Admin** sets the runtime when creating the agent in TaskBrigade (and can change it later).
+  `baseURL` points to your own host, localhost or the LAN → runtime and model location `local`. If it uses a cloud
+  provider → model location `cloud`. **⏸ Admin** sets both when creating the agent in TaskBrigade (and can change them
+  later); “local model” needs the confirmation “I have checked that this agent uses no cloud model”.
 
 ## 3. Work directories and identities
 
 ### Recommended: join code
 
-**⏸ Admin:** in TaskBrigade *Admin → Users & agents → New agent* enter name, kind, runtime, role
+**⏸ Admin:** in TaskBrigade *Admin → Users & agents → New agent* enter name, kind, runtime, model location, role
 and the projects the agent may work on. For an existing agent (e.g. one an older version created at installation), open it and follow
 “Join code for tbr join / Gitea setup”.
 
@@ -518,6 +524,39 @@ nothing it adds no switch, and the CLI uses its own default – tasks and agents
 Set the tier in the task form, the sprint editor, with `tbr create/update --tier simple|standard|complex` (German
 `einfach`/`komplex` work too; `none` removes it) and `--model <name>`, or with MCP `create_task`/`update_task`
 (`tier`, `model`).
+
+### Task dependencies
+
+An agent can claim a task only once all tasks it depends on are *done*. Orchestrators set the dependencies without the
+web UI: `tbr create … --depends-on DEMO-0042 --depends-on DEMO-0043` at creation, and `tbr update DEMO-0050
+--depends-on DEMO-0042 --depends-on DEMO-0043` later. `tbr update --depends-on` **replaces** the whole list,
+`--depends-on none` removes all dependencies, and without the option they stay unchanged. In MCP, `create_task` and
+`update_task` take `depends_on` (a list of task numbers or a comma-separated string; `"none"` clears on update).
+`tbr show` / `show_task` list the dependencies with their status. The server refuses unknown task numbers,
+self-dependencies and dependency circles, and the usual edit permissions apply (orchestrator, admin, project owner);
+the message is printed as is.
+
+### Editing and reopening sprints
+
+Admins, orchestrators and the project owner change a sprint's name, goal or dates without the web UI:
+
+```bash
+tbr sprint update "Sprint 1" -p DEMO --name "Sprint 1b" --goal "Ship the login" --start 2026-10-12 --end 2026-10-23
+```
+
+Only the options you pass are sent; the others stay as they are. `--start none` and `--end none` clear a date,
+`--goal ""` clears the goal (`--goal -` reads the goal from stdin, as on `tbr sprint create`). The status does not
+change here – releasing, closing and reopening stay separate commands. The reply is the same view as
+`tbr sprint show` (or `--json`).
+
+Admins and the project owner reopen a closed sprint with `tbr sprint reopen "Sprint 1" -p DEMO`. By default the
+tasks that were moved out when it was closed come back (their status unchanged); `--no-restore` (same as
+`--no-restore-tasks`) leaves them where they are. Restored and skipped tasks are listed. Reopening a sprint that is
+not closed, a duplicate name, an end date before the start, an unknown sprint and a missing permission are reported
+as the server's message (no stack trace).
+
+The same two operations exist as MCP tools: `update_sprint(project, sprint, name, goal, start_date, end_date)`
+(`"none"` clears a date) and `reopen_sprint(project, sprint, restore_tasks=True)`. `sprint` is an id or a name.
 
 ### Reviewer agents
 

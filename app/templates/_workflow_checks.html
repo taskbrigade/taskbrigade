@@ -1,0 +1,17 @@
+{#- Publish checks of the editor (WF 3 + draft validation), refreshed by HTMX after every change. -#}
+{% set errors = issues | selectattr("severity", "ne", "warning") | list %}
+{% set warnings = issues | selectattr("severity", "eq", "warning") | list %}
+<div class="wf-checks-body" data-state="{{ 'error' if errors else ('warning' if warnings else 'ok') }}">
+  {% if not issues %}<p class="wf-ok"><span aria-hidden="true">✓</span> {{ _("All checks passed – ready to publish.") }}</p>
+  {% else %}
+  <p>{% if errors %}<strong>{{ ngettext("%(num)d problem blocks publishing", "%(num)d problems block publishing", errors | length) }}</strong>{% endif %}
+     {% if warnings %}{% if errors %} · {% endif %}{{ ngettext("%(num)d warning", "%(num)d warnings", warnings | length) }}{% endif %}</p>
+  <ul class="plain wf-issues">
+    {% for i in errors + warnings %}
+    <li class="wf-issue-{{ i.severity }}"><span aria-hidden="true">{{ "⚠" if i.severity == "warning" else "✗" }}</span>
+      <span class="visually-hidden">{{ _("Warning:") if i.severity == "warning" else _("Error:") }}</span>
+      <strong>{{ i.label }}</strong>{% if i.step_key %} · <code>{{ i.step_key }}</code>{% endif %} – <span lang="en">{{ i.message }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>

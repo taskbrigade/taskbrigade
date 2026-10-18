@@ -45,13 +45,17 @@ def test_sprint_flow_in_ui(env, ui):  # noqa: F811
     """Create a sprint, batch-capture tasks, complete one, release with preview, close with move/detach."""
     mkproject(env)
     page = ui.get("/projects/KET").text
-    assert "Sprints" in page and "Noch keine Sprints." in page and 'action="/projects/KET/sprints/new"' in page
+    assert "Sprints" in page and "Noch keine Sprints." in page and 'action="/projects/KET/sprints/new"' not in page
+    assert '<a href="/planning?project=KET" class="headline-link">In der Planung öffnen</a>' in page
     sid = mksprint(ui, goal="Login fertig", start_date="2026-10-12", end_date="2026-10-23")
     sid2 = mksprint(ui, name="Sprint 2")
     page = ui.get(f"/projects/KET/sprints/{sid}").text
     assert "Sprint 1" in page and "Login fertig" in page and "2026-10-12" in page and "Geplant" in page
     assert "bleibt Entwurf, bis der Sprint freigegeben ist" in page
-    assert ui.get("/projects/KET").text.count("/projects/KET/sprints/") >= 2
+    assert 'href="/planning?project=KET">Planungsboard</a>' in page
+    listing = ui.get("/projects/KET").text.split('id="sprints"')[1].split("</article>")[0]
+    assert f'href="/projects/KET/sprints/{sid}">Sprint 1</a>' in listing and "/sprints/" + str(sid2) in listing
+    assert 'class="badge sprint-planned"' in listing and "noch keine Tasks" in listing and "<table" not in listing
 
     # Batch: the preview marks invalid lines and offers no create button; nothing is created.
     lines = "Login bauen | hermes | 2\nLogout\nDoku | niemand | 9"
@@ -139,7 +143,8 @@ def test_task_forms_choose_sprint(env, ui):  # noqa: F811
     # Edit form: only sprints of the task's project; detach and re-assign.
     page = ui.get(f"/tasks/{nr}").text
     edit = page.split('action="/tasks/' + nr + '/edit"')[1].split("</form>")[0]
-    assert f'<option value="{sid}" selected>' in edit and f'value="{other}"' not in edit
+    sprint_select = edit.split('name="sprint"')[1].split("</select>")[0]
+    assert f'<option value="{sid}" selected>' in sprint_select and f'value="{other}"' not in sprint_select
     t = api_task(env, nr)
     post(ui, f"/tasks/{nr}/edit", row_version=t["row_version"], title="Neu", prio=3, sprint="none")
     assert api_task(env, nr)["sprint"] is None
@@ -177,3 +182,49 @@ def test_sprint_filter_in_backlog_kanban_inbox(env, ui):  # noqa: F811
     assert f'<option value="{sid}" selected>Sprint X</option>' in backlog
     assert f'<a href="/projects/KET/sprints/{sid}">Sprint X</a>' in backlog  # Sprint column.
     assert "◷ Sprint X" in ui.get("/kanban?owner=all").text and "◷ Sprint X" in ui.get("/?owner=all").text
+
+
+@pytest.mark.db
+def test_reopen_closed_sprint_in_ui(env, ui):  # noqa: F811
+    """The sprint page shows the reopen button only on a closed sprint; the checkbox restores the moved tasks."""
+    mkproject(env)
+    sid = mksprint(ui)
+    post(ui, f"/projects/KET/sprints/{sid}/batch", lines="Eins\nZwei", step="create")
+    nrs = [t["task_nr"] for t in api_sprint(env, sid)["tasks"]]
+    post(ui, f"/projects/KET/sprints/{sid}/release")
+    post(ui, f"/projects/KET/sprints/{sid}/close", open_tasks="detach")
+    page = ui.get(f"/projects/KET/sprints/{sid}").text
+    assert 'id="reopen"' in page and "Sprint wieder öffnen" in page and 'id="close"' not in page
+    assert 'value="1" checked' in page  # "Move tasks back" is checked by default.
+    assert 'name="restore_tasks" value="1" checked' in page
+    # Confirmation text (tojson escapes non-ASCII): the count and the wording are there.
+    assert 'wieder \\u00f6ffnen? 2 beim Abschlie\\u00dfen herausverschobene Tasks' in page
+
+    r = post(ui, f"/projects/KET/sprints/{sid}/reopen", restore_tasks="1")
+    assert r.status_code == 200 and "Sprint wieder geöffnet: 2 Tasks zurückgeholt" in r.text
+    assert api_sprint(env, sid)["status"] == "released" and api_sprint(env, sid)["closed_at"] is None
+    assert {api_task(env, nr)["sprint"] for nr in nrs} == {sid}
+    page = ui.get(f"/projects/KET/sprints/{sid}").text
+    assert 'id="reopen"' not in page and 'id="close"' in page
+
+
+@pytest.mark.db
+def test_reopen_without_moving_tasks_back(env, ui):  # noqa: F811
+    mkproject(env)
+    sid = mksprint(ui)
+    post(ui, f"/projects/KET/sprints/{sid}/batch", lines="Eins", step="create")
+    post(ui, f"/projects/KET/sprints/{sid}/release")
+    post(ui, f"/projects/KET/sprints/{sid}/close", open_tasks="detach")
+    r = post(ui, f"/projects/KET/sprints/{sid}/reopen")  # Checkbox off: no restore_tasks field.
+    assert r.status_code == 200 and "Sprint wieder geöffnet" in r.text
+    assert api_sprint(env, sid)["status"] == "released"
+    assert all(t["sprint"] is None for t in env["c"].get("/api/v1/tasks?project=KET", headers=env["admin"])
+               .json()["items"])
+
+
+@pytest.mark.db
+def test_reopen_of_open_sprint_shows_error(env, ui):  # noqa: F811
+    mkproject(env)
+    sid = mksprint(ui)
+    r = post(ui, f"/projects/KET/sprints/{sid}/reopen")
+    assert r.status_code == 422 and "Nur abgeschlossene Sprints" in r.text
