@@ -151,19 +151,16 @@ def test_projects_card_counts_and_agents(env, ui):  # noqa: F811
     assert re.search(r">2 Agenten · heute<", card)
 
 
-def test_projects_current_project_and_mobile_list(env, ui):  # noqa: F811
-    """The quick capture project is marked once ("Aktuell") and leads the card view; the phone keeps the list."""
+def test_projects_no_current_badge(env, ui):  # noqa: F811
+    """The quick capture project is no longer marked; quick capture selection is unchanged, the phone keeps the list."""
     mkproject(env, key="KET")
     mkproject(env, key="ZWEI", name="Zweites Projekt")
     page = ui.get("/projects?status=all").text
-    rows = _rows(page)
-    assert rows.count(">Aktuell</span>") == 1
-    assert _options(page, "project") == {"KET", "ZWEI"}  # Quick capture choice list.
-    assert "Aktuell" in _row(page, "KET")  # First capture project (KET < ZWEI).
+    assert "Aktuell" not in page and "ui-card-current" not in page
+    assert _options(page, "project") == {"KET", "ZWEI"}  # Quick capture choice list still offers both.
     cards = _cards(ui.get("/projects?status=all&view=cards").text)
     assert len(cards) == 2  # No project is shown twice.
-    assert "ui-card-current" in cards[0] and "/projects/KET" in cards[0]  # Current project first.
-    assert "Zweites Projekt" in cards[1]
+    assert "ui-card-current" not in cards[0] and "ui-card-current" not in cards[1]
     # Phone: the list view stays the table (rows become cards via CSS), the toggle is hidden.
     assert '<span class="ui-only-desktop ui-toolbar-view">' in page
     assert re.search(r'<span class="ui-only-desktop ui-toolbar-view">.*?name="view"', page, re.S)
@@ -218,22 +215,19 @@ def test_projects_toolbar_keeps_filter_state(env, ui):  # noqa: F811
     assert _options(page, "sort") == {"activity", "key", "open"}
 
 
-def test_projects_list_keeps_sort_with_current_project(env, ui):  # noqa: F811
-    """The list view keeps the chosen sort even when the quick capture project is first alphabetically.
-
-    Only the cards view leads with the "Current" project; the list used to be reordered too and so ignored `sort`.
-    """
-    mkproject(env, key="AAA")  # First key – also the quick capture default, i.e. the "Current" project.
+def test_projects_list_keeps_sort(env, ui):  # noqa: F811
+    """The list view keeps the chosen sort; the cards view follows it too (no project is moved to the front)."""
+    mkproject(env, key="AAA")
     mkproject(env, key="ZZZ", name="Letztes Projekt")
     page = ui.get("/projects?status=all&sort=key").text
     keys = re.findall(r'<span class="ui-pill ui-pill-mono">([A-Z]+)</span>', _rows(page))
     assert keys == ["AAA", "ZZZ"]
-    assert "Aktuell" in _row(page, "AAA")
+    assert "Aktuell" not in page and "ui-card-current" not in page
     keys = re.findall(r'<span class="ui-pill ui-pill-mono">([A-Z]+)</span>',
                       _rows(ui.get("/projects?status=all&sort=key&mine=mine").text))
-    assert keys == ["AAA", "ZZZ"]  # Mine scope: same order, the current project is not moved up.
-    cards = _cards(ui.get("/projects?status=all&view=cards").text)
-    assert "ui-card-current" in cards[0] and "/projects/AAA" in cards[0]  # Cards still lead with "Current".
+    assert keys == ["AAA", "ZZZ"]  # Mine scope: same order.
+    cards = _cards(ui.get("/projects?status=all&view=cards&sort=key").text)
+    assert "ui-card-current" not in cards[0] and "/projects/AAA" in cards[0]  # Cards keep the key sort.
 
 
 def test_projects_status_filter_and_owner_scope(env, ui):  # noqa: F811

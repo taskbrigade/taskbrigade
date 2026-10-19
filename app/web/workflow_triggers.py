@@ -1,4 +1,6 @@
 """Event-trigger editor on a workflow template (WF 12)."""
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
@@ -23,6 +25,10 @@ def _template(s, me, project, key):
     return row
 
 
+def _base(project: str, key: str) -> str:
+    return f"/workflows/{quote(project)}/{quote(key)}"
+
+
 def _page(s, request, me, template, row=None, error=None, status=200):
     if row is None:
         row = WorkflowTrigger(kind="dataset_ready", filter_json="{}", params_json="{}", enabled=True)
@@ -35,7 +41,8 @@ def _page(s, request, me, template, row=None, error=None, status=200):
                   triggers=existing, fires=fires, kinds=TRIGGER_KINDS, outcome_labels=OUTCOME_LABELS,
                   can_edit=triggers.may_edit(me, template) and visible, error=error,
                   filter_text=row.filter_json if visible else "***",
-                  params_text=row.params_json if visible else "***")
+                  params_text=row.params_json if visible else "***",
+                  base=_base(template.project.project_key, template.workflow_key))
 
 
 @router.get("/workflows/triggers")

@@ -50,4 +50,5 @@ def test_badge_matches_inbox_action_categories():
     assert inbox_badge(None, {'inbox': {'questions': [1], 'for_review': [1, 2], 'aborted': [1],
                                       'workflow_questions': [1], 'unassigned': [1]},
                              'mail_approvals': [1], 'data_releases': [1]}) == 6
-    assert inbox_badge(None, {'inbox': {'for_review': [1], 'agent_review': [1, 2], 'agent_decided': [1]}}) == 4
+    # Reviews by reviewer agents do not need the user: own Inbox section, not counted.
+    assert inbox_badge(None, {'inbox': {'for_review': [1], 'agent_review': [1, 2], 'agent_decided': [1]}}) == 1

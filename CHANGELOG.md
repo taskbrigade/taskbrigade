@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.1 – 2026-10-19
+
+- Projects: the "Aktuell"/"Current" badge (and the highlighted card border) for the project preselected in quick capture is no longer shown in the list and cards view.
+- Workflows: a template's pages (detail, runs, schedules, event triggers) now use template-scoped tabs that open the template's own views, with a breadcrumb back to the global Workflows list; the global pages keep their global tabs.
+- Workflow schedules: the template's schedule page lists existing schedules and opens the first/selected one for editing; the "New schedule" form only appears on demand, and the workday-rule fields are hidden for a plain cron rule.
+- Inbox: reviews by reviewer agents (running, waiting or sent back) move out of "Needs your action" into their own section "Reviews by agents" below a divider – one compact, left-aligned row per task in one card (status, key, prio, age; title; reviewer · "Review running since …"; "Open task", "Open diff ↗"). The owner/admin overrule (approve & merge, request changes) stays as small secondary buttons. The section is hidden when no agent review is pending.
+- Inbox: the subtitle ("x items need you"), the "Needs your action" count and the phone tab badge no longer count agent reviews; the "Reviews" filter still counts both and shows both sections.
+- Inbox: the notices panel no longer repeats agent reviews as a "Review by agents" table with explanation text; it only shows a one-line link "n reviews by agents ↓" to the new section, which now carries a short explanation under its heading.
+
 ## 0.14.0 – 2026-10-18
 
 - UI: tab bar and quick-capture icons are inline SVG, and symbols missing from IBM Plex (arrows, ✓, ⚠, ▲, ⋯ …) come

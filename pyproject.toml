@@ -1,6 +1,6 @@
 [project]
 name = "taskbrigade"
-version = "0.14.0"
+version = "0.14.1"
 description = "Task system that coordinates humans and AI agents through assignment, leases, review, and merge."
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"

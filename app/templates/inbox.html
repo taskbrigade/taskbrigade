@@ -58,53 +58,58 @@
       {% endif %}
     </article>
 {% endmacro %}
-{# Review by a reviewer agent: running/waiting (`for_review`) or sent back (`decision`). The owner and admins may
-   overrule a running review with the same actions as a human review. #}
+{# Review by a reviewer agent: running/waiting (`for_review`) or sent back (`decision`) – one compact row in the
+   "Reviews by agents" section, not an action card. The owner and admins may overrule a running review with the same
+   actions as a human review, offered as small secondary buttons. #}
 {% macro agent_review(t) %}
-    <article class="action-card review agent" id="ar-{{ t.task_nr }}">
-      <div class="card-top">
-        {% if t.decision %}<span class="pill pill-changes">{{ _("Conflict returned") if t.decision == "reject_conflict" else _("Changes requested") }}</span>
-        {% elif t.review_claimed %}<span class="pill pill-review">{{ _("Review running") }}</span>
-        {% else %}<span class="pill pill-review">{{ _("Waiting for reviewer agent") }}</span>{% endif %}
-        <a class="task-key" href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a>
-        <span class="prio prio-{{ t.prio }}" title="{{ _('Prio %(prio)s', prio=t.prio) }}">{{ t.prio }}</span>
-        {% include "_sprint_hint.html" %}{% include "_workflow_badge.html" %}
-        {% set since = t.decided_at or t.review_claimed_at or t.submitted_at or t.updated_at %}
-        <span class="age" title="{{ since | localtime }}">{{ since | reltime }}</span>
+    <li class="agent-review-row" id="ar-{{ t.task_nr }}">
+      <div class="agent-review-main">
+        <div class="agent-review-top">
+          {% if t.decision %}<span class="pill pill-changes">{{ _("Conflict returned") if t.decision == "reject_conflict" else _("Changes requested") }}</span>
+          {% elif t.review_claimed %}<span class="pill pill-review">{{ _("Review running") }}</span>
+          {% else %}<span class="pill pill-review">{{ _("Waiting for reviewer agent") }}</span>{% endif %}
+          <a class="task-key" href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a>
+          <span class="prio prio-{{ t.prio }}" title="{{ _('Prio %(prio)s', prio=t.prio) }}">{{ t.prio }}</span>
+          {% include "_sprint_hint.html" %}{% include "_workflow_badge.html" %}
+          {% set since = t.decided_at or t.review_claimed_at or t.submitted_at or t.updated_at %}
+          <span class="age" title="{{ since | localtime }}">{{ since | reltime }}</span>
+        </div>
+        <div class="agent-review-title">{{ t.title }}</div>
+        <div class="agent-review-meta">
+          <span title="{{ _('Reviewer') }}: {{ t.reviewer }}">{{ ui.actor(t.reviewer, (actor_kinds | default({})).get(t.reviewer)) }}</span>
+          <span aria-hidden="true">·</span>
+          {% if t.decision %}<span>{{ _("Decided by the reviewer agent – waiting for %(name)s to rework it.", name=t.assigned_to or "–") }}</span>
+          {% elif t.review_claimed %}<span>{{ _("Review running since %(date)s", date=t.review_claimed_at | localtime("short")) }}</span>
+          {% else %}<span>{{ _("Waiting since %(date)s", date=(t.submitted_at or t.updated_at) | localtime("short")) }}</span>{% endif %}
+        </div>
       </div>
-      <div class="card-title">{{ t.title }}</div>
-      <div class="card-detail">
-        <span class="actor-chip reviewer-chip" title="{{ _('Reviewer') }}: {{ t.reviewer }}"><span class="ui-actor-name">{{ t.reviewer }}</span></span>
-        {% if t.decision %}<span class="md">{{ _("Decided by the reviewer agent – waiting for %(name)s to rework it.", name=t.assigned_to or "–") }}</span>
-        {% elif t.review_claimed %}<span class="md">{{ _("Review running – %(name)s, since %(date)s", name=t.reviewer, date=t.review_claimed_at | localtime("short")) }}</span>
-        {% elif t.result_summary %}<span class="md">{{ t.result_summary | markdown }}</span>{% endif %}
-      </div>
-      <form class="card-actions" hx-target="#ar-{{ t.task_nr }}" hx-swap="innerHTML">
-        <div class="action-buttons">
-          {% if not t.decision and (user.is_admin or t.project in managed) %}
-          {% if t.task_kind == "approval" %}<button hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Approve %(nr)s?', nr=t.task_nr) }}">{{ _("Approve") }}</button>
-          {% else %}<button hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Overrule the reviewer agent and merge %(nr)s?', nr=t.task_nr) }}">{{ _("Approve &amp; merge") }}</button>{% endif %}
-          {% endif %}
+      <form class="agent-review-actions" hx-target="#ar-{{ t.task_nr }}" hx-swap="innerHTML">
+        <div class="agent-review-links">
           <a href="/tasks/{{ t.task_nr }}">{{ _("Open task") }}</a>
           {% if t.pr_url %}<a href="{{ t.pr_url }}" target="_blank" rel="noopener">{{ _("Open diff") }} ↗</a>{% endif %}
         </div>
         {% if not t.decision and (user.is_admin or t.project in managed) %}
-        <details class="request-changes">
-          <summary>{{ _("Request changes") }}</summary>
-          <textarea name="body" rows="2" placeholder="{{ _('Review comment (required)') }}" aria-label="{{ _('Review comment (required)') }}" required></textarea>
-          <button type="submit" class="secondary" hx-post="/inbox/{{ t.task_nr }}/reject">{{ _("Submit changes request") }}</button>
-        </details>
+        <div class="agent-review-overrule">
+          {% if t.task_kind == "approval" %}<button type="button" class="ui-btn ui-btn-secondary ui-btn-xs" hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Approve %(nr)s?', nr=t.task_nr) }}">{{ _("Approve") }}</button>
+          {% else %}<button type="button" class="ui-btn ui-btn-secondary ui-btn-xs" hx-post="/inbox/{{ t.task_nr }}/approve" hx-confirm="{{ _('Overrule the reviewer agent and merge %(nr)s?', nr=t.task_nr) }}">{{ _("Approve &amp; merge") }}</button>{% endif %}
+          <details class="request-changes">
+            <summary class="ui-btn ui-btn-secondary ui-btn-xs">{{ _("Request changes") }}</summary>
+            <textarea name="body" rows="2" placeholder="{{ _('Review comment (required)') }}" aria-label="{{ _('Review comment (required)') }}" required></textarea>
+            <button type="submit" class="secondary" hx-post="/inbox/{{ t.task_nr }}/reject">{{ _("Submit changes request") }}</button>
+          </details>
+        </div>
         {% endif %}
       </form>
-    </article>
+    </li>
 {% endmacro %}
 {% macro aborted_row(t) %}
         <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}{% include "_workflow_badge.html" %}</td>
             <td class="c2">{% if t.assigned_to %}<span class="agent" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% else %}–{% endif %}</td><td class="date c2">{{ t.updated_at | reltime }}</td></tr>
 {% endmacro %}
 {% set wf_q, wf_r, wf_a = inbox.workflow_questions or [], inbox.workflow_review or [], inbox.workflow_aborted or [] %}
-{% set n_act = n_reviews + n_questions + inbox.aborted | length + wf_a | length + (mail_approvals or []) | length + (data_releases or []) | length %}
-{% set n_cards = wf_r | length + (inbox.for_review or []) | length + (inbox.agent_cards or []) | length + wf_q | length + (inbox.questions or []) | length %}
+{# Only items that need the user count (header subtitle, pill, tab badge); agent reviews have their own section. #}
+{% set n_act = n_reviews - (n_agent_reviews or 0) + n_questions + inbox.aborted | length + wf_a | length + (mail_approvals or []) | length + (data_releases or []) | length %}
+{% set n_cards = wf_r | length + (inbox.for_review or []) | length + wf_q | length + (inbox.questions or []) | length %}
 
 {{ ui.page_header(_("Inbox"), ngettext("%(num)d item needs you · today", "%(num)d items need you · today", n_act)) }}
 
@@ -124,6 +129,7 @@
 {% include "_owner_hint.html" %}
 
 <div class="inbox-cols">
+  <div class="inbox-main">
   <section class="inbox-cards" aria-label="{{ _('Needs your action') }}">
     {% if not n_cards %}
     <div class="all-clear" role="status"><span aria-hidden="true">✓</span> <span>{{ _("All done – nothing to review.") }}</span></div>
@@ -131,7 +137,6 @@
 
     {% for t in wf_r %}{{ review(t) }}{% endfor %}
     {% for t in inbox.for_review %}{{ review(t) }}{% endfor %}
-    {% for t in inbox.agent_cards %}{{ agent_review(t) }}{% endfor %}
     {% for t in wf_q %}{{ question(t) }}{% endfor %}
     {% for t in inbox.questions %}{{ question(t) }}{% endfor %}
 
@@ -192,6 +197,18 @@
     {% endif %}
   </section>
 
+  {% if inbox.agent_cards %}
+  <hr class="inbox-divider">
+  <section class="inbox-agent-reviews" aria-labelledby="agent-reviews-title">
+    <h2 class="inbox-action-title" id="agent-reviews-title">{{ _("Reviews by agents") }} <span class="count-pill">{{ inbox.agent_cards | length }}</span></h2>
+    <p class="inbox-agent-reviews-hint">{{ _("A reviewer agent decides these – owners and admins can still overrule it.") }}</p>
+    <ul class="agent-review-list">
+      {% for t in inbox.agent_cards %}{{ agent_review(t) }}{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  </div>
+
   <aside class="inbox-notices" aria-label="{{ _('Notices') }}" data-notices
          data-until="{{ notices_until }}" data-max-id="{{ notices_max_id }}" data-sprint="{{ sprint_filter or '' }}"
          data-count-label="{{ _('%(count)s selected', count='%(count)s') }}"
@@ -233,30 +250,19 @@
       </li>
       {% endfor %}
     </ul>
-    {% elif not (inbox.agent_review or inbox.unassigned or inbox.lease_expired) %}
+    {% elif not (inbox.agent_cards or inbox.unassigned or inbox.lease_expired) %}
     <p class="muted">{{ _("No notices.") }}</p>
     {% endif %}
 
     {% if not notices_all %}<a href="{{ notices_more }}" class="small">{{ _("Show older") }}</a>{% endif %}
 
-    {% if inbox.agent_review or inbox.unassigned or inbox.lease_expired %}
-    <div class="inbox-notice-info">
-    {% if inbox.agent_review %}
-    <details class="notice agent-review" open data-fold-narrow>
-      <summary>{{ _("Review by agents") }} <span class="count-pill">{{ inbox.agent_review | length }}</span></summary>
-      <div class="notice-body">
-      <p class="muted">{{ _("A reviewer agent decides these reviews – you can still approve or reject in the task, e.g. to overrule it.") }}</p>
-      <div class="table-card"><table class="cards">
-        <thead><tr><th>{{ _("Task") }}</th><th>{{ _("Title") }}</th><th>{{ _("Agent") }}</th><th>{{ _("Reviewer") }}</th></tr></thead>
-        <tbody>{% for t in inbox.agent_review %}
-          <tr><td class="task-nr"><a href="/tasks/{{ t.task_nr }}">{{ t.task_nr }}</a></td><td class="task-title">{{ t.title }} {% include "_sprint_hint.html" %}</td>
-              <td class="c2">{% if t.assigned_to %}<span class="agent" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% else %}–{% endif %}</td>
-              <td class="c2"><span class="agent" title="{{ t.reviewer }}"><span class="ui-actor-name">{{ t.reviewer }}</span></span>{% if t.review_claimed %} <small class="muted">({{ _("reviewing") }})</small>{% endif %}</td></tr>
-        {% endfor %}</tbody>
-      </table></div>
-      </div>
-    </details>
+    {# Agent reviews have their own section in the main column; here only a pointer to it. #}
+    {% if inbox.agent_cards %}
+    <p class="inbox-notice-pointer"><a href="#agent-reviews-title">{{ ngettext("%(num)d review by agents ↓", "%(num)d reviews by agents ↓", inbox.agent_cards | length) }}</a></p>
     {% endif %}
+
+    {% if inbox.unassigned or inbox.lease_expired %}
+    <div class="inbox-notice-info">
     {% if inbox.unassigned %}
     <details class="notice unassigned" open data-fold-narrow>
       <summary>{{ _("Released but not assigned to anyone") }} <span class="count-pill">{{ inbox.unassigned | length }}</span></summary>

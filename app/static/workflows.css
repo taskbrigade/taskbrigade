@@ -1,4 +1,5 @@
 /* Workflows overview: toolbar, template cards, row actions and responsive dialogs. */
+.wf-breadcrumb { display: block; font-size: var(--ui-fs-sm); color: var(--ui-text-2); margin-bottom: var(--ui-space-2); }
 .wf-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); margin-bottom: var(--ui-space-4); }
 .wf-toolbar label.ui-search { flex: 1 1 240px; }
 .wf-toolbar select.ui-select { flex: 0 1 200px; }

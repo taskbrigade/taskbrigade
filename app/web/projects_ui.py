@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app.models import PROJECT_STATUSES, Actor
 from app.services import access, members, projects, result_mail, reviews, settings_store, sprints, zones
 from app.services.gitea import GiteaError
-from app.web.common import quick_capture_projects, render, ui_actor, ui_actor_or_none, web_session
+from app.web.common import render, ui_actor, ui_actor_or_none, web_session
 from app.web.tasks_ui import require_user
 
 router = APIRouter(prefix="/projects")
@@ -58,10 +58,6 @@ def _overview(request: Request, me: Actor | None):
         numbers = projects.overview(s, [p.id for p in items])
         owners = {a.id: a for a in s.scalars(select(Actor).where(Actor.actor_type == "human"))}
         mixed = zones.mixed_projects(s, [p.id for p in items])
-    # "Current" project of the quick capture form: the first project of its (alphabetical) choice list. Read
-    # outside the block above: `quick_capture_projects` opens its own session, which must not nest.
-    capture = [key for key, _name in quick_capture_projects(getattr(me, "id", None))]
-    current = capture[0] if capture else None
 
     # Order for the rendered list: the sort field of the toolbar. `activity` puts the newest first and projects
     # without tasks last, `key` is the project key, `open` the number of open tasks (tie-break: key).
@@ -74,14 +70,8 @@ def _overview(request: Request, me: Actor | None):
         return (last is None, -(last.timestamp() if last else 0), p.project_key)
 
     items.sort(key=order)
-    current_row = next((p for p in items if p.project_key == current), None)
-    # The cards view leads with the "Current" project (template renders it before the rest); the list keeps the
-    # sort above. Reorder only for the cards view – reordering here would override the chosen list sort.
-    if current_row is not None and view == "cards":
-        items = [current_row, *[p for p in items if p is not current_row]]
-    return {"items": items, "current_ids": {current_row.id} if current_row else set(),
-            "numbers": numbers, "owners": owners, "mixed": mixed, "q": q, "status": status, "sort": sort,
-            "view": view, "mine": mine, "own_only": own_only, "owner_hint": owner_hint,
+    return {"items": items, "numbers": numbers, "owners": owners, "mixed": mixed, "q": q, "status": status,
+            "sort": sort, "view": view, "mine": mine, "own_only": own_only, "owner_hint": owner_hint,
             "status_choices": STATUS_CHOICES,
             "sort_choices": SORT_CHOICES, "open_count": open_count, "active_total": scope_total,
             "subtitle": _subtitle(me, scope_total, mine)}

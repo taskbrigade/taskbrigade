@@ -359,7 +359,6 @@ label.ui-field > span.ui-label { display: block; }
 .ui-project-card .ui-card-body { padding: 0; flex: 1; }
 /* The progress bar spans the full card width (the list view keeps the fixed 140px cell width). */
 .ui-project-card .ui-progress { width: 100%; }
-.ui-card-current { border-left: 3px solid var(--ui-primary); }
 .ui-project-counts { display: flex; flex-wrap: wrap; gap: var(--ui-space-4); font-size: var(--ui-fs-sm);
   color: var(--ui-text-2); }
 .ui-project-counts strong { color: var(--ui-text); font-variant-numeric: tabular-nums; }

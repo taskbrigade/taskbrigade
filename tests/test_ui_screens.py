@@ -560,3 +560,58 @@ def test_profile_display_switches_save_on_toggle(browser, env, ui, server):  # n
             assert page.locator(f'#pf-display input[name="{name}"]').is_checked() is not was, name
     finally:
         ctx.close()
+
+
+ROW_JS = """() => [...document.querySelectorAll(".agent-review-row")].map(r => ({
+  align: getComputedStyle(r).textAlign, dot: getComputedStyle(r, "::before").content,
+  justify: getComputedStyle(r.querySelector(".agent-review-top")).justifyContent,
+  right: r.getBoundingClientRect().right, card: r.parentElement.getBoundingClientRect().right,
+  title: r.querySelector(".agent-review-title").getBoundingClientRect().left - r.getBoundingClientRect().left}))"""
+
+
+@pytest.mark.parametrize("width", [360, 390, 768, 1440])
+def test_inbox_agent_reviews_section(browser, env, ui, server, width):  # noqa: F811
+    """Running agent reviews: own section below "Needs your action", compact left-aligned rows, no stray dot,
+    nothing wider than the viewport; full-page shots go to `TBR_SCREENSHOT_OUT` (no baseline)."""
+    from tests.test_reviewers import _role
+
+    _seed(env, ui)
+    _role("hermes", "reviewer")
+    nr = mktask(env, title="Show agent reviews in their own section", assigned_to="claude-code", prio=2,
+                reviewer="hermes")["task_nr"]
+    t = claim(env, task_nr=nr).json()
+    env["gitea"].push_branch("taskbrigade", "ket", t["branch_name"])
+    env["c"].post(f"/api/v1/tasks/{nr}/submit", headers=env["claude"],
+                  json={"branch_name": t["branch_name"], "commit_sha": SHA, "summary": "Done"})
+    env["c"].post("/api/v1/agents/me/claim", headers=env["hermes"], json={"reviews": True, "task_nr": nr})
+    phone = width < 640
+    ctx = _context(browser, server, (width, 900), phone)
+    try:
+        page = ctx.new_page()
+        _login(page, server)
+        page.goto(server + "/")
+        _settle(page)
+        problems = page.evaluate(CHECKS_JS, {"phone": phone})
+        assert not problems, "\n".join(problems)
+        rows = page.evaluate(ROW_JS)
+        assert len(rows) == 1 and rows[0]["align"] in ("left", "start") and rows[0]["dot"] in ("none", "normal")
+        assert rows[0]["justify"] in ("normal", "flex-start", "start") and rows[0]["title"] <= 17
+        assert rows[0]["right"] <= rows[0]["card"] + 0.5 <= width
+        section = page.locator(".inbox-agent-reviews")
+        assert "Review running" in section.inner_text() and "Reviews by agents" in section.inner_text()
+        cards = page.locator(".inbox-cards").bounding_box()
+        assert section.bounding_box()["y"] > cards["y"] + cards["height"]  # Below "Needs your action".
+        # The notices panel only points to the section: no agent-review details, table or explanation.
+        notices = page.locator(".inbox-notices")
+        assert notices.locator(".notice.agent-review").count() == 0 and nr not in notices.inner_text()
+        pointer = notices.locator('a[href="#agent-reviews-title"]')
+        assert pointer.text_content() == "1 review by agents ↓"  # Folded on phones.
+        page.locator(f"#ar-{nr} .request-changes > summary").click()
+        assert page.locator(f"#ar-{nr} textarea").is_visible()
+        assert page.evaluate("document.documentElement.scrollWidth") <= width
+        if out := os.environ.get("TBR_SCREENSHOT_OUT"):
+            page.locator(f"#ar-{nr} .request-changes > summary").click()
+            Path(out).mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(Path(out) / f"inbox-agent-reviews-{width}.png"), full_page=True)
+    finally:
+        ctx.close()

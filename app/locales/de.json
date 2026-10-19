@@ -41,6 +41,7 @@
   "%(count)d open task(s) are assigned to cloud agents – reassign them first": "%(count)d offene Task(s) sind Cloud-Agenten zugewiesen – zuerst umverteilen",
   "%(count)d open tasks: choose move_to=<sprint> or detach": "%(count)d offene Tasks: move_to=<Sprint> oder detach wählen",
   "%(count)s of %(total)s": "%(count)s von %(total)s",
+  "%(day)s. day of the month (workday) · %(time)s": "%(day)s. Tag des Monats (Werktag) · %(time)s",
   "%(done)d of %(num)d task done": [
     "%(done)d von %(num)d Task erledigt",
     "%(done)d von %(num)d Tasks erledigt"
@@ -94,6 +95,7 @@
   "%(nr)s: the action failed.": "%(nr)s: Die Aktion ist fehlgeschlagen.",
   "%(nr)s: the changelog fragment is invalid – no merge performed, the task remains in review.": "%(nr)s: Das Changelog-Fragment ist ungültig – kein Merge, der Task bleibt im Review.",
   "%(nr)s: you are not allowed to do this.": "%(nr)s: Dazu fehlt dir die Berechtigung.",
+  "%(nth)s. workday · %(period)s · %(time)s": "%(nth)s. Werktag · %(period)s · %(time)s",
   "%(num)d attachment stored in the repo": [
     "%(num)d Anhang im Repo abgelegt",
     "%(num)d Anhänge im Repo abgelegt"
@@ -214,7 +216,6 @@
   "A concrete model needs an assigned agent (its allow list decides)": "Ein konkretes Modell braucht einen zugewiesenen Agenten (seine Freigabeliste entscheidet)",
   "A follow-up task must be in the same project as %(task_nr)s": "Ein Follow-up-Task muss im selben Projekt wie %(task_nr)s liegen",
   "A human or a reviewer agent – never the assignee. The owner and admins can always approve.": "Ein Mensch oder ein Reviewer-Agent – nie der Bearbeiter. Owner und Admins können immer abnehmen.",
-  "A reviewer agent decides these reviews – you can still approve or reject in the task, e.g. to overrule it.": "Diese Reviews entscheidet ein Reviewer-Agent – du kannst im Task trotzdem abnehmen oder zurückweisen, z. B. um ihn zu überstimmen.",
   "A workflow run is already active; queue it or wait for completion": "Ein Workflow-Lauf ist bereits aktiv; einreihen oder auf den Abschluss warten",
   "A workflow version with runs cannot be edited": "Eine Workflow-Version mit Läufen kann nicht bearbeitet werden",
   "A workflow with this key already exists in %(project)s": "In %(project)s existiert bereits ein Workflow mit diesem Schlüssel",
@@ -794,6 +795,7 @@
   "New workflow": "Neuer Workflow",
   "Next": "Nächster",
   "Next retry": "Nächster Versuch",
+  "Next run": "Nächster Lauf",
   "Next runs": "Nächste Läufe",
   "Next workday": "Nächster Werktag",
   "No Gitea admin token configured (Admin → Settings)": "Kein Gitea-Admin-Token hinterlegt (Admin → Einstellungen)",
@@ -1107,7 +1109,6 @@
   "Returned to the agent with conflict instructions": "Mit Konflikt-Anleitung an den Agenten zurückgegeben",
   "Returned.": "Zurückgegeben.",
   "Review": "Review",
-  "Review by agents": "Review durch Agenten",
   "Review by the reviewer agent %(name)s – the project owner and admins can still decide.": "Review durch den Reviewer-Agenten %(name)s – Projekt-Owner und Admins können weiterhin entscheiden.",
   "Review comment": "Review-Kommentar",
   "Review comment (required for “Reject”)": "Review-Kommentar (für „Zurückweisen“ Pflicht)",
@@ -1700,7 +1701,6 @@
   "review: %(mode)s": "Review: %(mode)s",
   "reviewer (agents only): reviews the tasks it is entered for as reviewer and works on tasks like a worker": "reviewer (nur Agenten): nimmt die Tasks ab, bei denen er als Reviewer eingetragen ist, und bearbeitet Tasks wie ein worker",
   "reviewer agent": "Reviewer-Agent",
-  "reviewing": "prüft gerade",
   "role %(role)s": "Rolle %(role)s",
   "running or waiting": "läuft oder wartet",
   "schedule": "Zeitplan",
@@ -2189,6 +2189,10 @@
   "All done – nothing to review.": "Alles erledigt – nichts zu prüfen.",
   "Mark all read": "Alle gelesen",
   "Show older": "Ältere anzeigen",
+  "%(num)d review by agents ↓": [
+    "%(num)d Review durch Agenten ↓",
+    "%(num)d Reviews durch Agenten ↓"
+  ],
   "%(num)d item needs you · today": [
     "%(num)d Eintrag braucht dich · heute",
     "%(num)d Einträge brauchen dich · heute"
@@ -2281,8 +2285,6 @@
   "Comments": "Kommentare",
   "Assigned to": "Zugewiesen an",
   "Secondary": "Sekundär",
-  "Current": "Aktuell",
-  "Project preselected in the quick capture field": "Projekt, das im Schnellerfassungsfeld vorausgewählt ist",
   "agents": "Agenten",
   "Last activity": "Letzte Aktivität",
   "Sort: last activity": "Sortieren: letzte Aktivität",
@@ -2466,6 +2468,9 @@
   "Review running": "Review läuft",
   "Waiting for reviewer agent": "Wartet auf Reviewer-Agenten",
   "Decided by the reviewer agent – waiting for %(name)s to rework it.": "Vom Reviewer-Agenten entschieden – wartet auf die Überarbeitung durch %(name)s.",
-  "Review running – %(name)s, since %(date)s": "Review läuft – %(name)s, seit %(date)s",
-  "Overrule the reviewer agent and merge %(nr)s?": "Reviewer-Agenten überstimmen und %(nr)s mergen?"
+  "Overrule the reviewer agent and merge %(nr)s?": "Reviewer-Agenten überstimmen und %(nr)s mergen?",
+  "Reviews by agents": "Reviews durch Agenten",
+  "A reviewer agent decides these – owners and admins can still overrule it.": "Ein Reviewer-Agent entscheidet diese Reviews – Owner und Admins können ihn trotzdem überstimmen.",
+  "Review running since %(date)s": "Review läuft seit %(date)s",
+  "Waiting since %(date)s": "Wartet seit %(date)s"
 }

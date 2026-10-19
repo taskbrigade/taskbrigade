@@ -2,23 +2,45 @@
 {% import "_ui.html" as ui %}
 {% block title %}{{ _("Schedule") }} · {{ template.name }}{% endblock %}
 {% block content %}
-<p><a href="/workflows/schedules">{{ _("Workflow schedules") }}</a> / {{ template.project.project_key }}/{{ template.workflow_key }}</p>
+{% include "_workflow_tabs.html" %}
 {{ ui.page_header(_("Schedule") ~ " · " ~ template.name) }}
 {% if not enabled %}<p role="status">{{ _("Schedules are paused. Enable Workflows in Admin → Settings.") }}</p>{% endif %}
 {% if stale_tick %}<p role="status">{{ _("No workflow tick in the last five minutes. Check the scheduler trigger.") }}</p>{% endif %}
 <p>{{ _("Last tick") }}: {{ last_tick or '–' }} UTC</p>
 {% if error %}<p role="alert">{{ error }}</p>{% endif %}
-<nav><ul>{% for schedule in schedules %}<li><a href="?schedule_id={{ schedule.id }}">{{ schedule.name }}</a></li>{% endfor %}<li><a href="/workflows/{{ template.project.project_key }}/{{ template.workflow_key }}/schedules">{{ _("New schedule") }}</a></li></ul></nav>
+
+{% if schedules %}
+<h2>{{ _("Schedules") }}</h2>
+<div class="table-card">
+<table class="cards">
+  <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Rule") }}</th><th>{{ _("Next run") }}</th><th>{{ _("Enabled") }}</th></tr></thead>
+  <tbody>
+  {% for entry in schedules %}
+    {% set r = entry.schedule %}
+    <tr>
+      <td class="task-title"><a href="?schedule_id={{ r.id }}"{% if r.id == row.id %} aria-current="page"{% endif %}>{{ r.name }}</a></td>
+      <td class="c2" data-label="{{ _('Rule') }}">{{ entry.rule }}</td>
+      <td class="c2" data-label="{{ _('Next run') }}">{{ entry.next or '–' }}</td>
+      <td class="c2" data-label="{{ _('Enabled') }}">{{ _("Enabled") if r.enabled else _("Disabled") }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h2>{% if new %}{{ _("New schedule") }}{% else %}{{ row.name }}{% endif %}</h2>
+{% if not new %}<p><a href="?new=1" role="button" class="small secondary">{{ _("New schedule") }}</a></p>{% endif %}
 <form method="post">
 <input type="hidden" name="csrf_token" value="{{ csrf }}">
 {% if row.id %}<input type="hidden" name="schedule_id" value="{{ row.id }}">{% endif %}
 <fieldset {% if not can_edit %}disabled{% endif %}>
 <label>{{ _("Name") }}<input name="name" value="{{ row.name }}" required maxlength="80"></label>
 <label><input type="checkbox" name="enabled" value="true" {% if row.enabled %}checked{% endif %}>{{ _("Enabled") }}</label>
-<label>{{ _("Rule") }}<select name="kind"><option value="cron" {% if row.kind == 'cron' %}selected{% endif %}>{{ _("Cron") }}</option><option value="workday" {% if row.kind == 'workday' %}selected{% endif %}>{{ _("Workday") }}</option></select></label>
-<label>{{ _("Cron expression (minute hour day month weekday)") }}<input name="cron_expr" value="{{ row.cron_expr or '' }}" maxlength="100"></label>
-<small>{{ _("Use mon–sun for weekdays. Numeric weekdays start with Monday = 0.") }}</small>
-<fieldset><legend>{{ _("Workday rule") }}</legend>
+<label>{{ _("Rule") }}<select name="kind" id="schedule-kind"><option value="cron" {% if row.kind == 'cron' %}selected{% endif %}>{{ _("Cron") }}</option><option value="workday" {% if row.kind == 'workday' %}selected{% endif %}>{{ _("Workday") }}</option></select></label>
+<label class="wf-cron-field" {% if row.kind == 'workday' %}hidden{% endif %}>{{ _("Cron expression (minute hour day month weekday)") }}<input name="cron_expr" value="{{ row.cron_expr or '' }}" maxlength="100"></label>
+<small class="wf-cron-field" {% if row.kind == 'workday' %}hidden{% endif %}>{{ _("Use mon–sun for weekdays. Numeric weekdays start with Monday = 0.") }}</small>
+<fieldset id="wf-workday-fields" {% if row.kind != 'workday' %}hidden{% endif %}><legend>{{ _("Workday rule") }}</legend>
 <label>{{ _("Count workdays or shift a calendar date") }}<select name="workday_mode"><option value="nth" {% if 'day' not in rule %}selected{% endif %}>{{ _("Nth workday") }}</option><option value="day" {% if 'day' in rule %}selected{% endif %}>{{ _("Day of month") }}</option></select></label>
 <label>{{ _("Workday number (negative counts from the end)") }}<input type="number" name="workday_nth" min="-92" max="92" value="{{ rule.get('nth',3) }}"></label>
 <label>{{ _("Period") }}<select name="workday_of">{% for value, label in [('week',_('Week')),('month',_('Month')),('quarter',_('Quarter'))] %}<option value="{{ value }}" {% if rule.get('of','month') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
@@ -38,4 +60,17 @@
 </fieldset></form>
 <h2>{{ _("Next runs") }}</h2><ol>{% for date in next_fires %}<li>{{ date }}</li>{% endfor %}</ol>
 <h2>{{ _("Recent schedule fires") }}</h2><table><thead><tr><th>{{ _("Scheduled for (UTC)") }}</th><th>{{ _("Outcome") }}</th><th>{{ _("Run") }}</th></tr></thead><tbody>{% for fire in fires %}<tr><td>{{ fire.scheduled_for }}</td><td>{{ _(outcome_labels[fire.outcome]) }}</td><td>{{ fire.run_id or '–' }}</td></tr>{% endfor %}</tbody></table>
+<script>
+(function () {
+  var sel = document.getElementById('schedule-kind');
+  var cronFields = document.querySelectorAll('.wf-cron-field');
+  var workday = document.getElementById('wf-workday-fields');
+  function sync() {
+    var isCron = sel.value === 'cron';
+    cronFields.forEach(function (el) { el.hidden = !isCron; });
+    workday.hidden = isCron;
+  }
+  sel.addEventListener('change', sync);
+})();
+</script>
 {% endblock %}

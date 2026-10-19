@@ -1,11 +1,35 @@
-{#- Sub-navigation of the Workflows menu (research/konzept-workflows.md §8); schedules come from WF 6. Counts show when the
-    page passes `wf_counts` (template list, runs, schedules and triggers pages). -#}
+{#- Sub-navigation of the Workflows menu (research/konzept-workflows.md §8). On template-scoped pages (`base` is set) the
+    tabs point at this template's own pages (Overview, Runs, Schedules, Event triggers) and a breadcrumb links back to the
+    global Workflows list; on the global pages the tabs keep the global routes. Counts (global totals) show only on the
+    global pages. -#}
 {%- set wf_path = request.url.path -%}
-{%- set wf_tab_items = [
-  ("/workflows", _("Templates"), "templates", not wf_path.startswith("/workflow-runs") and "/schedules" not in wf_path and "/triggers" not in wf_path),
-  ("/workflow-runs", _("Runs"), "runs", wf_path.startswith("/workflow-runs")),
-  ("/workflows/schedules", _("Schedules"), "schedules", "/schedules" in wf_path),
-  ("/workflows/triggers", _("Event triggers"), "triggers", "/triggers" in wf_path)] -%}
+{%- if base is defined -%}
+  {%- set wf_runs = wf_path == base ~ "/runs" or wf_path.startswith("/workflow-runs") -%}
+  {%- set wf_schedules = wf_path == base ~ "/schedules" -%}
+  {%- set wf_triggers = wf_path == base ~ "/triggers" -%}
+  {%- set wf_items = [
+    (base, _("Overview"), "templates"),
+    (base ~ "/runs", _("Runs"), "runs"),
+    (base ~ "/schedules", _("Schedules"), "schedules"),
+    (base ~ "/triggers", _("Event triggers"), "triggers")] -%}
+  {%- set wf_active = {
+    "templates": not wf_runs and not wf_schedules and not wf_triggers,
+    "runs": wf_runs, "schedules": wf_schedules, "triggers": wf_triggers} -%}
+{%- else -%}
+  {%- set wf_items = [
+    ("/workflows", _("Templates"), "templates"),
+    ("/workflow-runs", _("Runs"), "runs"),
+    ("/workflows/schedules", _("Schedules"), "schedules"),
+    ("/workflows/triggers", _("Event triggers"), "triggers")] -%}
+  {%- set wf_active = {
+    "templates": not wf_path.startswith("/workflow-runs") and "/schedules" not in wf_path and "/triggers" not in wf_path,
+    "runs": wf_path.startswith("/workflow-runs"),
+    "schedules": "/schedules" in wf_path,
+    "triggers": "/triggers" in wf_path} -%}
+{%- endif -%}
+{%- if base is defined -%}
+<nav aria-label="{{ _('Breadcrumb') }}" class="wf-breadcrumb"><a href="/workflows">{{ _("Workflows") }}</a> / {{ template.project.project_key }} / <a href="{{ base }}">{{ template.workflow_key }}</a></nav>
+{%- endif -%}
 <nav class="ui-tabs wf-tabs" aria-label="{{ _('Workflows') }}">
-  {%- for href, text, key, current in wf_tab_items %}<a href="{{ href }}"{% if current %} aria-current="page"{% endif %}>{{ text }}{% if wf_counts is defined and wf_counts %} <span class="ui-chip-count">{{ wf_counts[key] }}</span>{% endif %}</a>{% endfor -%}
+  {%- for href, text, key in wf_items %}<a href="{{ href }}"{% if wf_active[key] %} aria-current="page"{% endif %}>{{ text }}{% if base is not defined and wf_counts is defined and wf_counts %} <span class="ui-chip-count">{{ wf_counts[key] }}</span>{% endif %}</a>{% endfor -%}
 </nav>

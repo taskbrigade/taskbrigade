@@ -362,14 +362,14 @@ def _workflow_contexts(project, card) -> dict:
                                 "status": "paused", "statuses": tuple(ui.RUN_STATUS_LABELS), "projects": ["DEMO"]},
                                {"runs": [], "progress": {}, "project": "", "status": "", "statuses": (),
                                 "projects": []}],
-        "workflow_run.html": [{"run": run, "info": run_info, "chain": chain, "attempts": [attempt],
+        "workflow_run.html": [{"run": run, "template": template, "info": run_info, "chain": chain, "attempts": [attempt],
                                "can_control": True, "names": {1: "alex"}, "steps": ["write"], "base": "/w"},
                               {"run": SimpleNamespace(**{**vars(run), "status": "running", "finished_at": None}),
-                               "info": {**run_info, "params": "***"}, "chain": chain,
+                               "template": template, "info": {**run_info, "params": "***"}, "chain": chain,
                                "attempts": [{**attempt, "outputs": "***", "error_code": None}],
                                "can_control": True, "names": {}, "steps": [], "base": "/w"},
-                              {"run": run, "info": {**run_info, "params": {}}, "chain": [], "attempts": [],
-                               "can_control": False, "names": {}, "steps": [], "base": "/w"}],
+                              {"run": run, "template": template, "info": {**run_info, "params": {}}, "chain": [],
+                               "attempts": [], "can_control": False, "names": {}, "steps": [], "base": "/w"}],
         "_workflow_chain.html": [{"chain": chain, "chain_task": "DEMO-0001"}, {"chain": []}],
         "_workflow_cell.html": [{"c": cell}, {"c": {**cell, "task_nr": None, "repaired": False}}, {"c": None}],
         "_workflow_badge.html": [{"t": {**card, "workflow": {"run_id": 7, "seq": 7, "key": "monthly",
@@ -778,6 +778,8 @@ def _contexts(name: str) -> list[dict]:
                   "fires": [SimpleNamespace(event_id=1, outcome=key, run_id=1) for key in OUTCOME_LABELS],
                   "outcome_labels": OUTCOME_LABELS, "can_edit": True, "error": "",
                   "filter_text": "{}", "params_text": "{}"}
+        if name == "workflow_trigger_edit.html":
+            values["base"] = "/workflows/DEMO/reports"
         return [{**base, **values}, {**base, **values, "can_edit": False, "filter_text": "***", "params_text": "***"}]
     if name in ("workflow_schedule_edit.html", "workflow_schedules.html"):
         from app.models import WorkflowSchedule
@@ -787,12 +789,15 @@ def _contexts(name: str) -> list[dict]:
             workday_rule_json='{"nth":3,"of":"month","time":"07:00"}', timezone="Europe/Berlin",
             params_json="{}", holiday_shift="skip", overlap_policy="queue", misfire_policy="run_late",
             misfire_grace_min=360, enabled=True)
-        values = {"template": template, "templates": [template], "row": row, "schedules": [row],
+        values = {"template": template, "templates": [template], "row": row,
+                  "schedules": [{"schedule": row, "rule": "3. workday · Month · 07:00", "next": "2027-01-07T07:00+01:00"}],
                   "entries": [(template, row, ["2027-01-07T07:00+01:00"])], "enabled": False,
-                  "stale_tick": True, "last_tick": None, "error": "", "can_edit": True,
+                  "stale_tick": True, "last_tick": None, "error": "", "can_edit": True, "new": False,
                   "params_text": "{}", "rule": {"nth":3,"of":"month","time":"07:00"}, "next_fires": ["2027-01-07T07:00+01:00"], "outcome_labels": OUTCOME_LABELS,
                   "calendars": [SimpleNamespace(id=2, name="DE-BW", country="DE", subdivision="BW")],
                   "fires": [SimpleNamespace(scheduled_for=NOW, outcome=key, run_id=1) for key in OUTCOME_LABELS]}
+        if name == "workflow_schedule_edit.html":
+            values["base"] = "/workflows/DEMO/reports"
         return [{**base, **values}, {**base, **values, "can_edit": False, "params_text": "***"}]
     if name in ("admin/users.html", "admin/_user_panel.html"):
         from starlette.datastructures import URL

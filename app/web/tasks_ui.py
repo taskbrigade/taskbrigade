@@ -178,8 +178,10 @@ def inbox(request: Request, user: UiUser = Depends(require_user)):
         sprint = _sprint_param(request)
         tab = _segment_param(request)
         data = svc.inbox(s, octx["owner_id"], sprint)
-        # Reviews by reviewer agents (running and sent back) are action cards too; the owner/admins may overrule.
-        n_reviews = len(data["for_review"]) + len(data["agent_review"]) + len(data["agent_decided"])
+        # Reviews by reviewer agents (running and sent back) get their own section below "Needs your action": they
+        # count in the "Reviews" filter, not as items that need the user. The owner/admins may still overrule.
+        n_agent_reviews = len(data["agent_review"]) + len(data["agent_decided"])
+        n_reviews = len(data["for_review"]) + n_agent_reviews
         n_questions = len(data["questions"])
         for t in data["questions"]:
             t["last_question"] = _last_question(s, t["task_nr"])
@@ -194,8 +196,10 @@ def inbox(request: Request, user: UiUser = Depends(require_user)):
         for t in data["for_review"]:
             t["on_approve_mails"] = t["task_nr"] in on_approve
         workflow_group(data)
-        # Separate list, so the notices panel keeps showing `agent_review` whatever the tab.
+        # Rows of the section "Reviews by agents"; the notices panel only links to it.
         data["agent_cards"] = data["agent_review"] + data["agent_decided"]
+        reviewers = {t["reviewer"] for t in data["agent_cards"]}
+        actor_kinds = dict(s.execute(select(Actor.name, Actor.agent_kind).where(Actor.name.in_(reviewers))).all())
         # The header badge counts before the segmented filter empties categories.
         badge = inbox_badge(request, {"inbox": data, "mail_approvals": mail_approvals, "data_releases": data_releases})
         if tab == "reviews":
@@ -222,7 +226,8 @@ def inbox(request: Request, user: UiUser = Depends(require_user)):
             params["notices"] = "all"
             notices_more = "?" + urlencode(params)
     return _with_owner_cookie(render(request, "inbox.html", inbox=data, managed=managed, sprint_filter=sprint,
-                                     tab=tab, n_reviews=n_reviews, n_questions=n_questions, notices=notices,
+                                     tab=tab, n_reviews=n_reviews, n_agent_reviews=n_agent_reviews, n_questions=n_questions,
+                                     actor_kinds=actor_kinds, notices=notices,
                                      notices_all=notices_all, notices_more=notices_more,
                                      notices_until=notices_until.isoformat() + "Z", notices_max_id=notices_max_id,
                                      mail_approvals=mail_approvals, data_releases=data_releases, inbox_badge=badge,

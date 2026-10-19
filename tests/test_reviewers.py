@@ -395,7 +395,7 @@ def test_ui_reviewer_fields_inbox_and_detail(renv, ui):  # noqa: F811
     assert "kann den eigenen Task nicht reviewen" in r.text or "nicht reviewen" in r.text
     agent_nr = _submitted(renv, reviewer="hermes")
     inbox = ui.get("/").text
-    assert "Review durch Agenten" in inbox and agent_nr in inbox.split("Review durch Agenten")[1]
+    assert "Reviews durch Agenten" in inbox and agent_nr in inbox.split("Reviews durch Agenten")[1]
     detail = ui.get(f"/tasks/{agent_nr}").text
     assert "Wartet auf den Reviewer-Agenten hermes." in detail and "Du kannst trotzdem selbst entscheiden" in detail
     assert 'value="approve"' in detail  # The admin can still decide.
@@ -405,26 +405,53 @@ def test_ui_reviewer_fields_inbox_and_detail(renv, ui):  # noqa: F811
     assert "Zurückgewiesen von hermes (Reviewer-Agent)" in detail and "hermes</strong> (Reviewer-Agent)" in detail
 
 
-def test_ui_inbox_shows_agent_reviews_as_action_cards(renv, ui):  # noqa: F811
+def test_ui_inbox_shows_agent_reviews_in_own_section(renv, ui):  # noqa: F811
     nr = _submitted(renv, reviewer="hermes")
     page = ui.get("/").text
-    cards = page.split('class="inbox-cards"')[1].split('class="inbox-notices"')[0]
-    assert f'id="ar-{nr}"' in cards and "Wartet auf Reviewer-Agenten" in cards and "hermes" in cards
-    assert f'hx-post="/inbox/{nr}/approve"' in cards and f'hx-post="/inbox/{nr}/reject"' in cards  # Admin overrules.
-    assert "Reviews 1" in page and '<span class="nav-badge" aria-label="Aktion erforderlich">1</span>' in page
-    assert "Review durch Agenten" in page.split('class="inbox-notices"')[1]  # The notice stays.
+    cards = page.split('class="inbox-cards"')[1].split('class="inbox-agent-reviews"')[0]
+    assert f'id="ar-{nr}"' not in cards and "Alles erledigt" in cards  # Not under "Needs your action".
+    section = page.split('class="inbox-agent-reviews"')[1].split('class="inbox-notices"')[0]
+    assert "Reviews durch Agenten" in section and '<span class="count-pill">1</span>' in section
+    row = section.split(f'id="ar-{nr}"')[1].split("</li>")[0]
+    assert "Wartet auf Reviewer-Agenten" in row and "hermes" in row and "Wartet seit" in row
+    assert 'class="action-card' not in row and 'class="agent' not in row.replace("agent-review", "")  # No stray dot.
+    assert f'hx-post="/inbox/{nr}/approve"' in row and f'hx-post="/inbox/{nr}/reject"' in row  # Admin overrules.
+    assert "ui-btn-secondary ui-btn-xs" in row and 'class="secondary"' in row  # … as small secondary buttons.
+    assert 'class="inbox-divider"' in page
+    # Counts: subtitle, "Needs your action" pill and tab badge only count items that need the user.
+    assert "0 Einträge brauchen dich" in page
+    assert 'Aktion erforderlich <span class="count-pill">0</span>' in page
+    assert '<span class="nav-badge"' not in page
+    assert "Reviews 1" in page  # The segmented filter counts both.
+    assert "Ein Reviewer-Agent entscheidet diese Reviews" in section  # Short explanation under the heading.
+    # The notices panel has no agent-review table or details any more, only a one-line pointer to the section.
+    notices = page.split('class="inbox-notices"')[1]
+    assert 'class="notice agent-review"' not in notices and nr not in notices
+    assert "Diese Reviews entscheidet" not in notices and "<table" not in notices
+    assert '<a href="#agent-reviews-title">1 Review durch Agenten ↓</a>' in notices
     _review_claim(renv)
     page = ui.get("/?tab=questions").text
-    assert f'id="ar-{nr}"' not in page and '<span class="nav-badge" aria-label="Aktion erforderlich">1</span>' in page
-    assert "Review läuft" in ui.get("/?tab=reviews").text
+    assert f'id="ar-{nr}"' not in page and 'class="inbox-agent-reviews"' not in page
+    assert 'href="#agent-reviews-title"' not in page  # No pointer to a hidden section.
+    row = ui.get("/?tab=reviews").text.split(f'id="ar-{nr}"')[1].split("</li>")[0]
+    assert "Review läuft" in row and "Review läuft seit" in row
     _decide(renv, nr, "reject", comment="Tests fehlen")
     page = ui.get("/?tab=reviews").text
-    card = page.split(f'id="ar-{nr}"')[1].split("</article>")[0]
-    assert "Änderungen angefordert" in card and "hermes" in card and f'href="/tasks/{nr}"' in card
-    assert "/approve" not in card  # Decided: the state machine only lets the assignee continue.
-    assert "Reviews 1" in page
+    row = page.split(f'id="ar-{nr}"')[1].split("</li>")[0]
+    assert "Änderungen angefordert" in row and "hermes" in row and f'href="/tasks/{nr}"' in row
+    assert "/approve" not in row  # Decided: the state machine only lets the assignee continue.
+    assert "Reviews 1" in page and '<span class="nav-badge"' not in page
     r = post(ui, f"/inbox/{nr}/approve")
     assert r.status_code == 422  # The endpoint keeps refusing it (status changes_requested).
+
+
+def test_ui_inbox_hides_agent_section_without_agent_reviews(renv, ui):  # noqa: F811
+    nr = _submitted(renv)
+    page = ui.get("/").text
+    assert 'class="inbox-agent-reviews"' not in page and 'class="inbox-divider"' not in page
+    assert 'href="#agent-reviews-title"' not in page
+    assert f'id="r-{nr}"' in page.split('class="inbox-cards"')[1]
+    assert "1 Eintrag braucht dich" in page and '<span class="nav-badge" aria-label="Aktion erforderlich">1</span>' in page
 
 
 def test_sprint_plan_batch_and_duplicate_keep_reviewer(renv):

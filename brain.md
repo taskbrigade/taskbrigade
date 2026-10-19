@@ -915,14 +915,23 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   List/Cards toggle sits flush right: Pico's `[role="search"] > * { flex: 1 1 auto }` grew the toggle span while its
   inner `.ui-seg` stayed compact and left-aligned (a ~100px gap), so `.ui-toolbar > :is(.ui-seg, select.ui-select,
   .ui-toolbar-view)` is `flex: 0 1 auto` – only the search field grows, the other controls stay compact and flush.
-- 2026-10-18 – Reviews by reviewer agents are Inbox action cards again (`agent_review` macro in `inbox.html`, filter
+- 2026-10-18 – Reviews by reviewer agents are shown in the Inbox (`agent_review` macro in `inbox.html`, filter
   "Reviews"): `tasks.inbox` `agent_review` (for_review with an effective reviewer agent; rows carry `submitted_at`/
   `review_claimed_at`) and `agent_decided` (status `changes_requested` whose latest `status_change` event came from
   `for_review` by the task's reviewer agent; rows carry `decision` = the action note and `decided_at`; gone once the
-  assignee claims). `n_reviews` and `common.inbox_badge` count both lists; the Inbox page computes the badge before
-  the segmented filter empties categories. Running reviews offer the owner/admin overrule (approve/reject via
-  `/inbox/{nr}/…`); decided ones only open task/diff, because approve/reject need `for_review`. The "Review by agents"
-  notice in the side panel stays. Before UI 3 agent reviews were only a "Notices" table, never "Needs your action".
+  assignee claims). Running reviews offer the owner/admin overrule (approve/reject via `/inbox/{nr}/…`); decided ones
+  only open task/diff, because approve/reject need `for_review`. Before UI 3 agent reviews were only a "Notices"
+  table, never "Needs your action".
+- 2026-10-18 – Agent reviews are not "Needs your action": they sit in their own section "Reviews by
+  agents" (`section.inbox-agent-reviews` after `hr.inbox-divider`, both inside `.inbox-main`, the left column) as
+  compact `li.agent-review-row`s with the overrule as `ui-btn-secondary ui-btn-xs`. The subtitle, the "Needs your
+  action" pill (`n_act` subtracts `n_agent_reviews`) and `common.inbox_badge` count neither `agent_review` nor
+  `agent_decided`; only the segmented "Reviews n" filter counts them (and shows the section; "Questions" hides it).
+  Never put the class `agent` on a container: `.agent` is the inline-flex actor chip with a `::before` dot – that is
+  what centred the agent-review card and drew the stray dot above its pill. The notices panel has no agent-review
+  block any more (no details, table or explanation): only `p.inbox-notice-pointer`, one link "n reviews by agents ↓"
+  to `#agent-reviews-title`, shown while `inbox.agent_cards` is non-empty (so not on the "Questions" filter); the
+  shortened explanation sits under the section heading (`p.inbox-agent-reviews-hint`).
 - `tasks.inbox(..., cols={key: column})` merges extra columns into each row summary – use it instead of adding
   inbox-only keys to `tasks.summary` (that dict is also returned by the sprints API).
 - 2026-10-18 – Profile display switches have their own form `#pf-display` , posted on every change
@@ -938,6 +947,12 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   hidden agent's detail link still opens). Members have no switch and keep own + public. Display only: the API
   (`GET /actors`) and the assignment permission (`may_use_agent`) are unchanged; assigned agents stay visible via
   `keep`. Tests: `tests/test_display_switches.py`.
+- 2026-10-18 – The "Current"/"Aktuell" badge (and the highlighted card border) for the project preselected in the
+  quick capture field was removed from the projects overview, list and cards view alike; the cards view no longer
+  moves that project to the front either. The quick-capture selection itself is unchanged – only the
+  display on /projects is gone. The `ui-card-current` CSS rule and the "Current" / "Project preselected in the quick
+  capture field" msgids were removed with it.
+- 2026-10-18 – `_workflow_tabs.html` renders two tab sets: template-scoped tabs (Overview/Runs/Schedules/Event triggers at `/workflows/<P>/<k>` + `/runs`/`/schedules`/`/triggers`, plus a breadcrumb back to `/workflows`) when the page passes `base`, and the global routes (`/workflows`, `/workflow-runs`, `/workflows/schedules`, `/workflows/triggers`) otherwise. Every page that passes `base` must also pass `template` (run detail passes `template=run.template`); the tab counts render only on global pages. The schedule edit page lists the template's schedules (name, `schedules.describe()` rule in words or cron, next run, enabled) and opens the first/selected one; the empty "New schedule" form appears only with `?new=1`, and the workday-rule fields are hidden (`hidden` attribute + a small inline script) for a plain cron rule.
 
 ## Pitfalls
 

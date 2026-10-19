@@ -435,7 +435,8 @@ def run_detail(request: Request, run_id: int, user: UiUser = Depends(require_use
             Actor.id.in_([x for x in (run.started_by, run.template.owner_id) if x]))).all())
         attempts = [{**step, "row": row} for step, row in zip(info["steps"], sorted(
             run.steps, key=lambda r: (r.position, r.attempt)), strict=False)]
-        return render(request, "workflow_run.html", run=run, info=info, chain=wf.chain(s, run), attempts=attempts,
+        return render(request, "workflow_run.html", run=run, template=run.template, info=info,
+                      chain=wf.chain(s, run), attempts=attempts,
                       can_control=wf.may_control(me, run), names=names,
                       steps=[st.step_key for st in sorted(run.version.steps, key=lambda x: x.position)],
                       base=_base(run.project.project_key, run.template.workflow_key))

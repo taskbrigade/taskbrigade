@@ -250,8 +250,10 @@ the role `reviewer` (*Admin → Users & agents*, role `reviewer`; humans cannot 
   with the reviewer's own model settings – there is no separate review model field.
 - Display: the thread notes “Approved by <agent> (reviewer agent)”, likewise for
   rejections and returned conflicts; the history shows `review_claimed`/`review_released`/`review_lease_expired`, the
-  server log audits `review_*` with `reviewer_agent=true`. The inbox lists tasks a reviewer agent reviews under
-  “Review by agents” instead of "Needs your action"; Telegram sends no review request for them
+  server log audits `review_*` with `reviewer_agent=true`. The inbox lists tasks a reviewer agent reviews (or sent
+  back) in its own section “Reviews by agents” below "Needs your action", not counted as items that need you; the
+  project owner and admins can still overrule a running review there. The notices panel only links to that
+  section. Telegram sends no review request for them
   but the event “Reviewed by a reviewer agent” after the agent's decision.
 - After updating the server, update reviewer agent machines too (`tbr self-update`); Hermes/OpenClaw reviewers need
   `tbr setup hermes|openclaw` once so the trigger recognises review jobs.

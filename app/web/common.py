@@ -393,5 +393,6 @@ def inbox_badge(request: Request, ctx: dict) -> int:
             data = workflow_group(tasks.inbox(session, owner_id, _sprint_param(request)))
             mails = result_mail.pending_for(session, me)
             releases = output_gate.pending_for(session, me)
-    keys = ("questions", "for_review", "agent_review", "agent_decided", "aborted")
+    # Reviews by reviewer agents are not counted: they do not need the user (own Inbox section).
+    keys = ("questions", "for_review", "aborted")
     return sum(len(data.get(key, [])) for key in keys) + len(mails) + len(releases)

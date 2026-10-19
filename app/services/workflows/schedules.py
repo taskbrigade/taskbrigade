@@ -87,3 +87,17 @@ def info(session, actor, row, now=None):
 OUTCOME_LABELS = {"started": N_("Started"), "queued": N_("Queued"),
                   "skipped_overlap": N_("Skipped (overlap)"), "skipped_misfire": N_("Skipped (misfire)"),
                   "failed": N_("Failed")}
+
+
+def describe(row) -> str:
+    """Human-readable rule for the schedule list: the cron expression, or the workday rule in words."""
+    if row.kind != "workday":
+        return row.cron_expr or ""
+    rule = json.loads(row.workday_rule_json or "{}")
+    if not isinstance(rule, dict):
+        rule = {}
+    t = rule.get("time", "")
+    if "day" in rule:
+        return _("%(day)s. day of the month (workday) · %(time)s", day=rule.get("day"), time=t)
+    period = {"week": _("Week"), "month": _("Month"), "quarter": _("Quarter")}.get(rule.get("of", "month"), "")
+    return _("%(nth)s. workday · %(period)s · %(time)s", nth=rule.get("nth"), period=period, time=t)

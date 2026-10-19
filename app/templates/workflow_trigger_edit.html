@@ -2,7 +2,7 @@
 {% import "_ui.html" as ui %}
 {% block title %}{{ _("Event triggers") }} · {{ template.name }}{% endblock %}
 {% block content %}
-<p><a href="/workflows/triggers">{{ _("Event triggers") }}</a> / {{ template.project.project_key }}/{{ template.workflow_key }}</p>
+{% include "_workflow_tabs.html" %}
 {{ ui.page_header(_("Event triggers") ~ " · " ~ template.name) }}
 <p>{{ _("Event triggers start a run when a dataset is ready or another workflow ends. The scheduler tick delivers each event once.") }}</p>
 {% if error %}<p role="alert">{{ error }}</p>{% endif %}

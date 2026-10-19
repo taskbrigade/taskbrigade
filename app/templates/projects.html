@@ -45,7 +45,6 @@
 {% macro project_cell(numbers, p) %}
   <span class="ui-pill ui-pill-mono">{{ p.project_key }}</span>
   <a href="{{ project_url(p.project_key) }}">{{ p.name }}</a>
-  {% if p.id in current_ids %}<span class="ui-pill ui-pill-count" title="{{ _('Project preselected in the quick capture field') }}">{{ _("Current") }}</span>{% endif %}
   {% if p.privacy == "local_only" %}{{ ui.zone(p.privacy) }}{% endif %}
   {% if p.id in mixed %}<span class="ui-muted" title="{{ _('Some tasks have their own data class') }}">{{ _("mixed") }}</span>{% endif %}
 {% endmacro %}
@@ -83,35 +82,7 @@
     {% call ui.empty(_("No projects found.")) %}{% if can_create %}<a class="ui-btn" href="/projects/new">+ {{ _("New project") }}</a>{% endif %}{% endcall %}
   {% elif view == "cards" %}
   <div class="ui-card-grid">
-    {# The project marked "Current" (quick capture) leads the grid and stays out of the loop below. #}
-    {% set current = items | selectattr("id", "in", current_ids) | first %}
-    {% set listed = items | rejectattr("id", "in", current_ids) | list %}
-    {% if current %}
-    <article class="ui-card ui-project-card ui-card-current">
-      <div class="ui-card-head">
-        <div class="ui-row">{{ project_cell(numbers, current) }}</div>
-        {{ ui.status(current.status, kind="project") }}
-      </div>
-      <div class="ui-card-body ui-stack">
-        <div>{{ repo_link(current) }}</div>
-        <div>{{ progress(numbers, current) }}</div>
-        {% set c = numbers[current.id]["counts"] %}
-        {% set meta = numbers[current.id] %}
-        <div class="ui-project-counts">
-          <span>{{ _("Open") }} <strong>{{ open_count(c) }}</strong></span>
-          <span>{{ _("In progress") }} <strong>{{ c.get("in_progress", 0) }}</strong></span>
-          <span>{{ _("Review") }} <strong>{{ c.get("for_review", 0) }}</strong></span>
-          <span>{{ _("Done") }} <strong>{{ c.get("done", 0) }}</strong></span>
-        </div>
-        <p class="ui-card-footer ui-row">
-          <span class="ui-muted">{{ meta["agents"] }} {{ _("agents") }} · {{ meta["last_activity"] | reltime }}</span>
-          <a href="/kanban?project={{ current.project_key | urlencode }}">{{ _("Kanban") }}</a>
-          <a href="/backlog?project={{ current.project_key | urlencode }}">{{ _("Backlog") }}</a>
-        </p>
-      </div>
-    </article>
-    {% endif %}
-    {% for p in listed %}
+    {% for p in items %}
     <article class="ui-card ui-project-card">
       <div class="ui-card-head">
         <div class="ui-row">{{ project_cell(numbers, p) }}</div>
