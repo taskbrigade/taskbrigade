@@ -2472,5 +2472,7 @@
   "Reviews by agents": "Reviews durch Agenten",
   "A reviewer agent decides these – owners and admins can still overrule it.": "Ein Reviewer-Agent entscheidet diese Reviews – Owner und Admins können ihn trotzdem überstimmen.",
   "Review running since %(date)s": "Review läuft seit %(date)s",
-  "Waiting since %(date)s": "Wartet seit %(date)s"
+  "Waiting since %(date)s": "Wartet seit %(date)s",
+  "Dependency %(task_nr)s was cancelled – please check whether this task still applies.": "Abhängigkeit %(task_nr)s wurde abgebrochen – bitte prüfen, ob dieser Task noch gilt.",
+  "cancelled – no longer blocks this task": "abgebrochen – blockiert diesen Task nicht mehr"
 }

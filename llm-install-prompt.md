@@ -94,7 +94,8 @@ Summarise the plan in five to ten lines (path, ports, URLs, users, directories) 
 
 Get the repository if this directory is not a checkout yet:
 `git clone https://github.com/taskbrigade/taskbrigade.git ~/taskbrigade`. GitHub `main` always equals the latest
-release; to pin a version clone the release tag instead (`git clone --branch v<version> …`, e.g. `v0.13.3`).
+release; to pin a version clone the release tag instead (`git clone --branch v<version> …`; the tags are listed on
+the GitHub releases page).
 
 **Native** – follow `docs/quickstart.md` steps 0–6:
 
@@ -133,6 +134,8 @@ Follow the quickstart steps 7–8 (native) or the Docker quickstart step 3, and 
    `curl -fsSL <taskbrigade-url>/install.sh | sh` and `tbr join <taskbrigade-url> tmj_… --dir ~/taskbrigade-work/<agent> --setup <agent>`.
    On the server itself the URL must be `http://127.0.0.1:8090` (join codes and Git credentials are only released to
    loopback or over HTTPS). Then `export PATH="$HOME/.local/bin:$PATH"` and `sudo loginctl enable-linger "$USER"`.
+   Without a systemd user session (some containers and WSL setups) use `--setup <agent> --no-timer` and start passes
+   with `tbr run` (`docs/docker.md`, Quickstart step 3).
 4. Check: `tbr doctor --work-root ~/taskbrigade-work/<agent>` reports no errors. Explain every warning.
 
 If the agent is the program you are running in right now, say so: it will later be started by the runner timer in a
@@ -140,8 +143,9 @@ tmux window, independent of this session.
 
 ## Phase 5 – First task end to end
 
-Guide the user through the quickstart step 9 (project with a new Gitea repo, status `active`, privacy matching the
-agent's runtime; a **defined** task assigned to the agent, with description and acceptance criteria). Then run
+Guide the user through the quickstart steps 9–10 (native) or the Docker quickstart step 4: a project with a new
+Gitea repo, status `active`, privacy matching the agent's runtime (`local_only` for `local`, `cloud_ok` for `cloud`),
+and a **defined** task assigned to the agent, with description and acceptance criteria. Then run
 `tbr run --work-root ~/taskbrigade-work/<agent>` once and show how to watch it (`tmux attach -t taskbrigade`). The
 installation is done when the task reaches review with a pull request in Gitea and the user has approved it in the UI.
 If nothing is claimed, read `~/taskbrigade-work/<agent>/logs/runner.log` and use the quickstart's troubleshooting table.
@@ -155,9 +159,17 @@ Offer the follow-ups that fit the user's answers, one at a time, and do only wha
 - More agents, also on other machines (`docs/cli-agents.md`), desktop apps via MCP (`docs/desktop-apps-mcp.md`),
   agent frameworks such as Hermes or OpenClaw (`docs/agent-frameworks.md`).
 - Models per task, parallel limits, runner settings (`docs/cli-agents.md`).
+- Roles: `orchestrator` lets an agent create and assign tasks for others, `reviewer` lets an agent approve tasks
+  (`docs/operations.md`, "Reviewers: who approves a task"; `docs/getting-started.md`, "Let agents create tasks").
+- Workflows – multi-step templates with schedules and triggers (`docs/workflows.md`; scheduler timer or container:
+  `docs/operations.md`, "Workflows and scheduler").
+- Data zones for confidential data, the data store and SFTP storage for agent results (`docs/data-zones.md`;
+  `docs/operations.md`, "Data zones: installation and migration"; Docker: profiles `data` and `data-sftp` in
+  `docs/docker.md`). Off by default; set them up only when the user needs them.
 - Backups and updates: native `sudo deploy/update.sh`, backups in `/var/backups/taskbrigade/`; Docker
   `deploy/docker/backup.sh` (`docs/operations.md`, `docs/docker.md`). Test a restore once.
-- Telegram notifications, users and roles (`docs/operations.md`, `docs/getting-started.md`).
+- Notifications by Telegram or email, users and project owners (`docs/operations.md`, "Telegram notifications",
+  "Email notifications", "Several people"; `docs/getting-started.md`).
 - Other settings: `tbr-admin config list` (native) or `.env` (Docker); every setting is documented in `.env.example`.
 
 Answer questions about TaskBrigade from the repository (`README.md`, `docs/`, `SECURITY.md`, `.env.example`, the

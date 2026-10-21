@@ -570,6 +570,18 @@ class SkipClient:
         return Resp(204)
 
 
+def test_cancelled_dependency_is_not_open():
+    task = {"task_nr": "TRB-0004", "status": "defined"}
+    deps = [{"task_nr": "TRB-0001", "status": "cancelled", "title": "x", "resolved": True},
+            {"task_nr": "TRB-0002", "status": "done", "title": "x", "resolved": True}]
+    client = SkipClient([task], {"TRB-0004": {"project_info": {"key": "TRB", "status": "active"}, "dependencies": deps}})
+    assert "dependencies" not in runner._skip_reason(client, task, [], 2)
+    deps[0].pop("resolved")  # an older server only sends the status
+    assert "dependencies" not in runner._skip_reason(client, task, [], 2)
+    deps.append({"task_nr": "TRB-0003", "status": "for_review", "title": "x", "resolved": False})
+    assert "open dependencies: TRB-0003 (for_review)" in runner._skip_reason(client, task, [], 2)
+
+
 def test_runner_logs_skipped_tasks(tmp_path):
     root = tmp_path / "work"
     write_config(root, ["true"], mode="foreground")

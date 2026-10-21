@@ -91,7 +91,8 @@ The server claim (`POST /agents/me/claim`) picks the highest-priority task that 
 - assigned to this agent,
 - `defined` or `changes_requested`,
 - in an `active` project,
-- free of open dependencies,
+- free of open dependencies (a dependency is resolved when it is `done` or `cancelled`; when a dependency is
+  cancelled, its dependents get a system note in the thread),
 
 and only while the agent is below its parallel-task limit (`max_parallel_tasks`, default 2, editable under
 *Admin → Users & agents*). Due dates are informational and play no role. If the runner finds assigned tasks that

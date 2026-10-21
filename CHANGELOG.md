@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.2 – 2026-10-21
+
+- A cancelled dependency now counts as resolved: tasks that depended on it are claimable again (server claim, runner, sprint and planning checks share `RESOLVED_DEPENDENCY_STATUSES`). Dependents get a system note in the thread when a dependency is cancelled, and the task detail shows cancelled dependencies struck through.
+- Docs: the coding-agent install prompt (`llm-install-prompt.md`) covers the Docker first-task step, `--no-timer`
+  without a systemd user session, and offers roles, workflows, data zones and email notifications as follow-ups;
+  stale `0.13.3` examples in the prompt, `docs/docker.md` and `SECURITY.md` are gone.
+- Release: the public export also excludes `docs/konzept-email.md` (internal German design notes; the email docs
+  are in `docs/operations.md`).
+
 ## 0.14.1 – 2026-10-19
 
 - Projects: the "Aktuell"/"Current" badge (and the highlighted card border) for the project preselected in quick capture is no longer shown in the list and cards view.
@@ -228,8 +237,8 @@
 - Scheduler job `email_deliver` with retries and back-off (max. 8 attempts), throttle below “Maximum mails per hour”,
   one sending process (`email-sender.lock`) and a delivery log without contents; `local_only` mails carry task
   number, event and link only.
-- The notification delivery log in *Admin → Settings* and the profile shows the channel. Concept:
-  `docs/konzept-email.md`.
+- The notification delivery log in *Admin → Settings* and the profile shows the channel. Operations:
+  `docs/operations.md` (Email notifications).
 - Data store for confidential datasets outside Gitea (menu *Data*, off by default): web upload that encrypts while
   streaming (one key per dataset, wrapped with a separate data key from `tbr-admin init-data-key`), dataset list and
   detail with rights per project, retention with reminder and crypto-shredding (`tbr-admin data retention`), and an

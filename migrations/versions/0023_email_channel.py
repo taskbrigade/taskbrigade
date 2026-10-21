@@ -1,4 +1,4 @@
-"""Email as a second notification channel (docs/konzept-email.md, stage 1)
+"""Email as a second notification channel (docs/operations.md, "Email notifications"; stage 1)
 
 `notifications.channel` (existing rows are Telegram), `notification_prefs.channels_json` (channel per event and the
 bundling interval; NULL = defaults), `actors.email_verified_at` and the one-time verification links

@@ -252,7 +252,7 @@
             <p class="muted"><small>{{ _("Parent task and dependencies can only be changed while the task is a draft.") }}</small></p>
             <dl class="facts">
               <div><dt>{{ _("Parent task") }}</dt><dd>{% if t.parent_task_nr %}<a href="/tasks/{{ t.parent_task_nr }}">{{ t.parent_task_nr }}</a>{% else %}–{% endif %}</dd></div>
-              <div><dt>{{ _("Depends on") }}</dt><dd>{% for d in t.dependencies %}<a href="/tasks/{{ d.task_nr }}">{{ d.task_nr }}</a>{% if not loop.last %}, {% endif %}{% else %}–{% endfor %}</dd></div>
+              <div><dt>{{ _("Depends on") }}</dt><dd>{% for d in t.dependencies %}{% if d.status == "cancelled" %}<del title="{{ _('cancelled') }}"><a href="/tasks/{{ d.task_nr }}">{{ d.task_nr }}</a></del>{% else %}<a href="/tasks/{{ d.task_nr }}">{{ d.task_nr }}</a>{% endif %}{% if not loop.last %}, {% endif %}{% else %}–{% endfor %}</dd></div>
             </dl>
           </div>
           {% endif %}
@@ -595,7 +595,7 @@
     {% if t.duplicate_of %}<p class="duplicate-of">{{ _("Duplicated from") }} <a href="/tasks/{{ t.duplicate_of }}">{{ t.duplicate_of }}</a></p>{% endif %}
     <dl class="struct">
       <div><dt>{{ _("Dependencies") }}</dt>
-        <dd><ul class="plain">{% for d in t.dependencies %}<li><a href="/tasks/{{ d.task_nr }}">{{ d.task_nr }}</a> {{ d.title }} {% with status=d.status %}{% include "_status.html" %}{% endwith %}</li>{% else %}<li class="muted">{{ _("none") }}</li>{% endfor %}</ul></dd></div>
+        <dd><ul class="plain">{% for d in t.dependencies %}<li{% if d.status == "cancelled" %} class="dep-cancelled"{% endif %}>{% if d.status == "cancelled" %}<del><a href="/tasks/{{ d.task_nr }}">{{ d.task_nr }}</a> {{ d.title }}</del>{% else %}<a href="/tasks/{{ d.task_nr }}">{{ d.task_nr }}</a> {{ d.title }}{% endif %} {% with status=d.status %}{% include "_status.html" %}{% endwith %}{% if d.status == "cancelled" %} <small class="muted">{{ _("cancelled – no longer blocks this task") }}</small>{% endif %}</li>{% else %}<li class="muted">{{ _("none") }}</li>{% endfor %}</ul></dd></div>
       <div><dt>{{ _("Subtasks") }}</dt>
         <dd><ul class="plain">{% for d in t.subtasks %}<li><a href="/tasks/{{ d.task_nr }}">{{ d.task_nr }}</a> {{ d.title }} {% with status=d.status %}{% include "_status.html" %}{% endwith %}</li>{% else %}<li class="muted">{{ _("none") }}</li>{% endfor %}</ul>
           <a href="/tasks/new?project={{ t.project }}&parent={{ t.task_nr }}" class="small">{{ _("+ Add subtask") }}</a></dd></div>

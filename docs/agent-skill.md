@@ -208,11 +208,11 @@ brain or changelog conflict leaves the task in review – then use `conflict`. T
   worktree too; `TASK.md` and `tbr show` list them under "Attachments".
 - Tasks in state **draft** are still being written and are never handed to agents – only after they are published
   to "defined". Orchestrators can create subtasks as drafts with `"status": "draft"` or `tbr create --draft`.
-- Prio 1 is the highest, 5 the lowest. Blocked tasks (open dependencies) are not handed out.
+- Prio 1 is the highest, 5 the lowest. Blocked tasks (open dependencies) are not handed out; a dependency counts as finished when it is `done` or `cancelled` (the dependents get a thread note when it is cancelled – check whether the task still applies).
 - Projects with `privacy = local_only` are closed to cloud agents – never pass on code from them.
 - Error `409 invalid_transition`: the task is not (or no longer) in the expected state – check with `tbr show`.
 - **Orchestrators** (role `orchestrator`/`admin`): use `--due` only for real deadlines – claiming does not depend on
-  it (but on assignment, state "defined", an active project and finished dependencies). Move wrongly assigned tasks
+  it (but on assignment, state "defined", an active project and finished or cancelled dependencies). Move wrongly assigned tasks
   with `tbr update <NR> --assign …` instead of copying them; cancel duplicates with `tbr cancel`. To have a task done
   again – slightly changed or as a second opinion from another agent/model – use `tbr duplicate <NR> [--assign
   <agent>] [--title …]`: a new draft in the same project with prefix "(duplicate)" that links to the original

@@ -8,15 +8,19 @@ import re
 from dataclasses import dataclass
 from datetime import timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.i18n import _
 from app.errors import AppError, Conflict, Forbidden, Unprocessable
-from app.models import TASK_STATUSES, Actor, Project, Task, TaskComment, TaskEvent
+from app.models import TASK_STATUSES, Actor, Project, Task, TaskComment, TaskDependency, TaskEvent
 from app.services import brain_changes, changelog_fragments, notifications, settings_store
 from app.services.gitea import GiteaError
 
 END_STATUSES = frozenset({"done", "cancelled"})
+# A dependency in one of these statuses no longer blocks the tasks that depend on it. A cancelled task can never
+# become `done`, so counting it as open would block its dependents for good. The only place for this rule.
+RESOLVED_DEPENDENCY_STATUSES = END_STATUSES
 NON_END = frozenset(TASK_STATUSES) - END_STATUSES
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -142,6 +146,17 @@ def add_comment(session: Session, task: Task, actor: Actor, comment_type: str, b
     c = TaskComment(task_id=task.id, author_id=actor.id, comment_type=comment_type, body=body)
     session.add(c)
     return c
+
+
+def notify_dependents_cancelled(session: Session, task: Task, actor: Actor | None) -> None:
+    """A cancelled dependency counts as resolved, so its open dependents become claimable: tell them in the thread."""
+    dependents = session.scalars(
+        select(Task).join(TaskDependency, TaskDependency.task_id == Task.id)
+        .where(TaskDependency.depends_on_task_id == task.id, Task.status.not_in(tuple(END_STATUSES)))).all()
+    for dependent in dependents:
+        add_comment(session, dependent, actor or session.get(Actor, dependent.created_by), "system",
+                    _("Dependency %(task_nr)s was cancelled – please check whether this task still applies.",
+                      task_nr=task.task_nr))
 
 
 def slugify(title: str, max_len: int = 40) -> str:
@@ -691,6 +706,8 @@ def transition(session: Session, task: Task, action: str, actor: Actor | None, p
     from app.services import data_refs
 
     data_refs.on_transition(session, task, action, actor, payload)  # Follow-up drafts of a chain across zones
+    if task.status == "cancelled":
+        notify_dependents_cancelled(session, task, actor)
     if action == "approve" or task.status == "cancelled":
         from app.services import result_mail
 
@@ -742,6 +759,7 @@ def transition_to(session: Session, task: Task, to_status: str, actor: Actor, co
     session.flush()
     workflows.on_task_transition(session, task, "override", actor, {"body": comment})
     if to_status == "cancelled":
+        notify_dependents_cancelled(session, task, actor)
         from app.services import result_mail
 
         result_mail.on_task_status(session, task, actor, "override")
@@ -775,6 +793,8 @@ def workflow_status(session: Session, task: Task, status: str, note: str, actor:
     task.row_version += 1
     add_event(session, task, actor, "status_change", previous, status, "workflow")
     add_comment(session, task, actor or session.get(Actor, task.created_by), "system", note)
+    if status == "cancelled":
+        notify_dependents_cancelled(session, task, actor)
     session.flush()
 
 

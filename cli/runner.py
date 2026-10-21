@@ -271,7 +271,8 @@ def _skip_reason(client: Client, t: dict, running: list[str], max_parallel: int,
     project = full.get("project_info") or {}
     if project.get("status", "active") != "active":
         return _("project %(key)s is not active ('%(status)s')", key=project.get("key"), status=project.get("status"))
-    open_deps = [f"{d['task_nr']} ({d['status']})" for d in full.get("dependencies") or [] if d["status"] != "done"]
+    open_deps = [f"{d['task_nr']} ({d['status']})" for d in full.get("dependencies") or []
+                 if not d.get("resolved", d["status"] in ("done", "cancelled"))]  # the server decides; old servers lack it
     if open_deps:
         return _("open dependencies: %(deps)s", deps=", ".join(open_deps))
     waiting = [nr for nr, key in (in_review or {}).items() if key == project.get("key") and nr != t["task_nr"]]

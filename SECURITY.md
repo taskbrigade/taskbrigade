@@ -2,7 +2,7 @@
 
 ## Supported versions and reporting
 
-Security fixes are made on the current development branch. 0.13.3 is the first public release; no older release line is maintained.
+Security fixes are made on the current development branch and shipped in the next release. Only the latest release is supported; older release lines are not maintained.
 
 Please report suspected vulnerabilities privately through GitHub's **Report a vulnerability** / private vulnerability reporting feature for this repository, if enabled. If it is unavailable, write to [security@taskbrigade.dev](mailto:security@taskbrigade.dev). Do not put exploit details, credentials, or private task contents in a public issue. Include the affected version or commit, deployment configuration, reproduction steps, impact, and any suggested mitigation. Maintainers will acknowledge and coordinate a fix and disclosure; there is no promised response time or bug bounty.
 

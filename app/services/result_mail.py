@@ -1,4 +1,4 @@
-"""Work results by email (docs/konzept-email.md §3, stages 2–3). Agents never get SMTP credentials: they file a send
+"""Work results by email (docs/operations.md, "Sending work results by email"; stages 2–3). Agents never get SMTP credentials: they file a send
 request (MCP `send_email`, `tbr mail send`), the server checks it and sends it with the `email_deliver` job.
 
 Checks on request: the requester (assignee, admin/orchestrator or project owner), email enabled, the task's effective

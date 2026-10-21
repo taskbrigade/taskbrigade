@@ -19,6 +19,7 @@ EXCLUDED_PATHS=(
   Produktvideo
   docs/naming
   docs/ui-redesign
+  docs/konzept-email.md
   media
   'mediaassets/ChatGPT-Bild*.png'
   tasks

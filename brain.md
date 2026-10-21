@@ -564,7 +564,7 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   Task payloads carry `task_kind`, `data_class` and `data_class_effective`; badges via `_data_class.html`.
 - 2026-10-16 – Workflow output contracts and placeholders live in `app/services/workflows/` (parser, resolver, publish checks, submit validation). No Jinja. Agents set outputs with `tbr submit --output/--output-json`, MCP `submit_task(outputs)`, or a `.tm-submit.md` `## Outputs` JSON block. Declared values are stored on `workflow_run_steps.output_json`; file outputs are rewritten to the merge commit on approve. Guide: `docs/workflow-outputs.md`.
 - 2026-10-16 – Email as a second notification channel, outbound only (`app/services/mail.py`, migration `0023`;
-  concept `docs/konzept-email.md`): TaskBrigade never reads mail (no IMAP/POP, `tests/test_email.py` checks `app/`
+  internal concept `docs/konzept-email.md`, not exported; operations: `docs/operations.md`): TaskBrigade never reads mail (no IMAP/POP, `tests/test_email.py` checks `app/`
   and `cli/`). `notifications.channel` (`telegram`/`email`), one row per recipient and channel, written by
   `notifications._actor_rows` for the channels in `channels_for(pref, event)` that can reach the person
   (`_reachable`: Telegram enabled + linked chat; email enabled + `mail.verified_address`). `notification_prefs.
@@ -953,6 +953,7 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   display on /projects is gone. The `ui-card-current` CSS rule and the "Current" / "Project preselected in the quick
   capture field" msgids were removed with it.
 - 2026-10-18 – `_workflow_tabs.html` renders two tab sets: template-scoped tabs (Overview/Runs/Schedules/Event triggers at `/workflows/<P>/<k>` + `/runs`/`/schedules`/`/triggers`, plus a breadcrumb back to `/workflows`) when the page passes `base`, and the global routes (`/workflows`, `/workflow-runs`, `/workflows/schedules`, `/workflows/triggers`) otherwise. Every page that passes `base` must also pass `template` (run detail passes `template=run.template`); the tab counts render only on global pages. The schedule edit page lists the template's schedules (name, `schedules.describe()` rule in words or cron, next run, enabled) and opens the first/selected one; the empty "New schedule" form appears only with `?new=1`, and the workday-rule fields are hidden (`hidden` attribute + a small inline script) for a plain cron rule.
+- 2026-10-19 – A dependency is resolved when its status is in `state_machine.RESOLVED_DEPENDENCY_STATUSES` (`done` or `cancelled`): a cancelled task can never become `done`, so counting it as open blocked its dependents for good. Claim (`tasks._deps_done`), sprint (`sprints.late_dependencies`) and planning (`planning_ui.waiting_for`) checks use the constant; the task payload marks each dependency with `resolved`, which the runner's `_skip_reason` reads (old servers: `done`/`cancelled` fallback). Cancelling a task writes a system comment to every open dependent (`state_machine.notify_dependents_cancelled`, all three cancel paths); the task detail strikes cancelled dependencies through. MCP `update_task(depends_on=…)` already existed (`[]`/`"none"` removes all).
 
 ## Pitfalls
 
@@ -1099,8 +1100,8 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   `tests/test_onboarding.py` to give `GET /user` per-token answers on top of `FakeGitea`). A respx side effect must
   return a plain `httpx.Response`; wrap a `TestClient` response (`httpx.Response(r.status_code, headers=…,
   content=r.content)`) when forwarding a CLI call to the in-process app.
-- `deploy/release/export-public.sh` drops `EXCLUDED_PATHS` (`research/`, `Marketing/`, `Produktvideo/`, `docs/naming/`, `docs/ui-redesign/`, `media/`,
-  `mediaassets/ChatGPT-Bild*.png`, `tasks/`) from the archived `HEAD` before scanning; internal notes may stay in the
+- `deploy/release/export-public.sh` drops `EXCLUDED_PATHS` (`research/`, `Marketing/`, `Produktvideo/`, `docs/naming/`, `docs/ui-redesign/`, `docs/konzept-email.md`,
+  `media/`, `mediaassets/ChatGPT-Bild*.png`, `tasks/`) from the archived `HEAD` before scanning; internal notes may stay in the
   working repository. `tasks/` holds the attachments of TaskBrigade's own tasks (mockups, review screenshots), which
   TaskBrigade commits into this repository like into any project repository. `tests/test_export_public.py` checks
   that every such tracked file is covered.

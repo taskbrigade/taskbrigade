@@ -167,7 +167,7 @@ def test_exclusion_list_covers_internal_material_of_this_repository():
     root = SCRIPT.parents[2]
     tracked = run("git", "ls-files", cwd=root).stdout.splitlines()
     internal = [name for name in tracked
-                if name.startswith(("research/", "Marketing/", "Produktvideo/", "docs/naming/", "docs/ui-redesign/", "media/", "tasks/"))
+                if name.startswith(("research/", "Marketing/", "Produktvideo/", "docs/naming/", "docs/ui-redesign/", "docs/konzept-email.md", "media/", "tasks/"))
                 or name.startswith("mediaassets/ChatGPT-Bild")]
 
     def excluded(name):

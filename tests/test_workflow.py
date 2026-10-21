@@ -473,7 +473,8 @@ def test_subtasks_and_dependencies_in_payload(env):
     b = mktask(env, title="Teil B", parent_task_nr=parent["task_nr"], depends_on=[a["task_nr"]])
     p = env["c"].get(f"/api/v1/tasks/{parent['task_nr']}", headers=env["admin"]).json()
     assert [s["task_nr"] for s in p["subtasks"]] == [a["task_nr"], b["task_nr"]]
-    assert b["dependencies"] == [{"task_nr": a["task_nr"], "status": "defined", "title": "Teil A"}]
+    assert b["dependencies"] == [{"task_nr": a["task_nr"], "status": "defined", "title": "Teil A",
+                               "resolved": False}]
     assert b["parent_task_nr"] == parent["task_nr"]
 
 

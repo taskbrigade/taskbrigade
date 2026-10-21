@@ -1,7 +1,7 @@
 """Email as a second notification channel: SMTP settings, address verification, message building and delivery.
 
 TaskBrigade only sends mail, it never reads a mailbox (no IMAP, no replies, no commands by mail;
-docs/konzept-email.md). Rows of `notifications` with `channel = "email"` are sent by `deliver` (scheduler job
+docs/operations.md, "Email notifications"). Rows of `notifications` with `channel = "email"` are sent by `deliver` (scheduler job
 `email_deliver`, only in the process holding `<state_dir>/email-sender.lock`) with the same rules as Telegram: retry
 with back-off, at most `notifications.MAX_ATTEMPTS` attempts, text cleared once sent or given up. Sending stays
 below `mail_rate_per_hour`. Only errors the SMTP server reports at once are seen; bounces go to the provider mailbox.

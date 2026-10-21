@@ -428,7 +428,8 @@ def payload(session: Session, task: Task) -> dict:
         # `GET /tasks/{nr}/artifacts` (TASK.md section "Approved data artifacts").
         "data_refs": data_refs.listing(session, task),
         "script_contract": runner_jobs.contract_applies(session, task),
-        "dependencies": [{"task_nr": n, "status": s, "title": t} for n, s, t in deps],
+        "dependencies": [{"task_nr": n, "status": s, "title": t,
+                          "resolved": s in state_machine.RESOLVED_DEPENDENCY_STATUSES} for n, s, t in deps],
         "subtasks": [{"task_nr": n, "status": s, "title": t} for n, s, t in subtasks],
         "comments": [{"id": c.id, "type": c.comment_type, "author": names.get(c.author_id), "body": c.body,
                       "created_at": c.created_at, "by_agent": names.get(c.author_id) in agents} for c in comments],
@@ -748,7 +749,7 @@ def comment(session: Session, actor: Actor, task: Task, body: str) -> TaskCommen
 def _deps_done():
     dt = aliased(Task)
     return ~exists().where(TaskDependency.task_id == Task.id, TaskDependency.depends_on_task_id == dt.id,
-                           dt.status != "done")
+                           dt.status.not_in(tuple(state_machine.RESOLVED_DEPENDENCY_STATUSES)))
 
 
 def _own_review_pending(actor_id: int):

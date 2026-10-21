@@ -21,7 +21,7 @@ from app.logging_setup import audit
 from app.models import Actor, Project, Sprint, Task, TaskDependency
 from app.services import access, projects, sprints
 from app.services import tasks as task_svc
-from app.services.state_machine import END_STATUSES
+from app.services.state_machine import END_STATUSES, RESOLVED_DEPENDENCY_STATUSES
 from app.web.common import render, ui_actor, web_session
 from app.web.sprints_ui import parse_batch
 from app.web.tasks_ui import agent_choices, require_user
@@ -69,7 +69,7 @@ def waiting_for(session, task_ids: list[int]) -> dict[int, list[str]]:
     if task_ids:
         rows = session.execute(select(TaskDependency.task_id, Task.task_nr)
                                .join(Task, Task.id == TaskDependency.depends_on_task_id)
-                               .where(TaskDependency.task_id.in_(task_ids), Task.status != "done")
+                               .where(TaskDependency.task_id.in_(task_ids), Task.status.not_in(tuple(RESOLVED_DEPENDENCY_STATUSES)))
                                .order_by(Task.id))
         for task_id, nr in rows:
             out.setdefault(task_id, []).append(nr)

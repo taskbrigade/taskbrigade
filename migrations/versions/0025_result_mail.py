@@ -1,4 +1,4 @@
-"""Work results by email (docs/konzept-email.md §3, stage 2): send requests `outgoing_mails` and the allowed
+"""Work results by email (docs/operations.md, "Sending work results by email"; stage 2): send requests `outgoing_mails` and the allowed
 recipients per project `project_mail_recipients`.
 
 Agents never send mail themselves: they file a request, the server checks recipient list, data class, size, types and

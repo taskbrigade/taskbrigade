@@ -20,7 +20,7 @@ from app.i18n import _
 from app.errors import AppError, Conflict, Forbidden, NotFound, Unprocessable
 from app.models import SPRINT_STATUSES, Actor, Project, Sprint, Task, TaskDependency, TaskEvent
 from app.services import access
-from app.services.state_machine import END_STATUSES, add_event, missing_definition, transition, utcnow
+from app.services.state_machine import END_STATUSES, RESOLVED_DEPENDENCY_STATUSES, add_event, missing_definition, transition, utcnow
 
 EDITABLE = {"name", "goal", "start_date", "end_date"}
 
@@ -344,7 +344,7 @@ def _is_later(start: date | None, sprint_id: int, than: Sprint) -> bool:
 
 def late_dependencies(session: Session, sprint: Sprint, task_ids: list[int]) -> dict[int, list[dict]]:
     """Dependencies of `task_ids` that will not be done in time for `sprint` (task id → list): the dependency is not
-    `done` and has no sprint, sits in a planned sprint or in a sprint later than this one. Dependencies in the same
+    `done`/`cancelled` and has no sprint, sits in a planned sprint or in a sprint later than this one. Dependencies in the same
     sprint or in an earlier released/closed one are not listed. One query."""
     out: dict[int, list[dict]] = {}
     if not task_ids:
@@ -354,7 +354,7 @@ def late_dependencies(session: Session, sprint: Sprint, task_ids: list[int]) -> 
                Sprint.start_date)
         .join(Task, Task.id == TaskDependency.depends_on_task_id)
         .outerjoin(Sprint, Sprint.id == Task.sprint_id)
-        .where(TaskDependency.task_id.in_(task_ids), Task.status != "done").order_by(Task.id))
+        .where(TaskDependency.task_id.in_(task_ids), Task.status.not_in(tuple(RESOLVED_DEPENDENCY_STATUSES))).order_by(Task.id))
     for task_id, nr, title, status, sid, sname, sstatus, sstart in rows:
         if sid == sprint.id:
             continue

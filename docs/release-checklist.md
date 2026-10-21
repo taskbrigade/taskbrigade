@@ -15,6 +15,7 @@ The internal Gitea repository remains the working copy. Its history must never b
 - [ ] Internal material stays in the working repository but is never exported: `EXCLUDED_PATHS` in
   `deploy/release/export-public.sh` (`research/`, `docs/naming/`, `media/`, `mediaassets/ChatGPT-Bild*.png`,
   `Marketing/`, `Produktvideo/`, `docs/ui-redesign/` (redesign mockups and review screenshots),
+  `docs/konzept-email.md` (German design notes; the English docs are in `docs/operations.md`),
   `tasks/` – attachments of TaskBrigade's own tasks). Add new internal folders there before the export.
 - [ ] Commit the intended source state. The export uses `HEAD` and stops when tracked files have staged or unstaged changes. Untracked files are excluded.
 - [ ] Install `gitleaks` and review its current rules. Prepare a **local, untracked** UTF-8 patterns file with one Python regular expression per line for any organization-specific hostnames, domains, IDs, or other private markers. Do not put actual private values in this repository. The script needs gitleaks 8.19 or newer (`gitleaks dir <path>`).

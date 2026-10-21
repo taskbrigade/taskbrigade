@@ -42,7 +42,7 @@ Set these values in `.env` (each key already exists in the file):
 | `TBR_DB_PASSWORD` | Password of the MariaDB user `TBR_DB_USER`, e.g. the output of `openssl rand -base64 24`. |
 | `MARIADB_ROOT_PASSWORD` | Another random value (used only inside the database container and by the backup). |
 | `TBR_INITIAL_ADMIN_PASSWORD` | Initial UI password (min. 10 characters) for the human `admin`; also the Gitea admin's password. |
-| `TBR_IMAGE`, `TBR_PULL_POLICY` | Recommended: the public release image, `TBR_IMAGE=ghcr.io/taskbrigade/taskbrigade:0.13.3` (replace with the version you cloned; tags `<version>`, `<major>.<minor>` and `latest`, amd64 + arm64) and `TBR_PULL_POLICY=always`. Without them Compose builds the image from the checkout (`taskbrigade:local`), which you need only for your own changes. |
+| `TBR_IMAGE`, `TBR_PULL_POLICY` | Recommended: the public release image, `TBR_IMAGE=ghcr.io/taskbrigade/taskbrigade:<version>` (the version you cloned, see `pyproject.toml`; tags `<version>`, `<major>.<minor>` and `latest`, amd64 + arm64) and `TBR_PULL_POLICY=always`. Without them Compose builds the image from the checkout (`taskbrigade:local`), which you need only for your own changes. |
 
 Without `SECRET_KEY` a random session key is created once in the state volume.
 
