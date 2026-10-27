@@ -48,7 +48,6 @@ PAGES = {
     "planning": "/planning",
     "projects": "/projects",
     "projects-cards": "/projects?view=cards",
-    "project-detail": "/projects/KET",
     "task-detail": "/tasks/KET-0001",
     "task-new": "/tasks/new",
     "project-new": "/projects/new",
@@ -58,6 +57,7 @@ PAGES = {
     "admin-settings": "/admin/settings",
     "admin-database": "/admin/database",
     "error": "/tasks/KET-9999",
+    "project-detail": "/projects/KET",  # Last: PAGE_SEEDS adds people that other pages (user list, counts) would show.
 }
 PUBLIC_PAGES = {"login": "/login"}
 
@@ -366,6 +366,18 @@ def _seed(env, ui):  # noqa: F811
     env["c"].patch("/api/v1/tasks/KET-0002", headers=env["admin"], json={"sprint": sprint})
 
 
+def _seed_owners(env):  # noqa: F811
+    """A co-owner of KET and one more person to offer under "Add co-owner"."""
+    for name in ("kim", "sam"):
+        env["c"].post("/api/v1/admin/actors", headers=env["admin"], json={
+            "name": name, "display_name": name.title(), "actor_type": "human", "role": "member"})
+    env["c"].patch("/api/v1/projects/KET", headers=env["admin"], json={"co_owners": ["sam"]})
+
+
+# Extra demo data added right before a page is opened (page visits do not change data, so earlier pages keep theirs).
+PAGE_SEEDS = {"project-detail": _seed_owners}
+
+
 def _context(browser, base, size, phone):
     w, h = size
     ctx = browser.new_context(viewport={"width": w, "height": h}, is_mobile=phone, has_touch=phone,
@@ -428,7 +440,7 @@ def _shoot(page) -> bytes:
                            mask_color="#C9CFD8", style=SHOT_CSS)
 
 
-def _run(browser, base, size, phone, label, shots=True, focus=False) -> list[str]:
+def _run(browser, base, size, phone, label, shots=True, focus=False, env=None) -> list[str]:
     out = Path(os.environ.get("TBR_SCREENSHOT_OUT") or tempfile.mkdtemp(prefix="tbr-screens-"))
     problems = []
     ctx = _context(browser, base, size, phone)
@@ -443,6 +455,8 @@ def _run(browser, base, size, phone, label, shots=True, focus=False) -> list[str
                 problems.append(msg)
         _login(page, base)
         for name, path in PAGES.items():
+            if env is not None and name in PAGE_SEEDS:
+                PAGE_SEEDS[name](env)
             page.goto(base + path)
             _settle(page)
             problems += [f"{name} @{size[0]}: {p}" for p in page.evaluate(CHECKS_JS, {"phone": phone})]
@@ -460,13 +474,13 @@ def _run(browser, base, size, phone, label, shots=True, focus=False) -> list[str
 def test_pages_at_viewport(browser, env, ui, server, label):  # noqa: F811
     _seed(env, ui)
     size = VIEWPORTS[label]
-    problems = _run(browser, server, size, label == "phone", label, focus=label == "desktop")
+    problems = _run(browser, server, size, label == "phone", label, focus=label == "desktop", env=env)
     assert not problems, "\n".join(problems)
 
 
 def test_pages_at_360px_have_no_horizontal_scroll(browser, env, ui, server):  # noqa: F811
     _seed(env, ui)
-    problems = _run(browser, server, NARROW, True, "narrow", shots=False)
+    problems = _run(browser, server, NARROW, True, "narrow", shots=False, env=env)
     assert not problems, "\n".join(problems)
 
 

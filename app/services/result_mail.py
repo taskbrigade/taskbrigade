@@ -579,7 +579,7 @@ def pending_for(session: Session, actor: Actor | None) -> list[dict]:
             .join(Project, Project.id == OutgoingMail.project_id)
             .where(OutgoingMail.status == "pending_approval"))
     if actor.role != "admin":
-        stmt = stmt.where((Project.owner_id == actor.id) | (Task.reviewer_id == actor.id))
+        stmt = stmt.where(Project.owned_by(actor.id) | (Task.reviewer_id == actor.id))
     names: dict[int, str] = {}
     out = []
     for row in session.scalars(stmt.order_by(OutgoingMail.id).limit(100)):

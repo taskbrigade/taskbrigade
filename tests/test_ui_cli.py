@@ -274,7 +274,9 @@ def test_project_ui_create_and_activate(env, ui):  # noqa: F811
 def _settings_form(page: str) -> tuple[set[str], dict[str, str]]:
     """Field names of the project settings form and the values the page shows (selected option, checkbox)."""
     form = page.split('action="/projects/KET/edit"')[1].split("</form>")[0]
-    names = set(re.findall(r'name="(\w+)"', form)) - {"csrf_token"}
+    # Controls with a form="…" attribute (co-owner add/remove) belong to other forms.
+    names = {m[1] for m in re.finditer(r'<(?:input|select|textarea|button)\b[^>]*?name="(\w+)"[^>]*>', form)
+             if ' form="' not in m[0]} - {"csrf_token"}
     shown = dict(re.findall(r'name="(\w+)" value="([^"]*)"(?: required)?>', form))
     for name, block in re.findall(r'<select name="(\w+)">(.*?)</select>', form, re.S):
         chosen = [(re.search(r'value="([^"]*)"', attrs) or [None, text.strip()])[1]
@@ -288,12 +290,15 @@ def _settings_form(page: str) -> tuple[set[str], dict[str, str]]:
 def test_project_settings_tab_saves_every_field(env, ui):  # noqa: F811
     """Redesigned project page: every setting of the form is posted and stored; the page shows it again."""
     mkproject(env)
+    assert env["c"].post("/api/v1/admin/actors", headers=env["admin"], json={
+        "name": "anna", "display_name": "Anna", "actor_type": "human", "role": "member"}).status_code == 201
+    env["c"].patch("/api/v1/projects/KET", headers=env["admin"], json={"co_owners": ["anna"]})
     page = ui.get("/projects/KET").text
     assert 'data-guard="project"' in page and 'data-tab="settings"' in page and 'id="recipients"' in page
     assert "data-copy=" in page and 'value="link"' in page  # Clone URL copy button, "Repeat setup" form.
     names, shown = _settings_form(page)
-    assert names == {"name", "description", "owner", "status", "privacy", "default_reviewer",
-                     "serialize_reviews", "data_four_eyes"}
+    assert names == {"name", "description", "owner", "status", "privacy", "default_reviewer", "serialize_reviews",
+                     "data_four_eyes"}  # Co-owners have their own add/remove forms, not part of this form.
     assert shown["name"] == "Projekt KET" and shown["status"] == "active" and shown["data_four_eyes"] == "default"
     assert shown["serialize_reviews"] == "" and shown["default_reviewer"] == ""
     r = post(ui, "/projects/KET/edit", name="Projekt Neu", description="Worum es geht", owner=shown["owner"],
@@ -302,6 +307,7 @@ def test_project_settings_tab_saves_every_field(env, ui):  # noqa: F811
     assert r.status_code == 200 and "Gespeichert" in r.text
     info = env["c"].get("/api/v1/projects/KET", headers=env["admin"]).json()
     assert (info["name"], info["status"], info["privacy"]) == ("Projekt Neu", "paused", "local_only")
+    assert info["co_owners"] == ["anna"]  # Saving the form leaves the co-owners untouched.
     assert info["serialize_reviews"] is True and info["data_four_eyes"] is False
     _names, shown = _settings_form(ui.get("/projects/KET").text)
     assert shown["description"] == "Worum es geht" and shown["status"] == "paused"

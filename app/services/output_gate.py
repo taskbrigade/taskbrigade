@@ -111,7 +111,7 @@ def may_decide(session: Session, project: Project, actor: Actor | None) -> bool:
     """Humans only: project owner, admins, and project members with the data right."""
     if not datasets.is_member(session, project, actor):
         return False
-    return actor.role == "admin" or project.owner_id == actor.id or bool(actor.data_access)
+    return actor.role == "admin" or actor.id in project.owner_ids or bool(actor.data_access)
 
 
 may_view = may_decide  # The release view shows the full output and the logs: same circle of people

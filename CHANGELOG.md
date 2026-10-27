@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.3 – 2026-10-27
+
+- Projects can have several owners: besides the primary owner, co-owners (project page, or
+  `PATCH /api/v1/projects/{key}` with `co_owners`) get the same rights, see the project among their own projects,
+  filters and inbox, and receive the owner notifications (migration 0041, table `project_owners`).
+- Project page: co-owners are added and removed with explicit controls (*Settings → General* and *Members* →
+  *Add co-owner* / *Remove*, one CSRF-protected POST each) instead of the multi-select; saving the settings form no
+  longer changes co-owners. The Members tab and card list the owner and co-owners (deactivated ones marked and
+  removable).
+
 ## 0.14.2 – 2026-10-21
 
 - A cancelled dependency now counts as resolved: tasks that depended on it are claimable again (server claim, runner, sprint and planning checks share `RESOLVED_DEPENDENCY_STATUSES`). Dependents get a system note in the thread when a dependency is cancelled, and the task detail shows cancelled dependencies struck through.

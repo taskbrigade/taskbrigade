@@ -319,7 +319,7 @@ def quick_capture_projects(actor_id: int | None = None) -> list[tuple[str, str]]
         stmt = select(Project.project_key, Project.name).where(Project.status.in_(("idea", "active", "paused")))
         me = s.get(Actor, actor_id) if actor_id else None
         if access.own_projects_only(me):
-            stmt = stmt.where(Project.owner_id == me.id)
+            stmt = stmt.where(Project.owned_by(me.id))
         return list(s.execute(stmt.order_by(Project.project_key)).all())
 
 

@@ -17,7 +17,7 @@ from app.errors import AppError, Conflict, Unprocessable
 from app.i18n import N_, ngettext
 from app.i18n import gettext as _
 from app.logging_setup import audit
-from app.models import TASK_STATUSES, Actor, Notification, Project, Sprint, Task
+from app.models import TASK_STATUSES, Actor, Notification, Project, ProjectOwner, Sprint, Task
 from app.services import (access, data_refs, model_choice, notifications, output_gate, result_mail, reviews,
                           sprints, state_machine, telegram_actions, zones)
 from app.services import tasks as svc
@@ -48,12 +48,12 @@ def _filter_options(session, me: Actor | None = None, keep: str | None = None, k
     sprints are limited to the projects `me` owns (plus `keep`, a project the page was explicitly opened for).
     Assignee and reviewer choices show humans and the agents `me` may choose – own and public ones, all for an admin
     with "Show all agents" (`access.agent_choice_filter`) – plus `keep_agents` (e.g. the current assignee)."""
-    owners = session.scalars(select(Actor.name).join(Project, Project.owner_id == Actor.id).distinct()
-                             .order_by(Actor.name))
+    owners = session.scalars(select(Actor.name).where(or_(
+        Actor.id.in_(select(Project.owner_id)), Actor.id.in_(select(ProjectOwner.actor_id)))).order_by(Actor.name))
     visible = []
     if access.own_projects_only(me):
-        visible.append(Project.owner_id == me.id if not keep else
-                       or_(Project.owner_id == me.id, Project.project_key == keep.strip().upper()))
+        visible.append(Project.owned_by(me.id) if not keep else
+                       or_(Project.owned_by(me.id), Project.project_key == keep.strip().upper()))
     sprint_rows = [{"id": i, "name": n, "status": st, "project": key} for i, n, st, key in session.execute(
         select(Sprint.id, Sprint.name, Sprint.status, Project.project_key)
         .join(Project, Project.id == Sprint.project_id).where(*visible).order_by(Project.project_key, Sprint.id))]
@@ -555,14 +555,14 @@ def allowed_moves(session, task: Task, me: Actor) -> list[str]:
     """Drop targets of the kanban columns `me` may move the card to by the normal rules (a generic state machine
     rule from the task's status that `check_allowed` accepts) – never an override. The card's own column is left
     out. Conditions checked only while running (e.g. a description before releasing) are reported by the move."""
-    owner_id = session.get(Project, task.project_id).owner_id
+    owner_ids = session.get(Project, task.project_id).owner_ids
     targets = []
     for _key, statuses, drop in KANBAN_COLUMNS:
         rule = None if task.status in statuses else state_machine.find_generic_rule(task.status, drop)
         if rule is None:
             continue
         try:
-            state_machine.check_allowed(rule, task, me, owner_id,
+            state_machine.check_allowed(rule, task, me, owner_ids,
                                         rule.who == "reviewer" and reviews.may_review(session, task, me))
         except AppError:
             continue

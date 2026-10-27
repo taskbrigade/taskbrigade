@@ -2474,5 +2474,21 @@
   "Review running since %(date)s": "Review läuft seit %(date)s",
   "Waiting since %(date)s": "Wartet seit %(date)s",
   "Dependency %(task_nr)s was cancelled – please check whether this task still applies.": "Abhängigkeit %(task_nr)s wurde abgebrochen – bitte prüfen, ob dieser Task noch gilt.",
-  "cancelled – no longer blocks this task": "abgebrochen – blockiert diesen Task nicht mehr"
+  "cancelled – no longer blocks this task": "abgebrochen – blockiert diesen Task nicht mehr",
+  "Co-owners": "Co-Owner",
+  "Further owners with the same rights: they see the project as their own and get its notifications.": "Weitere Owner mit denselben Rechten: Sie sehen das Projekt als eigenes und erhalten seine Benachrichtigungen.",
+  "Co-owner": "Co-Owner",
+  "Owners": "Owner",
+  "Repository access": "Repository-Zugriff",
+  "deactivated": "deaktiviert",
+  "Remove co-owner %(name)s": "Co-Owner %(name)s entfernen",
+  "New co-owner": "Neuer Co-Owner",
+  "Add co-owner": "Co-Owner hinzufügen",
+  "No other active people to add as co-owner.": "Keine weiteren aktiven Personen, die Co-Owner werden können.",
+  "Choose a person to add as co-owner": "Bitte eine Person als Co-Owner wählen",
+  "%(name)s is already an owner of this project": "%(name)s ist bereits Owner dieses Projekts",
+  "%(name)s is not a co-owner of this project": "%(name)s ist kein Co-Owner dieses Projekts",
+  "Co-owner %(name)s added": "Co-Owner %(name)s hinzugefügt",
+  "Co-owner %(name)s removed": "Co-Owner %(name)s entfernt",
+  "No co-owners yet.": "Noch keine Co-Owner."
 }

@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Index,
-    Integer, Numeric, SmallInteger, String, Text, UniqueConstraint, text,
+    Integer, Numeric, SmallInteger, String, Text, UniqueConstraint, or_, select, text,
 )
 from sqlalchemy.dialects.mysql import BIGINT, CHAR, DATETIME, INTEGER, MEDIUMTEXT, SMALLINT, TINYINT, VARBINARY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -138,6 +138,19 @@ class Project(Base):
     data_four_eyes: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=NOW)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=NOW_ON_UPDATE)
+    # Further owners with the same rights as `owner_id` (`project_owners`, migration 0041); `owner_id` stays the
+    # primary owner. Checks use `owner_ids` (Python) or `Project.owned_by` (SQL), never `owner_id` alone.
+    co_owners: Mapped[list["Actor"]] = relationship(secondary="project_owners", lazy="selectin", order_by="Actor.name")
+
+    @property
+    def owner_ids(self) -> set[int]:
+        return ({self.owner_id} if self.owner_id else set()) | {a.id for a in self.co_owners}
+
+    @classmethod
+    def owned_by(cls, actor_id: int):
+        """SQL condition: the actor is the primary owner or a co-owner of the project."""
+        return or_(cls.owner_id == actor_id,
+                   cls.id.in_(select(ProjectOwner.project_id).where(ProjectOwner.actor_id == actor_id)))
 
 
 class ProjectMember(Base):
@@ -151,6 +164,17 @@ class ProjectMember(Base):
                                                   server_default="write")
     gitea_synced_at: Mapped[datetime | None] = mapped_column(DateTime)
     sync_error: Mapped[str | None] = mapped_column(Text)
+
+
+class ProjectOwner(Base):
+    __tablename__ = "project_owners"
+    __table_args__ = (Index("idx_project_owners_actor", "actor_id"), TABLE_OPTS)
+
+    project_id: Mapped[int] = mapped_column(
+        UInt, ForeignKey("projects.id", name="fk_po_project", ondelete="CASCADE"), primary_key=True)
+    actor_id: Mapped[int] = mapped_column(
+        UInt, ForeignKey("actors.id", name="fk_po_actor", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=NOW)
 
 
 class AppSetting(Base):

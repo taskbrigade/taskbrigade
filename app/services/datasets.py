@@ -103,7 +103,7 @@ def _human(actor: Actor | None) -> bool:
 def is_member(session: Session, project: Project, actor: Actor | None) -> bool:
     if not _human(actor):
         return False
-    if actor.role == "admin" or project.owner_id == actor.id:
+    if actor.role == "admin" or actor.id in project.owner_ids:
         return True
     return session.get(ProjectMember, (project.id, actor.id)) is not None
 
@@ -115,11 +115,11 @@ def can_view(session: Session, project: Project, actor: Actor | None) -> bool:
 def can_upload(session: Session, project: Project, actor: Actor | None) -> bool:
     if not is_member(session, project, actor):
         return False
-    return actor.role == "admin" or project.owner_id == actor.id or bool(actor.data_access)
+    return actor.role == "admin" or actor.id in project.owner_ids or bool(actor.data_access)
 
 
 def can_delete(project: Project, actor: Actor | None) -> bool:
-    return _human(actor) and (actor.role == "admin" or project.owner_id == actor.id)
+    return _human(actor) and (actor.role == "admin" or actor.id in project.owner_ids)
 
 
 def can_download(actor: Actor | None) -> bool:
@@ -132,7 +132,7 @@ def menu_visible(session: Session, actor: Actor | None) -> bool:
         return False
     if actor.role == "admin" or actor.data_access:
         return True
-    return session.scalar(select(Project.id).where(Project.owner_id == actor.id).limit(1)) is not None
+    return session.scalar(select(Project.id).where(Project.owned_by(actor.id)).limit(1)) is not None
 
 
 def visible_projects(session: Session, actor: Actor) -> list[Project]:
@@ -141,7 +141,7 @@ def visible_projects(session: Session, actor: Actor) -> list[Project]:
     stmt = select(Project).order_by(Project.project_key)
     if actor.role != "admin":
         member = select(ProjectMember.project_id).where(ProjectMember.actor_id == actor.id)
-        stmt = stmt.where(or_(Project.owner_id == actor.id, Project.id.in_(member)))
+        stmt = stmt.where(or_(Project.owned_by(actor.id), Project.id.in_(member)))
     return list(session.scalars(stmt))
 
 

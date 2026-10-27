@@ -48,10 +48,50 @@
 </section>
 {% endmacro %}
 
+{#- Owner and co-owners with their add/remove controls. The controls point (form="…") at the forms of
+    co_owner_forms() at the end of the page: the General card sits inside the settings form, and forms cannot nest. -#}
+{% macro owners_list(where, tab, with_owner=true) %}
+<ul class="pd-list pd-owners">
+  {% if owner and with_owner %}<li><span class="pd-chip"><span class="pd-avatar pd-avatar-human" aria-hidden="true">{{ owner.name[:2] | upper }}</span>{{ owner.name }}</span>
+    <span class="pd-small muted">{{ _("Owner") }}{% if not owner.is_active %} · <span class="badge st-cancelled">{{ _("deactivated") }}</span>{% endif %}</span></li>{% endif %}
+  {% for a in co_owners %}
+  <li><span class="pd-chip"><span class="pd-avatar pd-avatar-human" aria-hidden="true">{{ a.name[:2] | upper }}</span>{{ a.name }}</span>
+    <span class="pd-owner-meta"><span class="pd-small muted">{{ _("Co-owner") }}{% if not a.is_active %} · <span class="badge st-cancelled">{{ _("deactivated") }}</span>{% endif %}</span>
+    {% if can_manage %}<button type="submit" form="co-owner-remove-{{ loop.index }}" name="tab" value="{{ tab }}" class="outline secondary pd-btn-sm"
+      aria-label="{{ _('Remove co-owner %(name)s', name=a.name) }}">{{ _("Remove") }}</button>{% endif %}</span></li>
+  {% else %}{% if not with_owner %}<li class="muted">{{ _("No co-owners yet.") }}</li>{% endif %}
+  {% endfor %}
+</ul>
+{% if can_manage %}
+{% if addable %}
+<div class="pd-add-owner">
+  <label class="pd-field"><span>{{ _("New co-owner") }}</span> <select name="name" form="co-owner-add-{{ where }}">{% for h in addable %}<option>{{ h }}</option>{% endfor %}</select></label>
+  <button type="submit" form="co-owner-add-{{ where }}" class="secondary pd-btn-sm">{{ _("Add co-owner") }}</button>
+</div>
+{% else %}<p class="muted pd-small">{{ _("No other active people to add as co-owner.") }}</p>{% endif %}
+{% endif %}
+{% endmacro %}
+
+{% macro co_owner_forms() %}
+{% if can_manage %}
+{% for where, tab in (("general", "settings"), ("aside", "settings"), ("members", "members")) %}
+<form id="co-owner-add-{{ where }}" method="post" action="/projects/{{ p.project_key }}/co-owners" hidden>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="tab" value="{{ tab }}"></form>
+{% endfor %}
+{% for a in co_owners %}
+<form id="co-owner-remove-{{ loop.index }}" method="post" action="/projects/{{ p.project_key }}/co-owners/{{ a.name | urlencode }}/remove" hidden>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"></form>
+{% endfor %}
+{% endif %}
+{% endmacro %}
+
 {% macro members_card(full) %}
 <section class="pd-card">
   <div class="pd-card-head"><h2>{{ _("Members") }}</h2>
     {% if user and user.is_admin %}<a href="/admin/users" class="pd-small">{{ _("Manage") }}</a>{% endif %}</div>
+  <h3 class="pd-subhead">{{ _("Owners") }}</h3>
+  {{ owners_list("members" if full else "aside", "members" if full else "settings") }}
+  <h3 class="pd-subhead">{{ _("Repository access") }}</h3>
   {% if full %}<p class="muted pd-small">{{ _("Members are managed under Admin → Users & agents; TaskBrigade keeps their Gitea access in sync.") }}</p>{% endif %}
   <ul class="pd-list">
   {% for pm, a in members %}
@@ -117,6 +157,9 @@
           {% if owner and not owner.is_active %}<option selected value="">{{ _("%(name)s (deactivated)", name=owner.name) }}</option>{% endif %}</select></label>
         <label class="pd-field"><span>{{ _("Status") }}</span> <select name="status">{% for s in ("idea", "active", "paused", "archived") %}<option value="{{ s }}" {% if p.status == s %}selected{% endif %}>{{ project_status_label(s) }}</option>{% endfor %}</select></label>
       </div>
+      <div class="pd-field" id="co-owners"><span>{{ _("Co-owners") }}</span>
+        <small class="muted">{{ _("Further owners with the same rights: they see the project as their own and get its notifications.") }}</small>
+        {{ owners_list("general", "settings", false) }}</div>
     </section>
     <section class="pd-card">
       <h2>{{ _("Agents & review") }}</h2>
@@ -151,6 +194,7 @@
     {% if p.description %}<p>{{ p.description }}</p>{% endif %}
     <dl class="pd-facts">
       <dt>{{ _("Owner") }}</dt><dd>{{ owner.name if owner else "–" }}</dd>
+      {% if co_owners %}<dt>{{ _("Co-owners") }}</dt><dd>{% for a in co_owners %}{{ a.name }}{% if not a.is_active %} ({{ _("deactivated") }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
       <dt>{{ _("Status") }}</dt><dd>{{ project_status_label(p.status) }}</dd>
       <dt>{{ _("Privacy") }}</dt><dd>{% with cls=p.privacy %}{% include "_data_class.html" %}{% endwith %}{% if mixed %} <small class="muted" title="{{ _('Some tasks have their own data class') }}">{{ _("mixed") }}</small>{% endif %}</dd>
       {% if info.default_reviewer %}<dt>{{ _("Default reviewer") }}</dt><dd>{{ info.default_reviewer }}</dd>{% endif %}
@@ -239,4 +283,5 @@
     {% if show_data %}<a href="/data?project={{ p.project_key | urlencode }}">{{ _("Datasets of this project") }}</a>{% endif %}</p>
 </section>
 </div>
+{{ co_owner_forms() }}
 {% endblock %}

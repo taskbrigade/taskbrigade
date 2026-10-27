@@ -15,7 +15,7 @@ from app.services.workflows.schedule import next_fire, preview, utc, validate
 
 def may_edit(actor, template):
     return actor.is_active and actor.actor_type == "human" and (
-        actor.role == "admin" or actor.id in (template.owner_id, template.project.owner_id))
+        actor.role == "admin" or actor.id in template.project.owner_ids | {template.owner_id})
 
 
 def require_edit(actor, template):

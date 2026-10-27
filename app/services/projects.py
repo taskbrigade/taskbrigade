@@ -115,9 +115,44 @@ def resolve_owner(session: Session, actor: Actor, owner: str | None) -> Actor:
     raise Unprocessable(_( 'Specify an owner – projects must belong to a human' ))
 
 
-def owner_collaborator(session: Session, project: Project) -> None:
-    """Add an owner with a Gitea user as a collaborator so they can review pull requests."""
-    owner = session.get(Actor, project.owner_id)
+def resolve_co_owners(session: Session, actor: Actor, names, project: Project | None = None) -> list[Actor]:
+    """Co-owners from a list of names (or one comma-separated string); each must be an active human. Current
+    co-owners of `project` may stay even when deactivated, so removing or adding someone else still works."""
+    if isinstance(names, str):
+        names = names.split(",")
+    current = {a.name: a for a in project.co_owners} if project is not None else {}
+    out: dict[int, Actor] = {}
+    for name in names or ():
+        if name and name.strip():
+            person = current.get(name.strip()) or resolve_owner(session, actor, name)
+            out[person.id] = person
+    return list(out.values())
+
+
+def add_co_owner(session: Session, actor: Actor, project: Project, name: str) -> list[str]:
+    """Add one co-owner (an active human who is not yet an owner); same checks and Gitea sync as `update`."""
+    access.require_manage_project(project, actor)
+    if not (name or "").strip():
+        raise Unprocessable(_("Choose a person to add as co-owner"))
+    person = resolve_owner(session, actor, name)
+    if person.id in project.owner_ids:
+        raise Unprocessable(_("%(name)s is already an owner of this project", name=person.name))
+    return update(session, actor, project, {"co_owners": [*co_owner_names(project), person.name]})
+
+
+def remove_co_owner(session: Session, actor: Actor, project: Project, name: str) -> list[str]:
+    """Remove one co-owner (also a deactivated one); the primary owner cannot be removed this way."""
+    access.require_manage_project(project, actor)
+    names = co_owner_names(project)
+    if name not in names:
+        raise Unprocessable(_("%(name)s is not a co-owner of this project", name=name))
+    return update(session, actor, project, {"co_owners": [n for n in names if n != name]})
+
+
+def owner_collaborator(session: Session, project: Project, owner: Actor | None = None) -> None:
+    """Add an owner (default: the primary owner) with a Gitea user as a collaborator so they can review pull
+    requests."""
+    owner = owner or session.get(Actor, project.owner_id)
     if owner is not None and owner.gitea_username and project.gitea_repo:
         members.ensure_member(session, project, owner)
 
@@ -125,6 +160,10 @@ def owner_collaborator(session: Session, project: Project) -> None:
 def owner_name(session: Session, project: Project) -> str | None:
     owner = session.get(Actor, project.owner_id) if project.owner_id else None
     return owner.name if owner else None
+
+
+def co_owner_names(project: Project) -> list[str]:
+    return [a.name for a in project.co_owners if a.id != project.owner_id]
 
 
 def _clone_url(session: Session, project: Project) -> str | None:
@@ -140,7 +179,8 @@ def info(session: Session, project: Project) -> dict:
             "privacy": project.privacy, "gitea_owner": project.gitea_owner, "gitea_repo": project.gitea_repo,
             "repo_url": project.gitea_url, "clone_url": _clone_url(session, project),
             "default_branch": project.default_branch, "brain_path": project.brain_path,
-            "owner": owner_name(session, project), "serialize_reviews": bool(project.serialize_reviews),
+            "owner": owner_name(session, project), "co_owners": co_owner_names(project),
+            "serialize_reviews": bool(project.serialize_reviews),
             "data_four_eyes": project.data_four_eyes,
             "default_reviewer": default_reviewer_name(session, project)}
 
@@ -271,6 +311,9 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
     new_owner = None
     if "owner" in changes:  # An admin or current owner may transfer ownership to an active human.
         new_owner = resolve_owner(session, actor, changes.pop("owner") or None)
+    new_co_owners = None
+    if "co_owners" in changes:  # Replaces the whole list; owners have the same rights as the primary owner.
+        new_co_owners = resolve_co_owners(session, actor, changes.pop("co_owners"), project)
     reviewer_changed = "default_reviewer" in changes
     if reviewer_changed:
         from app.services import reviews
@@ -325,6 +368,17 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
         project.owner_id = new_owner.id
         changed.append("owner")
         owner_collaborator(session, project)
+    if new_co_owners is not None or new_owner is not None:
+        # The primary owner is never also a co-owner (e.g. a co-owner who just became the primary owner).
+        wanted = [a for a in (project.co_owners if new_co_owners is None else new_co_owners)
+                  if a.id != project.owner_id]
+        if {a.id for a in wanted} != {a.id for a in project.co_owners}:
+            added = [a for a in wanted if a.id not in {c.id for c in project.co_owners}]
+            project.co_owners = sorted(wanted, key=lambda a: a.name)
+            if new_co_owners is not None:
+                changed.append("co_owners")
+            for person in added:
+                owner_collaborator(session, project, person)
     session.flush()
     return changed
 

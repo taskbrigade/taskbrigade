@@ -46,7 +46,7 @@ def require_claimable(session, task):
 def _require_control(run, actor):
     if not actor.is_active or not (
         (actor.actor_type == "human" and actor.role == "admin") or
-        (actor.actor_type == "human" and actor.id in (run.project.owner_id, run.template.owner_id, run.started_by)) or
+        (actor.actor_type == "human" and (actor.id in run.project.owner_ids or actor.id in (run.template.owner_id, run.started_by))) or
         (actor.role == "orchestrator" and actor.id == run.started_by)
     ):
         raise Forbidden(_("You may not control this workflow run"))
@@ -161,7 +161,7 @@ def check_decision(session, task, actor):
         return
     row = session.get(WorkflowRunStep, task.workflow_run_step_id)
     if _crosses_boundary(session, row.run, row.step) and not (
-        actor and actor.actor_type == "human" and (actor.role == "admin" or actor.id == row.run.project.owner_id)
+        actor and actor.actor_type == "human" and (actor.role == "admin" or actor.id in row.run.project.owner_ids)
     ):
         raise Forbidden(_("Only a human project owner or admin may release a zone boundary"))
 
@@ -177,7 +177,7 @@ def require_start(session, actor, template):
     """Shared permission/version checks for start and previews."""
     is_member = session.get(ProjectMember, (template.project_id, actor.id)) is not None
     permitted = (actor.actor_type == "human" and (
-        actor.role in ("admin", "orchestrator") or actor.id in (template.owner_id, template.project.owner_id))) or (
+        actor.role in ("admin", "orchestrator") or actor.id in template.project.owner_ids | {template.owner_id})) or (
         actor.actor_type == "agent" and actor.role == "orchestrator" and is_member)
     if not actor.is_active or not permitted:
         raise Forbidden(_("You may not start this workflow"))
@@ -422,7 +422,7 @@ def _activate(session, run, row, step):
         _fail(session, run, row, "no_assignee")
         return
     if step.step_type == "approval" and _crosses_boundary(session, run, step) and (assignee.actor_type != "human" or (
-        assignee.role != "admin" and assignee.id != run.project.owner_id
+        assignee.role != "admin" and assignee.id not in run.project.owner_ids
     )):
         _fail(session, run, row, "zone_boundary_without_gate")
         return

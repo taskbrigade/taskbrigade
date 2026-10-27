@@ -160,7 +160,7 @@ def _may(session: Session, actor: Actor, nr: str, action: str) -> str | None:
     try:
         task = task_svc.get(session, nr)
         state_machine.check_allowed(state_machine.RULES[action], task, actor,
-                                    session.get(Project, task.project_id).owner_id)
+                                    session.get(Project, task.project_id).owner_ids)
     except NotFound:
         return _("Task %(nr)s no longer exists.", nr=nr)
     except AppError as e:

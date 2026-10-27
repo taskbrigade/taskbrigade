@@ -235,9 +235,9 @@ class _Row:
 
 
 def recipients(session: Session, project: Project, extra: int | None = None) -> list[Actor]:
-    """Active humans to notify for a project: the owner and admins with "all projects" (plus `extra`, e.g. the
-    task's human reviewer)."""
-    ids = [project.owner_id] + ([extra] if extra else [])
+    """Active humans to notify for a project: its owners (primary owner first, then the co-owners) and admins with
+    "all projects" (plus `extra`, e.g. the task's human reviewer)."""
+    ids = [project.owner_id] + [a.id for a in project.co_owners] + ([extra] if extra else [])
     ids += session.scalars(select(NotificationPref.actor_id).join(Actor, Actor.id == NotificationPref.actor_id)
                            .where(NotificationPref.all_projects.is_(True), Actor.role == "admin")).all()
     out, seen = [], set()

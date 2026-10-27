@@ -92,7 +92,7 @@ def edit_projects(session, me: Actor) -> list[Project]:
     if not (me.is_active and me.role in ("admin", "orchestrator")):
         if me.actor_type != "human":
             return []
-        query = query.where(Project.owner_id == me.id)
+        query = query.where(Project.owned_by(me.id))
     return list(session.scalars(query))
 
 
@@ -241,7 +241,7 @@ def run_rows(session, me: Actor, *, project: str | None = None, status: str | No
         from app.models import ProjectMember
 
         member = select(ProjectMember.project_id).where(ProjectMember.actor_id == me.id)
-        query = query.where(WorkflowRun.project_id.in_(member) | (Project.owner_id == me.id)
+        query = query.where(WorkflowRun.project_id.in_(member) | Project.owned_by(me.id)
                             if me.actor_type == "human" else WorkflowRun.project_id.in_(member))
     return list(session.scalars(query.order_by(WorkflowRun.id.desc()).limit(limit)))
 

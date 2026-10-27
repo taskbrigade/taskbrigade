@@ -471,7 +471,7 @@ def _search_statement(session, me, *, project=None, assigned_to=None, status=Non
     conds = []
     owner_id = owner_filter_id(session, me, owner)
     if owner_id is not None:
-        conds.append(Project.owner_id == owner_id)
+        conds.append(Project.owned_by(owner_id))
     if project:
         conds.append(Project.project_key.in_([p.strip().upper() for p in project.split(",") if p.strip()]))
     if assigned_to:
@@ -988,8 +988,8 @@ def inbox(session: Session, owner_id: int | None = None, sprint: str | None = No
         cols = cols or {}
         stmt = stmt.join(Project, Project.id == Task.project_id)
         if owner_id is not None:
-            stmt = stmt.where(or_(Project.owner_id == owner_id, Task.reviewer_id == owner_id) if reviewer_too
-                              else Project.owner_id == owner_id)
+            stmt = stmt.where(or_(Project.owned_by(owner_id), Task.reviewer_id == owner_id) if reviewer_too
+                              else Project.owned_by(owner_id))
         if sprint:
             stmt = stmt.where(_sprint_filter(sprint))
         result = session.execute(stmt.add_columns(Project.project_key, *cols.values())).all()

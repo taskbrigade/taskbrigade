@@ -234,7 +234,7 @@ def list_runs(project: str | None = None, workflow: str | None = None, status: s
         from app.models import Project, ProjectMember
 
         allowed = select(ProjectMember.project_id).where(ProjectMember.actor_id == me.id)
-        own = select(Project.id).where(Project.owner_id == me.id) if me.actor_type == "human" else allowed
+        own = select(Project.id).where(Project.owned_by(me.id)) if me.actor_type == "human" else allowed
         query = query.where(WorkflowRun.project_id.in_(allowed) | WorkflowRun.project_id.in_(own))
     return [service.run_info(session, me, run, detail=False) for run in session.scalars(query.limit(limit))]
 

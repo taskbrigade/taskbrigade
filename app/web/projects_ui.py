@@ -47,9 +47,9 @@ def _overview(request: Request, me: Actor | None):
     view = _choice(qp.get("view"), VIEWS, "list")
     with web_session() as s:
         every = projects.list_all(s)
-        owner_hint = own_only and not any(p.owner_id == me.id for p in every)
+        owner_hint = own_only and not any(me.id in p.owner_ids for p in every)
         # Scope first (mine/all), then the status, so the header number describes exactly the chosen scope.
-        scoped = [p for p in every if me is not None and p.owner_id == me.id] if mine == "mine" else every
+        scoped = [p for p in every if me is not None and me.id in p.owner_ids] if mine == "mine" else every
         items = [p for p in scoped if p.status in dict(STATUS_CHOICES)[status]]
         scope_total = sum(1 for p in scoped if p.status == "active")
         needle = q.casefold()
@@ -178,6 +178,8 @@ def _detail(request: Request, user: UiUser, key: str, status_code: int = 200, **
         sprint_counts = sprints.task_counts(s, [x.id for x in sprint_rows])
         humans = _humans(s)
         owner = s.get(Actor, project.owner_id)
+        co_owners = [a for a in project.co_owners if a.id != project.owner_id]
+        addable = [h for h in humans if h not in {a.name for a in co_owners} and (owner is None or h != owner.name)]
         counts = projects.task_counts(s, [project.id]).get(project.id, {})
         mixed = bool(zones.mixed_projects(s, [project.id]))
         member_rows = members.list_for_project(s, project)
@@ -196,7 +198,7 @@ def _detail(request: Request, user: UiUser, key: str, status_code: int = 200, **
                   four_eyes_default=four_eyes_default,
                   mail_modes=result_mail.MODES,
                   members=member_rows, missing=missing, gitea_error=gitea_error, can_manage=can_manage,
-                  humans=humans, owner=owner, sprints=sprint_rows, sprint_counts=sprint_counts, can_plan=can_plan,
+                  humans=humans, owner=owner, co_owners=co_owners, addable=addable, sprints=sprint_rows, sprint_counts=sprint_counts, can_plan=can_plan,
                   **ctx)
 
 
@@ -205,7 +207,7 @@ def project_detail(request: Request, key: str, user: UiUser = Depends(require_us
     return _detail(request, user, key)
 
 
-def _run(request: Request, user: UiUser, key: str, fn, ok: str):
+def _run(request: Request, user: UiUser, key: str, fn, ok: str, anchor: str = ""):
     try:
         with web_session() as s:
             result = fn(s, ui_actor(s, user))
@@ -214,7 +216,7 @@ def _run(request: Request, user: UiUser, key: str, fn, ok: str):
     if result is not None and not result.ok:
         err = _("Gitea setup incomplete: %(error)s", error=result.error)
         return RedirectResponse(f"/projects/{key}?err={quote_plus(err)}", 303)
-    return RedirectResponse(f"/projects/{key}?msg={quote_plus(ok)}", 303)
+    return RedirectResponse(f"/projects/{key}?msg={quote_plus(ok)}{anchor}", 303)
 
 
 FOUR_EYES = {"default": None, "on": True, "off": False}
@@ -237,6 +239,29 @@ def edit_project(request: Request, key: str, user: UiUser = Depends(require_user
         changed = projects.update(s, me, projects.get(s, key), changes)
         audit(me.name, "project_updated", project=key, fields=changed, via="ui")
     return _run(request, user, key, fn, _("Saved"))
+
+
+# Co-owners are added and removed one at a time (not in the settings form, so saving it never changes them).
+# `tab` is the panel the form sits on; the redirect returns there.
+CO_OWNER_TABS = {"settings": "#settings", "members": "#members"}
+
+
+@router.post("/{key}/co-owners", dependencies=POST)
+def add_co_owner(request: Request, key: str, user: UiUser = Depends(require_user), name: str = Form(""),
+                 tab: str = Form("")):
+    def fn(s, me):
+        projects.add_co_owner(s, me, projects.get(s, key), name)
+        audit(me.name, "project_co_owner_added", project=key, co_owner=name, via="ui")
+    return _run(request, user, key, fn, _("Co-owner %(name)s added", name=name), CO_OWNER_TABS.get(tab, ""))
+
+
+@router.post("/{key}/co-owners/{name}/remove", dependencies=POST)
+def remove_co_owner(request: Request, key: str, name: str, user: UiUser = Depends(require_user),
+                    tab: str = Form("")):
+    def fn(s, me):
+        projects.remove_co_owner(s, me, projects.get(s, key), name)
+        audit(me.name, "project_co_owner_removed", project=key, co_owner=name, via="ui")
+    return _run(request, user, key, fn, _("Co-owner %(name)s removed", name=name), CO_OWNER_TABS.get(tab, ""))
 
 
 @router.post("/{key}/gitea", dependencies=POST)

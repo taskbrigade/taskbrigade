@@ -5,6 +5,7 @@ changes such as Kanban. Invalid transitions return 409 `invalid_transition`; mis
 """
 import json
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -78,7 +79,7 @@ def is_human_admin(actor: Actor | None) -> bool:
 def can_override(session: Session, task: Task, actor: Actor | None) -> bool:
     """Human admin or project owner (override and reassignment of active tasks)."""
     return is_human_admin(actor) or (actor is not None and actor.actor_type == "human"
-                                     and _project(session, task).owner_id == actor.id)
+                                     and actor.id in _project(session, task).owner_ids)
 
 
 def utcnow():
@@ -95,13 +96,13 @@ def find_generic_rule(from_status: str, to_status: str) -> Rule | None:
     return None
 
 
-def check_allowed(rule: Rule, task: Task, actor: Actor | None, owner_id: int | None = None,
+def check_allowed(rule: Rule, task: Task, actor: Actor | None, owner_id: int | Collection[int] | None = None,
                   is_reviewer: bool = False) -> None:
     """Check status and role without side effects (also for unit tests).
-    `owner_id` identifies the project owner, who has human admin rights in that project; `is_reviewer`: the actor
-    is the task's entered reviewer and may review it (`reviews.may_review`)."""
-    actor_is_owner = (actor is not None and owner_id is not None and actor.actor_type == "human"
-                      and actor.id == owner_id)
+    `owner_id` identifies the project owner(s) (one id or `Project.owner_ids`), who have human admin rights in that
+    project; `is_reviewer`: the actor is the task's entered reviewer and may review it (`reviews.may_review`)."""
+    owner_ids = {owner_id} if isinstance(owner_id, int) else set(owner_id or ())
+    actor_is_owner = actor is not None and actor.actor_type == "human" and actor.id in owner_ids
     if task.status not in rule.sources:
         raise InvalidTransition(_("%(action)s: not possible from status '%(status)s' (allowed: %(sources)s)", action=rule.action, status=task.status, sources=", ".join(sorted(rule.sources))))
     if rule.who == "gate":
@@ -674,7 +675,7 @@ def transition(session: Session, task: Task, action: str, actor: Actor | None, p
         raise AppError(_("Unknown action '%(action)s'", action=action))
     from app.services import reviews
 
-    check_allowed(rule, task, actor, _project(session, task).owner_id,
+    check_allowed(rule, task, actor, _project(session, task).owner_ids,
                   rule.who == "reviewer" and (reviews.may_review(session, task, actor) or (
                       task.task_kind == "profile" and action in ("approve", "reject") and _profile_decision(
                           session, task, actor, payload, "released" if action == "approve" else "rejected"))))

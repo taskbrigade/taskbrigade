@@ -87,6 +87,11 @@ nav.pd-tabs a[aria-current] { color: var(--tb-blue); font-weight: 600; border-bo
 .pd-avatar-codex { background: var(--st-green-fg); }
 .pd-avatar-opencode, .pd-avatar-hermes { background: var(--st-violet-fg); }
 .pd-avatar-openclaw, .pd-avatar-runner { background: var(--st-blue-fg); }
+.pd-subhead { margin: 0; font-size: .85rem; font-weight: 600; color: var(--tb-text-2); }
+.pd-owner-meta { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.pd-add-owner { display: flex; align-items: flex-end; gap: .5rem; flex-wrap: wrap; }
+.pd-add-owner .pd-field { flex: 1 1 12rem; }
+.pd-add-owner button { align-self: flex-end; }
 .pd-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .4rem 1rem; margin: 0; }
 .pd-facts dt { color: var(--tb-text-2); font-weight: 400; }
 .pd-facts dd { margin: 0; }

@@ -77,7 +77,10 @@ weak); the task waits for a human so that the same agent does not pick it up aga
   Reviewer agents claim such tasks as review jobs with their own lease (`app/services/reviews.py`) and otherwise work
   like workers.
 - **Project owners** and **members** (`member` role, in their own projects): review, answer, reject, reassign,
-  override – the same rights as an admin, but only in projects they own.
+  override – the same rights as an admin, but only in projects they own. A project has one primary owner
+  (`projects.owner_id`) and any number of co-owners (`project_owners`, *Projects → <project> → Settings/Members → Add co-owner* / *Remove*, or
+  `PATCH /projects/{key}` with `co_owners: [names]`); co-owners have the same rights, see the project among their
+  own projects and get the owner notifications.
 - **Admins**: everything, including users, agents, database and settings. Reopening an aborted task and
   reassigning a running one are reserved for human admins.
 

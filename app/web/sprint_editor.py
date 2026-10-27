@@ -110,7 +110,7 @@ def _editor(request: Request, user: UiUser, key: str | None, sprint_id: int | No
                 raise Forbidden(_("Only admins, orchestrators and project owners can plan sprints"))
             if access.own_projects_only(me):  # Profile switch "Show all projects" off: own projects only.
                 wanted = request.query_params.get("project", "").upper() if form is None else form.get("project")
-                choices = [p for p in choices if p.owner_id == me.id or p.project_key == wanted]
+                choices = [p for p in choices if me.id in p.owner_ids or p.project_key == wanted]
                 no_own_projects = not choices
         if form is None:
             form = ({"name": info["name"], "goal": info["goal"] or "", "start_date": info["start_date"] or "",

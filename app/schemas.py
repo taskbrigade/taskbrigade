@@ -200,6 +200,7 @@ class ProjectPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     owner: str | None = None
+    co_owners: list[str] | None = None  # Further owners with the same rights; replaces the list, [] removes all.
     serialize_reviews: bool | None = None
     data_four_eyes: bool | None = None  # Output gate; send null explicitly to return to the admin default
     default_reviewer: str | None = None  # Human or reviewer agent for new tasks; "" or "none" removes it.

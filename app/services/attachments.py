@@ -2,6 +2,7 @@
 project repo's default branch; only metadata is stored here."""
 import re
 import unicodedata
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from urllib.parse import quote
@@ -62,9 +63,9 @@ def _unique(name: str, taken: set[str]) -> str:
         i += 1
 
 
-def can_attach(actor: Actor, task: Task, owner_id: int | None = None) -> bool:
+def can_attach(actor: Actor, task: Task, owner_ids: Collection[int] = ()) -> bool:
     return (actor.role in ("admin", "orchestrator") or actor.id in (task.created_by, task.assigned_to)
-            or (actor.actor_type == "human" and actor.id == owner_id))
+            or (actor.actor_type == "human" and actor.id in owner_ids))
 
 
 def _extension(name: str) -> str:
@@ -119,7 +120,7 @@ def add(session: Session, actor: Actor, task: Task, uploads: list[Upload]) -> li
     if not uploads:
         return []
     project = session.get(Project, task.project_id)
-    if not can_attach(actor, task, project.owner_id):
+    if not can_attach(actor, task, project.owner_ids):
         raise Forbidden(_( 'Attachments: only admins, orchestrators, owners, creators, or assignees' ))
     if len(uploads) > MAX_FILES:
         raise Unprocessable(_("At most %(count)d files at once", count=MAX_FILES))

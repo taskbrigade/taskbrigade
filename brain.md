@@ -954,6 +954,21 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   capture field" msgids were removed with it.
 - 2026-10-18 – `_workflow_tabs.html` renders two tab sets: template-scoped tabs (Overview/Runs/Schedules/Event triggers at `/workflows/<P>/<k>` + `/runs`/`/schedules`/`/triggers`, plus a breadcrumb back to `/workflows`) when the page passes `base`, and the global routes (`/workflows`, `/workflow-runs`, `/workflows/schedules`, `/workflows/triggers`) otherwise. Every page that passes `base` must also pass `template` (run detail passes `template=run.template`); the tab counts render only on global pages. The schedule edit page lists the template's schedules (name, `schedules.describe()` rule in words or cron, next run, enabled) and opens the first/selected one; the empty "New schedule" form appears only with `?new=1`, and the workday-rule fields are hidden (`hidden` attribute + a small inline script) for a plain cron rule.
 - 2026-10-19 – A dependency is resolved when its status is in `state_machine.RESOLVED_DEPENDENCY_STATUSES` (`done` or `cancelled`): a cancelled task can never become `done`, so counting it as open blocked its dependents for good. Claim (`tasks._deps_done`), sprint (`sprints.late_dependencies`) and planning (`planning_ui.waiting_for`) checks use the constant; the task payload marks each dependency with `resolved`, which the runner's `_skip_reason` reads (old servers: `done`/`cancelled` fallback). Cancelling a task writes a system comment to every open dependent (`state_machine.notify_dependents_cancelled`, all three cancel paths); the task detail strikes cancelled dependencies through. MCP `update_task(depends_on=…)` already existed (`[]`/`"none"` removes all).
+- 2026-10-24 – Several owners per project: `projects.owner_id` stays the required primary owner (shown first, used
+  for the workflow email placeholder `owner`, data SFTP accounts and other "the one owner" spots); co-owners live in
+  `project_owners` (migration 0041, `Project.co_owners`, loaded `selectin`). Ownership checks use
+  `Project.owner_ids` in Python and `Project.owned_by(actor_id)` in SQL – never `owner_id ==` alone, or co-owners
+  lose rights/views. `state_machine.check_allowed` and `attachments.can_attach` take the id set. `projects.update`
+  with `co_owners` replaces the list (active humans only, primary owner dropped, new ones become Gitea
+  collaborators); an owner transfer to a co-owner removes them from the list. Notification recipients: primary owner,
+  then co-owners, then admins with "all projects".
+- 2026-10-26 – The project page changes co-owners only through `POST /projects/{key}/co-owners` (field `name`) and
+  `POST /projects/{key}/co-owners/{name}/remove` (`projects.add_co_owner`/`remove_co_owner`, which call `update`);
+  the settings form has no co-owner fields, so saving it cannot drop them. The add/remove controls sit in the General
+  card *inside* the settings form, so they use `form="co-owner-add-<where>"` / `form="co-owner-remove-<n>"` pointing
+  at hidden forms at the end of the page – no `formaction` on a shared form: `form_guard.js` re-submits with
+  `form.submit()`, which drops the submitter's `formaction`. `resolve_co_owners(..., project)` lets current co-owners
+  stay when deactivated, so adding/removing someone else still works.
 
 ## Pitfalls
 
@@ -1613,3 +1628,6 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   instead of shrinking the gap. Measure in the browser (`getComputedStyle(el).marginBottom`); the CSS file alone
   does not show it.
 - Workflow overview mutations live in `workflows.actions`: deletion archives under the template lock shared with starts, blocks all nonterminal runs, and disables schedules/triggers. Archived templates are hidden from `visible_templates` by default; `include_archived=True` keeps their run counts available. Duplication copies the latest version via API models rather than the editor form, preserving JSON and enum values containing commas; automation and script pins are not copied.
+- `tests/test_ui_screens.py`: demo data that would show on other pages (extra users change the admin user list) goes
+  into `PAGE_SEEDS`, applied right before that page; such pages sit at the end of `PAGES`. `TBR_UPDATE_SCREENSHOTS=1`
+  rewrites every baseline – restore the ones that should not change (`git checkout -- tests/screenshots/<file>`).

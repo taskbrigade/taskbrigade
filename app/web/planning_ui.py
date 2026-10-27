@@ -46,7 +46,7 @@ def may_plan_somewhere(session, me: Actor | None) -> bool:
     if me.role in ("admin", "orchestrator"):
         return True
     return me.actor_type == "human" and session.scalar(
-        select(Project.id).where(Project.owner_id == me.id, Project.status != "archived").limit(1)) is not None
+        select(Project.id).where(Project.owned_by(me.id), Project.status != "archived").limit(1)) is not None
 
 
 def _choices(session, me: Actor, wanted: str) -> list[Project]:
@@ -54,7 +54,7 @@ def _choices(session, me: Actor, wanted: str) -> list[Project]:
     rows = [p for p in session.scalars(select(Project).where(Project.status != "archived")
                                        .order_by(Project.project_key)) if sprints.can_plan(p, me)]
     if access.own_projects_only(me):
-        rows = [p for p in rows if p.owner_id == me.id or p.project_key == wanted]
+        rows = [p for p in rows if me.id in p.owner_ids or p.project_key == wanted]
     return rows
 
 

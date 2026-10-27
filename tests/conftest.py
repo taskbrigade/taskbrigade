@@ -135,7 +135,7 @@ def ready_db(monkeypatch):
                           "task_usage",
                           "outgoing_mails", "project_mail_recipients", "telegram_actions", "question_reads", "email_verify_codes", "notifications", "notification_prefs", "telegram_link_codes", "telegram_links",
                           "join_codes", "sprints", "task_attachments", "task_labels", "labels", "task_events",
-                          "task_comments", "task_dependencies", "tasks", "project_members", "projects",
+                          "task_comments", "task_dependencies", "tasks", "project_owners", "project_members", "projects",
                           "app_settings"):
                 conn.execute(text(f"DELETE FROM `{table}`"))
             names = ", ".join(f"'{n}'" for n in SEED)

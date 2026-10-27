@@ -18,7 +18,7 @@ from app.services.workflows.rendering import context, render_fields, resolve_par
 
 def can_read(session, actor, project):
     return actor.is_active and (actor.role == "admin" or (
-        actor.actor_type == "human" and actor.id == project.owner_id) or
+        actor.actor_type == "human" and actor.id in project.owner_ids) or
         session.get(ProjectMember, (project.id, actor.id)) is not None)
 
 
@@ -29,7 +29,7 @@ def require_read(session, actor, project):
 
 def require_edit(actor, project):
     if not actor.is_active or not (actor.role in ("admin", "orchestrator") or (
-            actor.actor_type == "human" and actor.id == project.owner_id)):
+            actor.actor_type == "human" and actor.id in project.owner_ids)):
         raise Forbidden(_("Only admins, orchestrators and the project owner may edit workflows"))
 
 

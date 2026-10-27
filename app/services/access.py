@@ -1,6 +1,6 @@
 """Project permissions when several people work with TaskBrigade.
 
-Admins can do everything. A project's owner (always human) has the same rights in that project as a human
+Admins can do everything. A project's owners (always human: the primary owner plus co-owners) have the same rights in that project as a human
 admin: approve, reject, answer questions, edit and reassign tasks, change project settings, and transfer
 ownership. All signed-in humans can read and comment.
 """
@@ -14,7 +14,7 @@ from app.models import Actor, Project, Task
 
 def owns(project: Project | None, actor: Actor | None) -> bool:
     return (project is not None and actor is not None and actor.actor_type == "human"
-            and project.owner_id == actor.id)
+            and actor.id in project.owner_ids)
 
 
 def can_manage_project(project: Project | None, actor: Actor | None) -> bool:
@@ -27,13 +27,14 @@ def require_manage_project(project: Project, actor: Actor) -> None:
 
 
 def task_owner_id(session: Session, task: Task) -> int | None:
+    """The primary owner of the task's project (co-owners: `Project.owner_ids`)."""
     return session.scalar(select(Project.owner_id).where(Project.id == task.project_id))
 
 
 def owned_project_keys(session: Session, actor: Actor | None) -> set[str]:
     if actor is None:
         return set()
-    return set(session.scalars(select(Project.project_key).where(Project.owner_id == actor.id)))
+    return set(session.scalars(select(Project.project_key).where(Project.owned_by(actor.id))))
 
 
 def own_projects_only(actor: Actor | None) -> bool:
