@@ -296,7 +296,8 @@ def test_pause_notification_recipients_settings_link_and_privacy(graph, clock):
     assert {n.actor_id for n in notices} == {owner.id, starter.id}
     assert all(f"/workflow-runs/{run.id}" in n.text and "Content" not in n.text for n in notices)
     notifications.save_prefs(s, starter, channels={e: set() for e in notifications.EVENTS})
-    notifications.save_prefs(s, owner, mute_all=sm.utcnow() + timedelta(days=1))
+    # Notifications check the mute against the real clock, not the patched workflow clock.
+    notifications.save_prefs(s, owner, mute_all=notifications.utcnow() + timedelta(days=1))
     notifications.workflow_event(s, run, "workflow_paused")
     s.flush()
     notices = s.scalars(select(Notification).where(Notification.event == "workflow_paused")).all()
