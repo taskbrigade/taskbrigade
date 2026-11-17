@@ -35,9 +35,37 @@ def test_resolve_order_model_tier_default_nothing():
     t.model = "opus"
     assert model_choice.resolve(t, a) == {"model": "opus", "source": "model", "applies": True}
     bare = SimpleNamespace(model=None, model_tier="complex")
-    assert model_choice.resolve(bare, agent()) == {"model": None, "source": None, "applies": True}
+    # Claude Code without settings: built-in default Opus instead of the CLI's own default.
+    assert model_choice.resolve(bare, agent()) == {"model": "opus", "source": "default", "applies": True}
+    assert model_choice.resolve(bare, agent(kind="codex")) == {"model": None, "source": None, "applies": True}
     assert model_choice.resolve(bare, None)["model"] is None
+    assert model_choice.resolve(bare, agent(kind="hermes"))["model"] is None
     assert model_choice.resolve(bare, agent(kind="hermes", tiers={"complex": "x"}))["applies"] is False
+
+
+def test_claude_code_kind_default_opus():
+    t = SimpleNamespace(model=None, model_tier=None)
+    assert model_choice.resolve(t, agent(default="sonnet"))["model"] == "sonnet"  # Own default model wins
+    assert model_choice.resolve(SimpleNamespace(model=None, model_tier="simple"),
+                                agent(tiers={"simple": "haiku"}))["model"] == "haiku"
+    assert model_choice.settings(agent())["kind_default"] == "opus"
+    assert model_choice.settings(agent(kind="codex"))["kind_default"] is None
+
+
+def test_extreme_tier_uses_fable_for_claude_code():
+    t = SimpleNamespace(model=None, model_tier="extreme")
+    assert model_choice.resolve(t, agent()) == {"model": "fable", "source": "tier", "applies": True}
+    # Built-in tier mapping comes before the agent's own default model; its own model for the tier replaces it.
+    assert model_choice.resolve(t, agent(default="sonnet"))["model"] == "fable"
+    assert model_choice.resolve(t, agent(tiers={"extreme": "opus[1m]"}))["model"] == "opus[1m]"
+    t.model = "haiku"
+    assert model_choice.resolve(t, agent(allowed=["haiku"]))["model"] == "haiku"
+    # Other kinds: no built-in mapping, the default model applies.
+    assert model_choice.resolve(SimpleNamespace(model=None, model_tier="extreme"),
+                                agent(kind="codex", default="gpt-5.6-sol"))["model"] == "gpt-5.6-sol"
+    assert model_choice.settings(agent())["kind_tiers"] == {"extreme": "fable"}
+    assert model_choice.settings(agent(kind="hermes"))["kind_tiers"] == {}
+    assert model_choice.normalize_tier("Extreme") == "extreme" and parse_tier("extrem") == "extreme"
 
 
 def test_validation_of_names_tiers_and_allow_list():

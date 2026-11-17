@@ -374,8 +374,21 @@ def render(request: Request, name: str, status_code: int = 200, **ctx):
         ctx.setdefault("show_data", data_menu(getattr(ctx["user"], "actor_id", None)))
         ctx.setdefault("show_planning", planning_menu(getattr(ctx["user"], "actor_id", None)))
         ctx.setdefault("inbox_badge", inbox_badge(request, ctx))
+    if ctx["db_ready"] and ctx["user"] is not None:
+        ctx.setdefault("blocked_hints", blocked_hints())
     ctx["csrf"] = csrf_token(request)
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
+
+
+def blocked_hints() -> dict:
+    """Task badges while an agent is blocked (`agent_blocks.task_hints`); empty while none is, or on errors."""
+    from app.services import agent_blocks
+
+    try:
+        with db.session() as s:
+            return agent_blocks.task_hints(s)
+    except Exception:  # noqa: BLE001 – a badge must never break a page (e.g. schema not migrated yet)
+        return {}
 
 
 def inbox_badge(request: Request, ctx: dict) -> int:

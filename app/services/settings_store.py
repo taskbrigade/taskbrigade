@@ -20,6 +20,7 @@ class SettingDef:
     kind: str = "str"  # str | int | bool | choice
     choices: tuple[str, ...] = ()
     max_int: int = 10080
+    min_int: int = 1
 
 
 DEFS: dict[str, SettingDef] = {d.key: d for d in [
@@ -35,6 +36,8 @@ DEFS: dict[str, SettingDef] = {d.key: d for d in [
     SettingDef("branch_protection", N_("Branch protection for new repos"), kind="bool"),
     SettingDef("default_lease_minutes", N_("Default lease (minutes)"), kind="int"),
     SettingDef("join_code_minutes", N_("Join code validity (minutes)"), kind="int"),
+    SettingDef("agent_block_reminder_hours", N_("Reminder while an agent is blocked (hours, 0 = off)"), kind="int",
+               max_int=168, min_int=0),
     SettingDef("telegram_enabled", N_("Telegram bot enabled (notifications, linking in the profile)"), kind="bool"),
     SettingDef("telegram_bot_token", N_("Telegram bot token (from @BotFather)"), secret=True),
     SettingDef("privacy_enforce_model_location",
@@ -101,7 +104,8 @@ GROUPS: tuple[SettingGroup, ...] = (
                   ("gitea_default_owner", "merge_style"), ("branch_protection",))),
     SettingGroup("agents", N_("Agents & leases"), N_("How long a claimed task stays reserved, joining new agents and "
                                                      "the model location rule for local_only projects."),
-                 (("default_lease_minutes", "join_code_minutes"), ("privacy_enforce_model_location",))),
+                 (("default_lease_minutes", "join_code_minutes"), ("agent_block_reminder_hours",),
+                  ("privacy_enforce_model_location",))),
     SettingGroup("telegram", N_("Telegram"), N_("Create a bot with @BotFather, enter its token and enable it. Every "
                                                 "human links their own chat under Profile."),
                  (("telegram_enabled",), ("telegram_bot_token",)), toggle="telegram_enabled"),
@@ -136,7 +140,7 @@ def _env_defaults() -> dict[str, str]:
     s = get_settings()
     return {
         "workflows_enabled": "false",
-        "claim_reminder_hours": "4", "workflow_paused_max_days": "30",
+        "claim_reminder_hours": "4", "workflow_paused_max_days": "30", "agent_block_reminder_hours": "4",
         "app_url": "", "ui_language": s.ui_language,
         "gitea_url": s.gitea_url, "gitea_public_url": s.gitea_public_url, "gitea_token": s.gitea_token, "gitea_default_owner": s.gitea_default_owner,
         "gitea_admin_token": "",
@@ -222,7 +226,10 @@ SFTP_CHECKS = {
 def _validate(d: SettingDef, value: str) -> str:
     value = value.strip()
     if d.kind == "int":
-        if not value.isdigit() or not 1 <= int(value) <= d.max_int:
+        if not value.isdigit() or not d.min_int <= int(value) <= d.max_int:
+            if d.min_int != 1:
+                raise Unprocessable(_("%(label)s: expected an integer from %(low)d to %(high)d", label=_(d.label),
+                                      low=d.min_int, high=d.max_int))
             raise Unprocessable(_("%(label)s: expected an integer from 1 to %(max)s", label=_(d.label), max=d.max_int))
     elif d.kind == "bool":
         value = "true" if value.lower() in ("1", "true", "yes", "on") else "false"

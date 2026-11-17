@@ -66,10 +66,26 @@ checks everything once more. The CLI itself must be installed and logged in once
 - **Start check:** `start_check_seconds` after the start, `tbr session` reads its own tmux window. A known blocker –
   login expired or not logged in, usage/rate limit – stops the agent, gives the task back with the reason (it
   appears in the thread, e.g. „claude-code: login expired or not logged in – run `claude /login` on <host>“) and
-  writes the block file `<work directory>/.agent-blocked`: `tbr run` claims nothing until `tbr doctor` finds the agent
-  logged in again and removes the block. If the start prompt is still unsent in the input field, the runner presses
-  Enter (at most twice, logged in the window) and checks again; if it stays unsent, the task is given back the same
-  way. The patterns live in `BLOCKERS` in `cli/runner.py` (per agent program: `claude`, `codex`, `opencode`).
+  writes the block file `<work directory>/.agent-blocked`: `tbr run` claims nothing while it exists. If the start
+  prompt is still unsent in the input field, the runner presses Enter (at most twice, logged in the window) and checks
+  again; if it stays unsent, the task is given back the same way. The patterns live in `BLOCKERS` in `cli/runner.py`
+  (per agent program: `claude`, `codex`, `opencode`).
+- **Blocked state on the server:** the runner also reports the block to TaskBrigade (`POST /api/v1/agents/me/blocked`
+  with kind `login`/`limit`/`unsent`, reason, host, task and time; repeated on every pass until the server took it).
+  TaskBrigade then shows it until it is cleared: the inbox section *Blocked agents* (fix command, host, since when,
+  number of waiting tasks), a warning on the tasks of the agent and on tasks that wait for them through dependencies
+  (task detail, backlog, kanban, planning) and the status under *Admin → Users & agents*. Both transitions appear in
+  `logs/runner.log` („Agent blocked (login): … – reported to the server“, „Agent ready again (…) – block removed,
+  claiming resumes“).
+- **Recovery:** while blocked, every `tbr run` pass checks whether the agent works again and then removes the block
+  itself (locally and on the server, `DELETE /api/v1/agents/me/blocked`) and claims as usual:
+  - `login`: the agent's login status command (the one `tbr doctor` uses: `claude auth status`, `codex login status`,
+    `opencode auth list`) reports it logged in – so after `claude /login` on the machine nothing else is needed;
+  - `limit`: the reset time named in the message („resets 3pm“, „resets at 15:30“, local time) has passed, else
+    `limit_wait_minutes` (default 60) after the block; a limit that still holds blocks again at the next start check;
+  - an admin pressed “Clear block” in TaskBrigade (inbox or *Admin → Users & agents*);
+  - `unsent` (start prompt stayed unsent) waits for `tbr doctor`, as does every block on an agent whose login cannot be
+    checked automatically.
 - **Stall:** if the agent window does not change for `stall_minutes`, the runner writes one comment into the thread
   („No activity in the agent window since … – please check“, with the last lines of the window). The agent keeps
   running. Start check and stall detection need `mode = "tmux"`.
@@ -414,6 +430,7 @@ close_finished_windows_after_hours = 24  # tbr run closes finished tmux windows 
 start_check_seconds = 60                 # look for login/limit blockers and an unsent start prompt
 stall_minutes = 30                       # one thread comment if the window does not change this long
 park_idle_seconds = 120                  # end an idle session whose task waits for a background run (parked)
+limit_wait_minutes = 60                  # usage-limit block without a reset time: retry this long after the block
 ```
 
 ### codex
@@ -492,20 +509,25 @@ Gitea user in TaskBrigade (*Admin → Users & agents → <agent> → Gitea*).
 ### Model per task (tiers)
 
 Simple tasks can run on a cheaper, faster model and complex ones on a stronger one. A task carries an optional
-**model tier** – `simple`, `standard` or `complex` (UI: *einfach / standard / komplex*) – and optionally a
+**model tier** – `simple`, `standard`, `complex` or `extreme` (UI: *einfach / standard / komplex / extrem*) – and
+optionally a
 **concrete model**. Each agent maps the tiers to models; **⏸ Admin** sets this under *Admin → Users & agents →
 <agent> → Modelle* (models): *Standardmodell* (default model), one model per tier (*Stufe*) and the
 *freigegebene Modelle* (allow list) a task may name explicitly.
 
-| Agent | simple | standard | complex | Allow list (examples) |
-|---|---|---|---|---|
-| claude-code | `haiku` | `sonnet` | `opus` | `haiku, sonnet, opus` |
-| codex | `gpt-5.6-luna` | `gpt-5.6-terra` | `gpt-5.6-sol` | `gpt-5.6-terra, gpt-5.6-sol` |
-| opencode | a local model, e.g. `ollama/qwen3:32b` | a cloud model, e.g. `openrouter/…` | a stronger cloud model | the models configured in OpenCode |
+| Agent | simple | standard | complex | extreme | Allow list (examples) |
+|---|---|---|---|---|---|
+| claude-code | `haiku` | `sonnet` | `opus` | `fable` | `haiku, sonnet, opus, fable` |
+| codex | `gpt-5.6-luna` | `gpt-5.6-terra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-terra, gpt-5.6-sol` |
+| opencode | a local model, e.g. `ollama/qwen3:32b` | a cloud model, e.g. `openrouter/…` | a stronger cloud model | the strongest cloud model | the models configured in OpenCode |
 
 Use exactly the names the CLI accepts (`claude --model`, `codex -m`, `opencode --model`). The runner picks the model
-in this order: concrete model of the task → the agent's model for the task's tier → default model → nothing. With
-nothing it adds no switch, and the CLI uses its own default – tasks and agents without settings behave as before.
+in this order: concrete model of the task → the agent's model for the task's tier → default model → built-in default
+of the agent kind → nothing. Claude Code agents have the built-in default `opus`, so they run on Opus unless their
+own default model, a tier mapping or the task says otherwise; for the tier `extreme` (extremely hard tasks) they have
+the built-in mapping `fable`, which their own model for that tier replaces. Their own default model does not apply
+to `extreme`. Codex and OpenCode have none: with nothing the runner
+adds no switch, and the CLI uses its own default.
 
 - The runner adds the switch right after the program: Claude Code `--model <m>`, Codex `-m <m>`, OpenCode
   `--model <m>` (table `MODEL_FLAGS` in `cli/runner.py`, which also knows Gemini `-m` for a later extension). Another
@@ -521,8 +543,8 @@ nothing it adds no switch, and the CLI uses its own default – tasks and agents
   task back to a human as *aborted* with the reason in the thread – choose another tier or model and reassign it. The
   agent itself is not blocked and keeps taking other tasks.
 
-Set the tier in the task form, the sprint editor, with `tbr create/update --tier simple|standard|complex` (German
-`einfach`/`komplex` work too; `none` removes it) and `--model <name>`, or with MCP `create_task`/`update_task`
+Set the tier in the task form, the sprint editor, with `tbr create/update --tier simple|standard|complex|extreme`
+(German `einfach`/`komplex`/`extrem` work too; `none` removes it) and `--model <name>`, or with MCP `create_task`/`update_task`
 (`tier`, `model`).
 
 ### Task dependencies
@@ -535,6 +557,26 @@ web UI: `tbr create … --depends-on DEMO-0042 --depends-on DEMO-0043` at creati
 `tbr show` / `show_task` list the dependencies with their status. The server refuses unknown task numbers,
 self-dependencies and dependency circles, and the usual edit permissions apply (orchestrator, admin, project owner);
 the message is printed as is.
+
+### Creating and changing projects
+
+Admins and agents with the role `orchestrator` – acting on behalf of their owner – create and change projects
+without the web UI, with the same rules and side effects (Gitea repository and initial files, owner collaborator,
+members, privacy rules, audit). Details and the permission rule: [Desktop apps via
+MCP](desktop-apps-mcp.md#creating-and-changing-projects).
+
+```bash
+tbr project create --key SHOP --name "Web shop" --description "…" --privacy cloud_ok --default-reviewer review-agent
+tbr project update SHOP --privacy local_only        # only the given options change; the key stays
+tbr project update SHOP --default-reviewer none     # removes the default reviewer
+tbr projects                                        # key, privacy, owner, name, default reviewer
+```
+
+`tbr project create` takes `--owner` (a human; default: you, for an agent its owner), `--privacy` `local_only`
+(default) or `cloud_ok`, `--default-reviewer` and `--no-repo` (an idea without a Gitea repository).
+`tbr project update` takes `--name`, `--description` (`-` reads stdin, `""` clears it), `--privacy`, `--owner` and
+`--default-reviewer`. `--json` prints the server's answer. A missing role or owner answers `403`; switching to
+`local_only` while open tasks sit with cloud agents is refused and the message lists them.
 
 ### Editing and reopening sprints
 
@@ -693,9 +735,11 @@ Without linger, user timers only run while the user is logged in.
 - Clean up windows by hand: `tbr cleanup --work-root ~/taskbrigade-work/<agent>` closes every finished window
   (`--min-age-hours N` only older ones); `--stale` also closes windows whose agent still runs although its task is no
   longer in progress (left over from older `tbr` versions). The content goes to the run log first.
-- Runner blocked after a failed start check (`tbr run` says „Agent blocked …“): fix the cause (log in, wait for the
-  limit), then `tbr doctor`; it removes `.agent-blocked` once the agent login checks out. If the login cannot be
-  checked automatically, delete the file yourself.
+- Runner blocked after a failed start check (`tbr run` says „Agent blocked …“, the inbox lists it under *Blocked
+  agents*): fix the cause (log in, wait for the limit). The next `tbr run` pass notices it by itself (login status
+  check, limit reset time); `tbr doctor` does the same check at once. Both remove `.agent-blocked` and the state on the
+  server. If the login cannot be checked automatically, delete the file yourself and clear the block in TaskBrigade
+  (“Clear block”, admins).
 - By default an agent works on up to two tasks at a time (TaskBrigade: *max. parallele Tasks*, max. parallel tasks,
   under *Admin → Users & agents*). At the limit `tbr claim`/`tbr prepare` say so and name the tasks in progress.
 

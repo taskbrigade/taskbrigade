@@ -111,6 +111,7 @@
   {% with chain=zone_chain, chain_task=t.task_nr %}{% include "_workflow_chain.html" %}{% endwith %}
 </section>
 {% endif %}
+{% with bh_tag="p" %}{% include "_blocked_hint.html" %}{% endwith %}
 {% if t.waiting %}<p class="banner warn waiting">⏳ {{ _("Waiting for a background run: %(reason)s (until %(date)s)", reason=t.waiting.reason, date=t.waiting.until | localtime) }}</p>{% endif %}
 {% if request.query_params.msg %}<p class="banner ok" role="status">{{ request.query_params.msg }}</p>{% endif %}
 {% if request.query_params.err %}<p class="banner error" role="alert">{{ request.query_params.err }}</p>{% endif %}
@@ -467,7 +468,7 @@
           <form method="post" action="/tasks/{{ t.task_nr }}/edit">{{ keep() }}
             <label>{{ _("Model tier") }} <select name="model_tier">
               <option value="none">{{ _("– agent default –") }}</option>
-              {% for tier in ("simple", "standard", "complex") %}<option value="{{ tier }}" {% if t.model_tier == tier %}selected{% endif %}>{{ tier_label(tier) }}</option>{% endfor %}
+              {% for tier in ("simple", "standard", "complex", "extreme") %}<option value="{{ tier }}" {% if t.model_tier == tier %}selected{% endif %}>{{ tier_label(tier) }}</option>{% endfor %}
             </select></label>
             <button type="submit" class="small">{{ _("Save") }}</button>
           </form></details>

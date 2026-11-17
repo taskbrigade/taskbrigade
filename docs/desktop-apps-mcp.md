@@ -36,7 +36,7 @@ The steps below explain what `tbr setup` does and the manual way.
   folder; `submit_task` commits, pushes and opens the pull request.
 - Tools: `list_tasks`, `start_task`, `show_task`, `show_changes`, `submit_task`, `ask`, `abort_task`,
   `release_task`, `comment` – and for creating and managing tasks `list_projects`, `list_agents`, `create_task`,
-  `update_task`, `cancel_task`, `reset_task`, `duplicate_task`, and for sprints `list_sprints`, `show_sprint`, `create_sprint`,
+  `update_task`, `cancel_task`, `reset_task`, `duplicate_task`, for projects `create_project`, `update_project`, and for sprints `list_sprints`, `show_sprint`, `create_sprint`,
   `update_sprint`, `add_sprint_tasks`, `release_sprint`, `close_sprint`, `reopen_sprint` (plus the `sprint` parameter of `create_task`/`update_task`),
   and for attachments `attach_files`, `attach_text` (plus the `attachments` parameter of `create_task`).
   The server ships the workflow rules as MCP instructions.
@@ -201,6 +201,9 @@ exists; it does not expect a `[runner]` or timer then.
   **Requirement:** to assign tasks to other agents, the app's actor (claude-desktop/codex-desktop) needs the role
   `orchestrator` in TaskBrigade (*Admin → Users & agents*). With role `worker` it can only create unassigned
   tasks or tasks for itself.
+- "Create the project SHOP for cloud agents" → `create_project(key, name, description, privacy, owner,
+  default_reviewer)`; "Switch DEMO to cloud_ok" → `update_project(key, privacy="cloud_ok")`. See
+  [Creating and changing projects](#creating-and-changing-projects).
 - "Plan a sprint 'Sprint 1' in DEMO with these tasks: …" → `create_sprint`, `add_sprint_tasks` (one line per task,
   `Title | Agent | Prio | Reviewer`), then `update_task` for each draft. "Release sprint 'Sprint 1'" →
   `release_sprint` – only for admins and the project owner; the app reports which drafts are still missing a description or criteria.
@@ -221,6 +224,43 @@ exists; it does not expect a `[runner]` or timer then.
   itself. Every upload is noted in the task with size and SHA-256.
 - Attachments: "Create a task for codex and attach `~/Downloads/offer.pdf`" → `create_task(…, attachments=[…])`;
   for an existing task `attach_files(task_nr, paths)`. See [Attachments](#attachments).
+
+## Creating and changing projects
+
+`create_project` and `update_project` use the same server functions as the web UI (*Projects → New project* and the
+project settings), so a project created by an agent is indistinguishable from one created by hand: Gitea repository
+with `brain.md`, `AGENTS.md`, `CLAUDE.md`, `brain-changes/README.md` and `tasks/.gitkeep`, branch protection as set
+under *Admin → Settings*, the owner as Gitea collaborator, members synced. `list_projects` shows key, name, owner,
+privacy and default reviewer.
+
+- `create_project(key, name, description, privacy, owner, default_reviewer, gitea)` – `key` 2–8 characters A-Z/0-9
+  and unique; `privacy` `local_only` (default, as in the web UI) or `cloud_ok` (`sealed` is a data class of single
+  tasks, not of projects); `default_reviewer` a human or an agent with role `reviewer` (same checks as for tasks);
+  `gitea` `create` (default, status *active*) or `none` (an idea without a repository). The reply names key, name,
+  owner, privacy, default reviewer, the link to the project page (setting *TaskBrigade URL*) and the repository.
+- `update_project(key, name, description, privacy, default_reviewer, owner)` – only the given fields change, the key
+  never does; `default_reviewer="none"` removes it.
+- Same through the REST API (`POST /api/v1/projects`, `PATCH /api/v1/projects/<KEY>`) and the CLI (`tbr project
+  create`, `tbr project update`, see [CLI agents](cli-agents.md#creating-and-changing-projects)).
+
+**Who may do it.** Admins; human members create projects for themselves (as in the web UI); project settings stay
+with admins and the project's owners. An agent needs the role `orchestrator` and acts **on behalf of its owner**
+(the human set as its owner under *Admin → Users & agents*): it creates projects owned by that human (another owner
+only if its owner is an admin) and changes a project – including its privacy and owner – only if its owner is an
+admin or an owner of that project. It never becomes owner itself. Other agents, and orchestrators without an active
+owner, get `403 role_required` with the reason. This keeps the web UI rule (privacy and owner changes by admins and
+owners only) instead of giving agents rights of their own: the orchestrator can do exactly what its human could do
+in the browser.
+
+**Privacy changes** follow the web UI: `local_only` → `cloud_ok` keeps tasks whose work has already started at
+`local_only` (their own data class); `cloud_ok` → `local_only` is refused with `422 privacy_violation` while open
+tasks are assigned to agents that may not work on local-only data – the message lists those tasks; reassign them
+first. Every privacy change is written to the data audit (`privacy_changed`, actor, old and new value, channel
+`web`/`api`) and the audit log.
+
+**Errors.** A key in use answers `409` and changes nothing. If Gitea refuses to create or find the repository,
+nothing is saved (`422 gitea_error`). If the repository exists but adding the files or the branch protection fails,
+the project stays and the reply says so – repeat the setup on the project page (“Repeat setup (add missing files)”).
 
 ## Attachments
 

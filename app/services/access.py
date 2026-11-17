@@ -26,6 +26,34 @@ def require_manage_project(project: Project, actor: Actor) -> None:
         raise Forbidden(_("Project %(project)s: admins or the owner only", project=project.project_key))
 
 
+def acting_human(actor: Actor | None) -> Actor | None:
+    """The human an orchestrator agent acts for (its active owner); None for everyone else. Orchestrator agents
+    create and edit projects only on behalf of their owner, never with rights of their own."""
+    if (actor is not None and actor.actor_type == "agent" and actor.role == "orchestrator"
+            and actor.owner is not None and actor.owner.actor_type == "human" and actor.owner.is_active):
+        return actor.owner
+    return None
+
+
+def can_edit_project(project: Project | None, actor: Actor | None) -> bool:
+    """Project settings: admins and owners (web UI), or an orchestrator agent whose owner may edit the project."""
+    return can_manage_project(project, actor) or can_manage_project(project, acting_human(actor))
+
+
+def require_edit_project(project: Project, actor: Actor) -> None:
+    if can_edit_project(project, actor):
+        return
+    if is_agent(actor) and actor.role == "orchestrator":
+        raise Forbidden(_("Project %(project)s: an orchestrator agent may change it only on behalf of its owner, and "
+                          "that owner must be an admin or an owner of the project", project=project.project_key),
+                        code="role_required")
+    if is_agent(actor):
+        raise Forbidden(_("Project %(project)s: agents need the role 'orchestrator' to change projects (your role: "
+                          "%(role)s) – an admin can change it under Admin → Users & agents",
+                          project=project.project_key, role=actor.role), code="role_required")
+    require_manage_project(project, actor)
+
+
 def task_owner_id(session: Session, task: Task) -> int | None:
     """The primary owner of the task's project (co-owners: `Project.owner_ids`)."""
     return session.scalar(select(Project.owner_id).where(Project.id == task.project_id))

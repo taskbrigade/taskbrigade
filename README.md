@@ -6,17 +6,24 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) ![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
 
-[Why](#why-taskbrigade) · [Features](#features) · [Getting started](#getting-started) · [Configuration](#configuration) · [The web UI](#the-web-ui) · [Workflows](#workflows) · [Notifications](#notifications) · [Agents](#agents-and-reviews) · [Docs](#documentation) · [Data zones](#data-zones-anonymisation--output-gate) · [Development](#development)
+[Try it](#try-it-in-5-minutes) · [Why](#why-taskbrigade) · [How is this different?](#how-is-this-different) · [Who it's for](#who-its-for) · [Features](#features) · [Getting started](#getting-started) · [Configuration](#configuration) · [The web UI](#the-web-ui) · [Workflows](#workflows) · [Notifications](#notifications) · [Agents](#agents-and-reviews) · [How it works](#how-it-works) · [Architecture](#architecture) · [Data zones](#data-zones-anonymisation--output-gate) · [Docs](#documentation) · [Development](#development) · [License](#license)
 
-TaskBrigade brings backlogs, sprints, kanban, repeatable workflows and review to teams of AI agents. Humans plan, answer questions and approve results; agents claim tasks, do the work and submit it for review.
+<a href="https://taskbrigade.dev"><img src="docs/screenshots/video-poster.png" alt="Play the 2½-minute product video on taskbrigade.dev" width="640"></a>
 
-Tasks can be code, research, data analysis, documents or posts – anything an agent can produce as files. Each task has its own branch, keeping results versioned and reviewable.
+**What it is:** backlog, kanban, sprints, workflows and review for mixed teams of humans and AI agents – not only a coding tool. Agents (Claude Code, Codex, OpenCode, Hermes, OpenClaw; desktop apps via MCP) work on code, research, analyses, documents or posts. Self-hosted, with cloud and local models side by side.
 
-Agents' results live in Gitea: one branch per task, handed in as a pull request. For results that do not belong in Git, agents can also put files on an SFTP server, or have a result mailed to an approved recipient.
+## Try it in 5 minutes
 
-Connect **Claude Code, Codex, OpenCode, Hermes and OpenClaw**, or use **Claude Desktop/Cowork and Codex Desktop** through MCP. Other agents can use the same API.
+Docker Compose starts TaskBrigade, MariaDB and a bundled Gitea with a demo agent, project and task:
 
-TaskBrigade was called *Taskmeister* before version 0.8; old names (`tm`, `TM_*` variables, `taskmeister` paths) are still accepted during the transition and renamed by the update scripts.
+```bash
+git clone https://github.com/taskbrigade/taskbrigade.git
+cd taskbrigade
+cp .env.example .env    # set TBR_DB_PASSWORD, MARIADB_ROOT_PASSWORD and TBR_INITIAL_ADMIN_PASSWORD
+docker compose --profile gitea up -d --wait
+```
+
+Then open <http://127.0.0.1:8090> and sign in as `admin` with `TBR_INITIAL_ADMIN_PASSWORD`; Gitea runs on <http://localhost:3000>. Set `TBR_IMAGE` in `.env` to use the published image instead of a local build. Connecting your first agent: [Docker Compose quickstart](docs/docker.md#quickstart-first-agent-task-in-5-minutes).
 
 > [!WARNING]
 > **Experimental:** TaskBrigade is used daily in a small self-hosted setup, but has no stable release yet and its API may change. Read [SECURITY.md](SECURITY.md) before exposing it to others.
@@ -33,6 +40,10 @@ Running several agents unattended means keeping track of assignments, stalled wo
 - **Plan from a chat.** Draft tasks with an assistant in Claude Desktop/Cowork or Codex Desktop, then assign them to another agent.
 - **Repeat what works.** Turn a sequence of tasks into a workflow and run it by hand, on a schedule or when an event happens.
 - **Review before acceptance.** A human or a dedicated reviewer agent checks results against the acceptance criteria; approval accepts the work.
+
+## How is this different?
+
+Many agent tools focus on running parallel coding sessions; TaskBrigade manages the work around the agents. A task can be any work an agent can deliver as files – code, but also research, analyses, documents or posts. Every result is handed in as a pull request and reviewed against the task's acceptance criteria by a human or a reviewer agent. Workflows repeat chains of tasks by hand, on a schedule or on events, with a budget per run, and projects marked `local_only` only go to agents whose model runs on your own hardware. An agent that is stuck asks in the task thread and stops instead of guessing; the answer arrives with its next claim.
 
 ## Who it's for
 
@@ -71,7 +82,7 @@ Strix Halo box with local LLMs, and a workstation for interactive work – and w
 - **One board for all machines:** each machine joins the same server with `tbr join`; every agent has its own identity,
   work directory and parallel-task limit.
 - **Route work to the right hardware:** assign a task to a specific agent, e.g. OpenCode with a local model on the
-  DGX Spark, or let the agent's configuration map a model tier (`simple` / `standard` / `complex`) to a concrete model.
+  DGX Spark, or let the agent's configuration map a model tier (`simple` / `standard` / `complex` / `extreme`) to a concrete model.
 - **Keep sensitive projects local:** projects marked `local_only` are only given to agents whose model runs on your own
   hardware; cloud agents can neither be assigned their tasks nor claim them.
 - **Orchestrate centrally:** you, an orchestrator agent or OpenClaw from Telegram create, split and assign tasks across all
@@ -163,7 +174,7 @@ The most important environment variables (never commit real values):
 
 - **Native:** `sudo deploy/update.sh` – backup, schema upgrade, systemd units, restart and a fresh `tbr` wheel for the agents; then `tbr self-update` on the agent machines.
 - **Docker:** `git pull`, set the new `TBR_IMAGE` tag if you use the published image, then `deploy/docker/update.sh` (backup, pull/build, recreate). The container runs the Alembic migrations on start.
-- **From Taskmeister (before 0.8):** the update scripts rename the old `TM_*` keys and paths first – see [operations.md](docs/operations.md#migrating-an-installation-from-before-taskbrigade-08) and [docker.md](docs/docker.md#from-the-taskmeister-names-taskbrigade-08).
+- **From Taskmeister (before 0.8):** TaskBrigade was called *Taskmeister* before version 0.8; old names (`tm`, `TM_*` variables, `taskmeister` paths) are still accepted during the transition. The update scripts rename the old `TM_*` keys and paths first – see [operations.md](docs/operations.md#migrating-an-installation-from-before-taskbrigade-08) and [docker.md](docs/docker.md#from-the-taskmeister-names-taskbrigade-08).
 - Read the [changelog](CHANGELOG.md) before an update; workflows are off until *Admin → Settings → Workflows → Workflows enabled* is ticked.
 
 ## The web UI

@@ -114,7 +114,7 @@ Grouped for a features section. Each item is one or two sentences.
   selected points into a new draft. ([docs/architecture.md](../architecture.md) "Follow-up tasks")
 - **Duplicate a task.** Admins, orchestrators, and the project owner can copy a task into a new unassigned draft.
   ([CHANGELOG.md](../../CHANGELOG.md) 0.10.0)
-- **Model tier per task, where the runner can apply it.** Tiers are `simple`, `standard`, and `complex`, mapped
+- **Model tier per task, where the runner can apply it.** Tiers are `simple`, `standard`, `complex`, and `extreme`, mapped
   per agent, plus an optional concrete model on that agent's allow list. The runner passes the flag for Claude
   Code, Codex, and OpenCode, and records the model it used. For Hermes, OpenClaw, and the desktop apps the tier is
   shown and not applied — use a second agent pinned to the model you want.

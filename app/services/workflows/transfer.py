@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.errors import Unprocessable
 from app.i18n import _
-from app.models import Actor
+from app.models import MODEL_TIERS, Actor
 from app.services.workflows import publish as publish_svc
 
 # Canonical field order of the exported document. Import tolerates a different order but checks the same keys.
@@ -224,7 +224,7 @@ def _step_draft(session, raw, index: int) -> dict:
     if data_class is not None and data_class not in publish_svc.CLASS_RANK:
         raise _fail(_("%(where)s: unknown data class %(value)s", where=where, value=data_class))
     model_tier = _text(raw, where, "model_tier")
-    if model_tier is not None and model_tier not in ("simple", "standard", "complex"):
+    if model_tier is not None and model_tier not in MODEL_TIERS:
         raise _fail(_("%(where)s: unknown model tier %(value)s", where=where, value=model_tier))
     role = _text(raw, where, "role", max_length=40)
     optional = _boolean(raw, "optional") or False

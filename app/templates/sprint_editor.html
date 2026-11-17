@@ -68,7 +68,7 @@
       </div>
       <div class="grid">
         <label>{{ _("Model tier") }} <select data-field="model_tier"><option value="">{{ _("– agent default –") }}</option>
-          {% for tier in ("simple", "standard", "complex") %}<option value="{{ tier }}">{{ tier_label(tier) }}</option>{% endfor %}</select></label>
+          {% for tier in ("simple", "standard", "complex", "extreme") %}<option value="{{ tier }}">{{ tier_label(tier) }}</option>{% endfor %}</select></label>
         <label>{{ _("Concrete model") }} <select data-field="model" data-models="{{ agent_models | tojson | forceescape }}"><option value="">{{ _("– from tier / default –") }}</option></select>
           <small class="muted" id="se-model-hint" hidden>{{ _("This agent chooses its model itself – tier and model are shown, but ignored by this agent.") }}</small></label>
       </div>

@@ -147,6 +147,8 @@ def ready_db(monkeypatch):
                 "sftp_password_enc=NULL, sftp_password_last4=NULL, sftp_checked_at=NULL, is_active=1, "
                 "last_seen_at=NULL, lease_minutes=120, max_parallel_tasks=1, notes=NULL, show_all_projects=0, "
                 "show_all_agents=0, owner_id=NULL, data_access=0, is_public = (actor_type = 'agent'), "
+                "blocked_kind=NULL, blocked_reason=NULL, blocked_host=NULL, blocked_task_nr=NULL, "
+                "blocked_since=NULL, blocked_reminded_at=NULL, "
                 "role = IF(name='admin','admin','worker'), "
                 "runtime = IF(name IN ('codex','claude-code'),'cloud','local'), "
                 "model_location = IF(name IN ('codex','claude-code'),'cloud','local')"))

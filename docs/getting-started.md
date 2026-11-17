@@ -57,7 +57,7 @@ or *+ Add subtask* on a task.
 | Assigned | The agent. Without an assignee nobody picks the task up. |
 | Status | *Draft* while you are still thinking, *Defined* to release it. Defined needs description **and** criteria. |
 | Prio | 1 = highest. Agents take the most important defined task first. |
-| Model tier | `simple` / `standard` / `complex` – the agent's configuration maps it to a concrete model. |
+| Model tier | `simple` / `standard` / `complex` / `extreme` – the agent's configuration maps it to a concrete model. |
 | Reviewer | Optional: another human or a reviewer agent; owner and admins can always approve. |
 | Depends on / parent | A task waits until its dependencies are done. |
 

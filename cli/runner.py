@@ -486,7 +486,9 @@ def run_once(client: Client, work_root: Path) -> str:
         if tmux_session:
             cleanup_windows(work_root, tmux_session, _setting(cfg, "close_finished_windows_after_hours", 24))
         block = read_block(work_root)
-        if block:
+        if block and recover_block(client, cfg, work_root, block) is None:
+            if not block.get("reported") and report_block(client, block):
+                _save_block(work_root, {**block, "reported": True})
             msg = _("Agent blocked (%(reason)s) – no task claimed; run tbr doctor once the cause is fixed",
                     reason=block.get("reason") or "?")
             log_runner(work_root, [msg])
@@ -939,14 +941,120 @@ def read_block(work_root: Path) -> dict | None:
         return {"reason": path.read_text(errors="replace").strip()[:500] or "?"}
 
 
-def write_block(work_root: Path, kind: str, reason: str, task_nr: str) -> None:
-    (work_root / BLOCK_FILE).write_text(json.dumps({
-        "kind": kind, "reason": reason, "task_nr": task_nr,
-        "at": datetime.now(UTC).isoformat(timespec="seconds")}, ensure_ascii=False) + "\n")
+SERVER_BLOCK_KINDS = ("login", "limit", "unsent")
 
 
-def clear_block(work_root: Path) -> None:
+def report_block(client: Client, block: dict) -> bool:
+    """Report the blocked state to the server (`POST /agents/me/blocked`, idempotent); False when that failed (older
+    server, network) – the next runner pass tries again. Never raises."""
+    kind = block.get("kind") if block.get("kind") in SERVER_BLOCK_KINDS else "other"
+    try:
+        client.request("POST", "/agents/me/blocked", json={
+            "kind": kind, "reason": (block.get("reason") or "?")[:1000], "host": block.get("host"),
+            "task_nr": block.get("task_nr") or None, "since": block.get("at")})
+    except Exception:  # noqa: BLE001 – reporting must never stop the runner or the session.
+        return False
+    return True
+
+
+def write_block(work_root: Path, kind: str, reason: str, task_nr: str, client: Client | None = None) -> None:
+    """Write `.agent-blocked` (the runner claims nothing while it exists) and, with `client`, report it to the
+    server; both are logged in `runner.log`."""
+    block = {"kind": kind, "reason": reason, "task_nr": task_nr, "host": socket.gethostname(),
+             "at": datetime.now(UTC).isoformat(timespec="seconds")}
+    if client is not None:
+        block["reported"] = report_block(client, block)
+    _save_block(work_root, block)
+    note = (_("reported to the server") if block.get("reported")
+            else _("not reported to the server yet – the next pass tries again"))
+    log_runner(work_root, [_("Agent blocked (%(kind)s): %(reason)s – %(note)s", kind=kind, reason=reason, note=note)])
+
+
+def _save_block(work_root: Path, block: dict) -> None:
+    (work_root / BLOCK_FILE).write_text(json.dumps(block, ensure_ascii=False) + "\n")
+
+
+def clear_block(work_root: Path, client: Client | None = None, why: str | None = None) -> None:
+    """Remove `.agent-blocked`; with `client` also on the server (`DELETE /agents/me/blocked`, errors ignored).
+    With `why` the transition is logged in `runner.log`."""
+    existed = (work_root / BLOCK_FILE).is_file()
     (work_root / BLOCK_FILE).unlink(missing_ok=True)
+    if client is not None:
+        try:
+            client.request("DELETE", "/agents/me/blocked")
+        except Exception:  # noqa: BLE001 – older servers do not know the endpoint.
+            pass
+    if why and existed:
+        log_runner(work_root, [_("Agent ready again (%(why)s) – block removed, claiming resumes", why=why)])
+
+
+# "resets 3pm", "resets at 15:30", "reset at 7 am" in a usage-limit message (local time of this machine).
+RESET_TIME = re.compile(r"resets?\s+(?:at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\b", re.IGNORECASE)
+
+
+def limit_resume_at(block: dict, wait_minutes: float) -> datetime:
+    """When a usage-limit block may be retried (aware UTC): the reset time named in the message (next such local
+    time after the block), else the block time plus `[runner] limit_wait_minutes`."""
+    try:
+        at = datetime.fromisoformat(block.get("at") or "")
+        at = at if at.tzinfo else at.replace(tzinfo=UTC)
+    except ValueError:
+        at = datetime.now(UTC)
+    m = RESET_TIME.search(block.get("reason") or "")
+    if m:
+        hour, minute, half = int(m.group(1)), int(m.group(2) or 0), (m.group(3) or "").lower()
+        if half == "pm" and hour < 12:
+            hour += 12
+        elif half == "am" and hour == 12:
+            hour = 0
+        if hour < 24 and minute < 60:
+            local = at.astimezone()
+            reset = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if reset <= local:
+                reset += timedelta(days=1)
+            return reset.astimezone(UTC) + timedelta(minutes=1)
+    return at + timedelta(minutes=wait_minutes)
+
+
+def recover_block(client: Client, cfg: dict, work_root: Path, block: dict, now: datetime | None = None) -> str | None:
+    """Recovery check of a blocked runner pass; returns the log line when the block was removed (claiming resumes),
+    None while it stays.
+
+    - an admin cleared the block on the server (after it had been reported) → removed locally;
+    - `login`: the agent's login status command (`tbr doctor`'s `AUTH_STATUS`) reports logged in;
+    - `limit`: the reset time from the message or `limit_wait_minutes` (default 60) has passed and the login status is
+      not "logged out" – a limit that still holds blocks again at the next start check.
+    Other kinds (start prompt unsent) wait for `tbr doctor`."""
+    from cli.doctor import login_status
+
+    if block.get("reported"):
+        try:
+            me = client.get("/agents/me")
+        except Exception:  # noqa: BLE001
+            me = {}
+        if "blocked" in me and me["blocked"] is None:
+            clear_block(work_root)
+            line = _("Agent ready again (block cleared on the server) – claiming resumes")
+            log_runner(work_root, [line])
+            return line
+    kind = block.get("kind")
+    if kind == "login":
+        ok, cmd = login_status(cfg)
+        if ok:
+            why = _("login check passed: %(cmd)s", cmd=" ".join(cmd))
+            clear_block(work_root, client, why)
+            return _("Agent ready again (%(why)s) – block removed, claiming resumes", why=why)
+        return None
+    if kind == "limit":
+        resume = limit_resume_at(block, _setting(cfg, "limit_wait_minutes", 60))
+        if (now or datetime.now(UTC)) < resume:
+            return None
+        if login_status(cfg)[0] is False:
+            return None
+        why = _("usage limit wait over since %(time)s", time=resume.astimezone().strftime("%H:%M"))
+        clear_block(work_root, client, why)
+        return _("Agent ready again (%(why)s) – block removed, claiming resumes", why=why)
+    return None
 
 
 def _prompt_of(command: list[str]) -> str | None:
@@ -1415,12 +1523,12 @@ def _session(client: Client, task_nr: str, worktree: Path, cfg: dict, command: l
             rc = _stop_agent(proc)
             if kind and sup.review:  # Review job: back to the queue with the reason; blockers also block new claims.
                 if kind != "model":
-                    write_block(sup.work_root, kind, done, task_nr)
+                    write_block(sup.work_root, kind, done, task_nr, client)
                 typer.echo("[tm] " + release_review(client, task_nr, done))
             elif kind == "model":  # Task-specific: a human picks another model; the agent takes other tasks.
                 typer.echo("[tm] " + abort_task(client, task_nr, done))
             elif kind:  # Blocker: give the task back with the reason (also lands in the thread) and block new claims.
-                write_block(sup.work_root, kind, done, task_nr)
+                write_block(sup.work_root, kind, done, task_nr, client)
                 typer.echo("[tm] " + give_back(client, task_nr, done) + " – " +
                            _("no new tasks until tbr doctor reports the agent ready"))
             break

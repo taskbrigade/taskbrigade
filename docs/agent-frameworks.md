@@ -197,7 +197,7 @@ and the OpenClaw trigger know the review header. Details on reviewers: [operatio
 
 ## Model tiers
 
-Tasks can carry a model tier (`simple`/`standard`/`complex`) or a concrete model, see
+Tasks can carry a model tier (`simple`/`standard`/`complex`/`extreme`) or a concrete model, see
 [cli-agents.md](cli-agents.md#model-per-task-tiers). Hermes and OpenClaw choose the model per agent or job
 themselves, so TaskBrigade **shows** tier and model for them (task page, TASK.md: "ignored by this agent") but does
 not apply them. To use a cheaper model for simple work, run a second agent (job) with that model and assign the

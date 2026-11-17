@@ -262,23 +262,39 @@ def task_checks(client: Client, work_root: Path, cfg: dict | None) -> list[Check
 AUTH_STATUS = {"claude": ["auth", "status"], "codex": ["login", "status"], "opencode": ["auth", "list"]}
 
 
-def agent_login_checks(cfg: dict, work_root: Path) -> list[Check]:
-    """Is the agent CLI logged in? Removes the runner's block (start check) once the agent is ready again."""
-    from cli.runner import BLOCKERS, BLOCK_FILE, LOGIN_COMMANDS, agent_binary, clear_block, read_block
+def login_status(cfg: dict) -> tuple[bool | None, list[str]]:
+    """Run the agent's login status command (`AUTH_STATUS`, no model call): (True = logged in, False = not logged in,
+    None = cannot be told; the command). Also used by the runner's recovery check while the agent is blocked."""
+    from cli.runner import BLOCKERS, agent_binary
 
     binary = agent_binary(cfg)
     name = Path(binary).name
-    login_cmd = LOGIN_COMMANDS.get(name, name)
     args = AUTH_STATUS.get(name)
+    if not args:
+        return None, [name]
+    r = setup_mod._run([binary, *args])  # module attribute, so tests patching cli.setup._run cover it
+    out = (r.stdout + r.stderr).lower()
+    if r.returncode == 0 and not any(n in out for n in BLOCKERS["login"]["*"]):
+        return True, [name, *args]
+    if r.returncode != 127 and any(n in out for n in BLOCKERS["login"]["*"] + ["logged out", "no credentials"]):
+        return False, [name, *args]
+    return None, [name, *args]
+
+
+def agent_login_checks(cfg: dict, work_root: Path, client: Client | None = None) -> list[Check]:
+    """Is the agent CLI logged in? Removes the runner's block (start check) once the agent is ready again – locally
+    and, with `client`, on the server."""
+    from cli.runner import BLOCK_FILE, LOGIN_COMMANDS, agent_binary, clear_block, read_block
+
+    name = Path(agent_binary(cfg)).name
+    login_cmd = LOGIN_COMMANDS.get(name, name)
+    ok, cmd = login_status(cfg)
     status = None
-    if args:
-        r = setup_mod._run([binary, *args])  # module attribute, so tests patching cli.setup._run cover it
-        out = (r.stdout + r.stderr).lower()
-        if r.returncode == 0 and not any(n in out for n in BLOCKERS["login"]["*"]):
-            status = Check("ok", _("Agent login"), _("%(cmd)s: logged in", cmd=" ".join([name, *args])))
-        elif r.returncode != 127 and any(n in out for n in BLOCKERS["login"]["*"] + ["logged out", "no credentials"]):
-            status = Check("error", _("Agent login"), _("%(name)s is not logged in", name=name),
-                           _("log in on this machine: %(cmd)s", cmd=login_cmd))
+    if ok:
+        status = Check("ok", _("Agent login"), _("%(cmd)s: logged in", cmd=" ".join(cmd)))
+    elif ok is False:
+        status = Check("error", _("Agent login"), _("%(name)s is not logged in", name=name),
+                       _("log in on this machine: %(cmd)s", cmd=login_cmd))
     if status is None:
         status = Check("warn", _("Agent login"), _("cannot be checked automatically"),
                        _("start %(name)s in a terminal and check that it does not ask for a login (%(cmd)s)",
@@ -287,7 +303,7 @@ def agent_login_checks(cfg: dict, work_root: Path) -> list[Check]:
     block = read_block(work_root)
     if block:
         if status.status == "ok":
-            clear_block(work_root)
+            clear_block(work_root, client, _("tbr doctor: login check passed"))
             checks.append(Check("ok", _("Runner block"), _("removed – the agent is ready again (was: %(reason)s)",
                                                            reason=block.get("reason") or "?")))
         else:
@@ -364,7 +380,7 @@ def doctor(work_root: Path | None = None, fix: bool = False) -> list[Check]:
     else:
         checks += runner
     if runner_cfg is not None:
-        checks += agent_login_checks(runner_cfg, root)
+        checks += agent_login_checks(runner_cfg, root, client)
         checks += timer_check(name, root, me)
         checks += window_checks(client, runner_cfg, root)
     checks += task_checks(client, root, runner_cfg)

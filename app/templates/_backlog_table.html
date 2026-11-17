@@ -25,7 +25,7 @@
     <tr data-task-row aria-selected="false">
       <td class="backlog-select"><input type="checkbox" data-task-select value="{{ t.task_nr }}" data-version="{{ t.row_version }}" aria-label="{{ _('Select %(task)s', task=t.task_nr) }}"></td>
       <td class="task-nr">{{ ui.key(t.task_nr) }}</td>
-      <td class="task-title"><a href="/tasks/{{ t.task_nr }}" class="ui-task-title">{{ t.title }}</a><div class="backlog-meta">{% include "_tier.html" %} {% include "_workflow_badge.html" %}<span>{{ t.project }}{% if t.sprint and t.sprint in sprint_names %} · <a href="/projects/{{ t.project }}/sprints/{{ t.sprint }}">{{ sprint_names[t.sprint] }}</a>{% endif %}</span></div></td>
+      <td class="task-title"><a href="/tasks/{{ t.task_nr }}" class="ui-task-title">{{ t.title }}</a><div class="backlog-meta">{% include "_tier.html" %} {% include "_workflow_badge.html" %}<span>{{ t.project }}{% if t.sprint and t.sprint in sprint_names %} · <a href="/projects/{{ t.project }}/sprints/{{ t.sprint }}">{{ sprint_names[t.sprint] }}</a>{% endif %}</span></div>{% include "_blocked_hint.html" %}</td>
       <td class="backlog-status">{{ ui.status(t.status) }}</td>
       <td class="backlog-prio">{{ ui.prio(t.prio) }}</td>
       <td class="backlog-assignee">{% if t.assigned_to %}{{ ui.actor(t.assigned_to, (actor_kinds | default({})).get(t.assigned_to)) }}{% else %}<span class="ui-muted">–</span>{% endif %}</td>

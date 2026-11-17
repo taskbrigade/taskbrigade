@@ -679,7 +679,7 @@ def test_mcp_create_task_against_api(env, tmp_path):
     assert not any(k in actors[0] for k in ("email", "api_key_prefix", "tailscale_login"))
 
     worker = mcp_as("claude")
-    assert "KET – Projekt KET (Owner admin, cloud_ok)" in worker.list_projects()
+    assert "KET – Projekt KET (Owner admin, cloud_ok, default reviewer –)" in worker.list_projects()
     assert "openclaw-agent" in worker.list_agents() and "Humans:" in worker.list_agents()
     out = worker.create_task("ket", "Für openclaw-agent", "Beschreibung", "- erfüllt", assigned_to="openclaw-agent")
     assert "Task not created" in out and "orchestrator" in out  # Workers may not assign others.

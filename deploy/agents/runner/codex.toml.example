@@ -14,6 +14,6 @@ command = ["codex", "--sandbox", "workspace-write", "--ask-for-approval", "never
 git = "runner"
 mode = "tmux"
 tmux_session = "taskbrigade"
-# Model per task (tier simple/standard/complex or a concrete model, set in TaskBrigade): the runner adds
+# Model per task (tier simple/standard/complex/extreme or a concrete model, set in TaskBrigade): the runner adds
 # `-m <model>` after the program. Another switch: model_flag = "--model"; or put "{model}" into the command.
 # model_flag = "-m"

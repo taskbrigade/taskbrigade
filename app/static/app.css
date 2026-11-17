@@ -1045,6 +1045,11 @@ textarea.mono { font-family: var(--pico-font-family-monospace); font-size: .8rem
 .plan-move ul button:hover { background: var(--tb-hover); }
 .plan-waits { grid-column: 2 / -1; font-size: .78rem; color: var(--st-amber-fg); overflow-wrap: anywhere; }
 .plan-waits a { color: inherit; }
+/* Blocked agent (`_blocked_hint.html`): assignee blocked, or waiting for such a task through dependencies. */
+.blocked-hint { display: block; font-size: .78rem; color: var(--st-amber-fg); overflow-wrap: anywhere; margin: .2rem 0; }
+.blocked-hint a { color: inherit; }
+.plan-row .blocked-hint { grid-column: 2 / -1; margin: 0; }
+p.blocked-hint.banner { font-size: inherit; }
 .plan-sprint-actions, .plan-sprint-actions button { display: flex; flex-wrap: wrap; gap: .5rem; }
 .plan-sprint-actions button { margin: 0; width: auto; }
 dialog .plan-dialog-body { min-height: 2rem; }
@@ -1068,7 +1073,7 @@ dialog footer button { width: auto; margin: 0; }
   .plan-status { grid-column: 3; grid-row: 1; justify-self: end; white-space: nowrap; }
   .plan-move { grid-column: 4; grid-row: 1; }
   .plan-title { grid-column: 1 / -1; grid-row: 2; white-space: normal; overflow-wrap: anywhere; }
-  .plan-waits { grid-column: 1 / -1; }
+  .plan-waits, .plan-row .blocked-hint { grid-column: 1 / -1; }
 }
 
 /* --- Inbox redesign (UI 3): action cards on the left, notices panel on the right. --------------------------- */
@@ -1138,6 +1143,18 @@ dialog footer button { width: auto; margin: 0; }
 .agent-review-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; font-size: .8rem;
                      color: var(--tb-text-2); min-width: 0; }
 .agent-review-meta .ui-actor { color: var(--tb-text); }
+/* "Blocked agents": persistent rows above "Needs your action" until the block is cleared (`agent_blocks`). */
+.inbox-blocked > .inbox-action-title { margin-bottom: .25rem; }
+.blocked-agent-list { list-style: none; margin: 0; padding: 0; background: var(--st-amber-bg);
+                      border: 1px solid var(--tb-line); border-radius: 10px; }
+.blocked-agent-row { display: flex; flex-direction: column; gap: .3rem; margin: 0; padding: 12px 16px;
+                     border-bottom: 1px solid var(--tb-line); }
+.blocked-agent-row:last-child { border-bottom: 0; }
+.blocked-agent-top { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.blocked-agent-top .age { margin-left: auto; font-size: .8rem; white-space: nowrap; }
+.blocked-agent-reason { font-size: 14px; overflow-wrap: anywhere; }
+.blocked-agent-row .agent-review-meta { color: var(--st-amber-fg); }
+.blocked-agent-actions { margin: 0; }
 .agent-review-actions { flex: 0 1 auto; margin: 0; display: flex; flex-direction: column; align-items: flex-end;
                         gap: .4rem; min-width: 0; }
 .agent-review-links { display: flex; flex-wrap: wrap; gap: .4rem .9rem; font-size: .85rem; white-space: nowrap; }

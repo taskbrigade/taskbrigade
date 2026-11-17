@@ -8,6 +8,7 @@
   {% if t.status in ("questions", "aborted") %}<span class="badge card-status st-{{ t.status }}">{{ status_label(t.status) }}</span>{% endif %}
   <div class="card-title ui-task-title">{{ t.title }}</div>
   {% include "_sprint_hint.html" %}
+  {% include "_blocked_hint.html" %}
   {% if t.waiting %}<div class="card-waiting small muted" title="{{ t.waiting.reason }}">⏳ {{ _("Waiting for a background run: %(reason)s (until %(date)s)", reason=t.waiting.reason, date=t.waiting.until | localtime) }}</div>{% endif %}
   <div class="card-foot">
   <div class="card-meta">{% if t.assigned_to %}<span class="agent" title="{{ t.assigned_to }}"><span class="ui-actor-name">{{ t.assigned_to }}</span></span>{% else %}<span class="agent none">{{ _("not assigned") }}</span>{% endif %}

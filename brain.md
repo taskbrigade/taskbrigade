@@ -42,6 +42,14 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   no page-specific heading sizes. Admin pages put the area into the title ("Admin: Settings", same text in
   `<title>`). `tests/test_ui_screens.py::test_page_titles_share_one_style` compares the computed title style of the
   main pages at 390/1440 px.
+- README head (also the GitHub profile page of the `taskbrigade` account): logo, tagline, badges, navigation line,
+  video poster (`docs/screenshots/video-poster.png`, linked to the website, not hotlinked), a three-line "What it is",
+  "Try it in 5 minutes" (Docker Compose with profile `gitea`), then the experimental warning. Keep the commands there
+  in sync with `compose.yaml` and the quickstart in `docs/docker.md`. The navigation line lists every `##` section.
+- `video-poster.png` is made by hand from the website's `poster.jpg` (1280×720) with a play symbol and a thin border
+  (Pillow via `uv run --no-project --with pillow`); `deploy/release/screenshots.py` does not regenerate it.
+- `promotion/github-about.md` holds the GitHub About box values (description, website, topics) and the `gh repo edit`
+  command; only the account owner applies them.
 
 ## Build / run / test
 
@@ -337,10 +345,12 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   aborted, then questions, each by `updated_at` ascending (longest waiting first). Aborted cards use `#FDECEA` with
   border `#C0392B`; secondary text on them uses `--tb-text-2-tint`.
 - 2026-10-10 – Model choice per task (`app/services/model_choice.py`, migration 0013): tasks have an optional
-  `model_tier` (`simple`/`standard`/`complex`) and `model`; agents have `model_default`, `model_tiers` (JSON object
-  tier → model) and `models_allowed` (JSON list). The server resolves the model for the assignee (concrete model >
-  tier mapping > default model > none) and sends it as `model_effective` `{model, source, applies}` in the task
-  payload, so the runner needs no extra call and the UI and TASK.md show the same value. `applies` is true only for
+  `model_tier` (`simple`/`standard`/`complex`, `extreme` since migration 0043) and `model`; agents have
+  `model_default`, `model_tiers` (JSON object tier → model) and `models_allowed` (JSON list). The server resolves the
+  model for the assignee (concrete model > tier mapping > built-in `KIND_TIERS` (`claude_code`: `extreme` →
+  `fable`) > default model > built-in `KIND_DEFAULTS` (`claude_code` → `opus`) > none; both built-ins since
+  2026-11-17) and sends it as `model_effective` `{model, source, applies}` in the task payload, so the runner needs
+  no extra call and the UI and TASK.md show the same value. `applies` is true only for
   `claude_code`/`codex`/`opencode` (`APPLYING_KINDS`); Hermes, OpenClaw and desktop apps only show it. A concrete
   model must be on the assignee's allow list (`422 model_not_allowed`, checked before anything changes); a
   reassignment keeps the tier and drops a model the new agent does not allow (event `model_dropped`). The runner
@@ -969,6 +979,36 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   at hidden forms at the end of the page – no `formaction` on a shared form: `form_guard.js` re-submits with
   `form.submit()`, which drops the submitter's `formaction`. `resolve_co_owners(..., project)` lets current co-owners
   stay when deactivated, so adding/removing someone else still works.
+- 2026-11-01 – Agents create and change projects (MCP `create_project`/`update_project`, `tbr project create|update`,
+  `POST`/`PATCH /api/v1/projects`) through the same `projects.create`/`projects.update` as the web UI. An agent needs
+  role `orchestrator` and acts on behalf of its owner (`access.acting_human`): `create` makes that human the owner
+  (another human only if the owner is an admin), `update` checks `access.require_edit_project` = admin/owner, or an
+  orchestrator whose owner may manage the project. Ownerless orchestrators and other agents get `403 role_required`.
+  Chosen over giving orchestrators own project rights because privacy and owner changes are admin/owner-only in the
+  web UI. `access.require_manage_project` stays the human-only check for everything else (co-owner buttons, sprints,
+  mail recipients).
+- 2026-11-01 – `projects.update(..., via=)` writes every privacy change to the data audit (`privacy_changed`,
+  old/new) and the audit log; the API passes `via="api"`, the web UI the default `web`. Tightening to `local_only`
+  lists the blocking tasks (`projects.cloud_assigned_tasks`). The schema `Privacy` accepts `sealed` only so the
+  service can refuse it with `invalid_privacy` and a clear message (projects stay `local_only`/`cloud_ok`).
+- 2026-11-01 – Blocked agents are a persistent server state (`app/services/agent_blocks.py`, actor columns
+  `blocked_*`, migration 0042) – after an incident where the single `agent_blocked` Telegram message was missed and a
+  whole project looked "Defined" for an hour. `runner.write_block(..., client)` reports `POST /agents/me/blocked`
+  (kind `login`/`limit`/`unsent`/`other`; idempotent, the same kind keeps `since` and the reminder clock); the file
+  stores `reported` and `run_once` retries until the server took it. `runner.recover_block` runs on each blocked pass:
+  server shows `blocked: null` after a successful report (admin "Clear block") → local file removed; `login` →
+  `doctor.login_status` (the `AUTH_STATUS` command); `limit` → reset time parsed from the message (`RESET_TIME`, local
+  time) or `limit_wait_minutes` (default 60), then cleared unless the login status says logged out. `unsent` waits for
+  `tbr doctor`. The report sends no notification (the release with `signal: blocked` already does); reminders
+  (`agent_blocks.remind`, scheduler job every 5 min, setting `agent_block_reminder_hours`, default 4, 0 = off – the
+  only int setting with `min_int=0`) reuse event `agent_blocked`; the clear queues `agent_ready`, which is only in
+  `LOG_EVENTS` and uses the person's channels/mutes for `agent_blocked` (no new profile row). Recipients: agent owner,
+  `notifications.recipients` of every project with waiting tasks; humans reached only through non-`cloud_ok`
+  projects (and not admins) get event + link only.
+- 2026-11-01 – Waiting tasks of a blocked agent: direct = assigned and `defined`/`changes_requested`/`in_progress`;
+  via dependencies = open tasks reachable through unresolved `task_dependencies` (BFS, `agent_blocks._walk`). `render`
+  injects `blocked_hints` (`agent_blocks.task_hints`, one cheap query while nobody is blocked) into every page, and
+  `_blocked_hint.html` renders the badge on cards, backlog rows, planning rows and the task detail (`bh_tag="p"`).
 
 ## Pitfalls
 
@@ -1497,6 +1537,10 @@ results; agents claim tasks via API/CLI, work on their own Git branch, ask quest
   proves that the documented example still passes the publish checks.
 - `screenshots.py` crops only full-page shots at `MAX_HEIGHT`; phone viewport shots are 780×1688 px and must keep the
   fixed bottom tab bar. Token prefixes (`tm_…`) are replaced by `tm_xxxxx` before every shot.
+- New actor columns must also be reset in `tests/conftest.py::ready_db` (the `UPDATE actors SET …` list); otherwise
+  state such as `blocked_since` leaks into the next DB test.
+- Server-side notification texts are written in the server default language (`default_language()`), which is German in
+  the DB tests; UI pages in the tests render German too – assert on the German strings.
 
 ## Glossary
 

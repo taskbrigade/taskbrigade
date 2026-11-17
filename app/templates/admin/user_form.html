@@ -11,6 +11,12 @@
   <header><strong>{% if a %}{% if a.is_active %}{{ a.name }}{% else %}{{ _("%(name)s (deactivated)", name=a.name) }}{% endif %}{% else %}{{ _("New user / agent") }}{% endif %}</strong>
     {% if a %}<small> · {{ _("last seen %(date)s", date=a.last_seen_at | localtime) }} · {{ _("open tasks %(count)s", count=counts.open) }}{% if counts.current %} · {{ _("current %(nr)s", nr=counts.current) }}{% endif %}</small>{% endif %}
   </header>
+  {% if a and a.blocked_since %}
+  <div class="banner warn user-blocked">{{ _("%(agent)s blocked: %(kind)s since %(time)s", agent=a.name, kind=block_kinds.get(a.blocked_kind, a.blocked_kind), time=a.blocked_since | localtime("short")) }}{% if a.blocked_host %} · {{ _("Host: %(host)s", host=a.blocked_host) }}{% endif %}
+    <br><small>{{ a.blocked_reason }}</small>
+    <form method="post" action="/admin/users/{{ a.name }}/unblock" onsubmit="return confirm({{ _('Clear the blocked state? The runner claims tasks again on its next pass.')|tojson|forceescape }})"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" class="secondary">{{ _("Clear block") }}</button></form>
+  </div>
+  {% endif %}
   <form method="post" action="{{ '/admin/users/' ~ a.name if a else '/admin/users/new' }}">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     {% set type = a.actor_type if a else (f.actor_type or 'agent') %}
@@ -75,13 +81,13 @@
       <legend><strong>{{ _("Models") }}</strong></legend>
       {% if not models.applies %}<p class="muted"><small>{{ _("This kind of agent chooses its model itself (Hermes, OpenClaw, desktop apps): tier and model of a task are shown, but ignored by this agent.") }}</small></p>{% endif %}
       <div class="grid">
-        <label>{{ _("Default model") }} <input name="model_default" maxlength="100" placeholder="{{ _('agent default') }}" value="{{ models.default or '' }}"></label>
+        <label>{{ _("Default model") }} <input name="model_default" maxlength="100" placeholder="{{ models.kind_default or _('agent default') }}" value="{{ models.default or '' }}"></label>
         {% for tier, label in model_tiers.items() %}
-        <label>{{ _("Tier “%(tier)s”", tier=_(label)) }} <input name="model_{{ tier }}" maxlength="100" value="{{ models.tiers.get(tier, '') }}"></label>
+        <label>{{ _("Tier “%(tier)s”", tier=_(label)) }} <input name="model_{{ tier }}" maxlength="100" placeholder="{{ models.kind_tiers.get(tier, '') if models.kind_tiers else '' }}" value="{{ models.tiers.get(tier, '') }}"></label>
         {% endfor %}
       </div>
       <label>{{ _("Allowed models") }} <textarea name="models_allowed" rows="2" placeholder="haiku, sonnet, opus">{{ models.allowed | join(", ") }}</textarea>
-        <small>{{ _("Models a task may name explicitly, separated by commas. Order of use: concrete model of the task → model of its tier → default model → the agent's own default.") }}</small></label>
+        <small>{{ _("Models a task may name explicitly, separated by commas. Order of use: concrete model of the task → model of its tier → default model → the agent's own default. Claude Code agents use Opus by default and Fable for the tier “extreme” unless set here.") }}</small></label>
     </fieldset>
     {% endif %}
     <label>{{ _("Notes") }} <textarea name="notes" rows="2">{{ (a.notes if a else f.notes) or '' }}</textarea></label>

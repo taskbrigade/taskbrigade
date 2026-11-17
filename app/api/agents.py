@@ -11,7 +11,7 @@ from app.errors import Forbidden
 from app.logging_setup import audit
 from app.models import Actor
 from app.db import db
-from app.schemas import ActorOut, ActorPublic, ClaimIn, GitCredentialsOut, JoinIn, JoinOut
+from app.schemas import ActorOut, ActorPublic, BlockedIn, ClaimIn, GitCredentialsOut, JoinIn, JoinOut
 from app.services import actors as svc
 from app.services import tasks as task_svc
 
@@ -42,6 +42,26 @@ def _secure_channel(request: Request) -> bool:
 @router.get("", response_model=ActorOut)
 def whoami(me: Actor = Depends(current_actor)):
     return me
+
+
+@router.post("/blocked")
+def report_blocked(body: BlockedIn, session: Session = SessionDep, me: Actor = Depends(current_actor)):
+    """The runner found a blocker (login expired, usage limit …) and claims nothing until it is fixed. Idempotent:
+    repeating the same kind keeps `since`. Agents only."""
+    from app.services import agent_blocks
+
+    if me.actor_type != "agent":
+        raise Forbidden(_("Only agents report a blocked state"), code="agents_only")
+    new = agent_blocks.report(session, me, body.kind, body.reason, body.host, body.task_nr, body.since)
+    return {"blocked": me.blocked_info, "new": new}
+
+
+@router.delete("/blocked")
+def clear_blocked(session: Session = SessionDep, me: Actor = Depends(current_actor)):
+    """The agent is ready again (`tbr doctor`, the runner's recovery check); idempotent."""
+    from app.services import agent_blocks
+
+    return {"blocked": None, "cleared": agent_blocks.clear(session, me, via="runner")}
 
 
 @router.get("/git-credentials", response_model=GitCredentialsOut)

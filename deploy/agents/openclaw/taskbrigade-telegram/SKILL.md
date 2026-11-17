@@ -40,7 +40,7 @@ tasks …" or "mute the notifications for 2 hours".
 |---|---|
 | "create a task …", "new task for codex …" | `tbr create --project <KEY> --title "…" --assign <agent> --description "…" --acceptance "…"` (+ `--prio`, `--due YYYY-MM-DD`, `--sprint "<sprint>"`) |
 | "assign KET-0012 to hermes", "move it to codex", "prio 1" | `tbr update <NR> --assign <agent>` / `--prio <1-5>` / `--due …` |
-| "with a simple/cheap model", "mit einfachem Modell", "standard model", "use the strong model for this", "komplex" | add `--tier simple` / `--tier standard` / `--tier complex` to `tbr create` or `tbr update <NR>` (`--tier none` removes it) |
+| "with a simple/cheap model", "mit einfachem Modell", "standard model", "use the strong model for this", "komplex", "extremely hard", "extrem schwierig" | add `--tier simple` / `--tier standard` / `--tier complex` / `--tier extreme` to `tbr create` or `tbr update <NR>` (`--tier none` removes it) |
 | "with opus", "use gpt-5.6-sol" (a concrete model) | `--model <name>` – only if the human names the model; it must be on the agent's allow list, otherwise TaskBrigade refuses it: say so and offer a tier instead |
 | "cancel KET-0012" | `tbr cancel <NR> --reason "…"` |
 | "plan a sprint W43 for KET with the tasks …" | `tbr sprint create -p <KEY> --name "W43" --goal "…"`, then `tbr sprint add-tasks "W43" -p <KEY> --file -` (one line per task: `Title \| Agent \| Prio`) |

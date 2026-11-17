@@ -402,6 +402,9 @@ def _contexts(name: str) -> list[dict]:
     base = {"request": _request(), "user": user, "db_ready": True, "csrf": "tok",
             "qc_projects": [("DEMO", "Demo project")], "error": "Something failed", "message": "All fine",
             "message_kind": "ok", "kind": "ok", "section": "users", "nr": "DEMO-0001"}
+    hint = {"agent": "claude-code", "kind": "login", "label": "login expired", "since": NOW}
+    blocked_attrs = {"blocked_since": NOW, "blocked_kind": "login", "blocked_reason": "run claude /login",
+                     "blocked_host": "box", "blocked_task_nr": "DEMO-0001"}
     card = {"task_nr": "DEMO-0001", "title": "Card", "prio": 1, "status": "in_progress", "project": "DEMO",
             "assigned_to": "builder", "created_at": NOW, "updated_at": NOW, "pr_url": "https://git.example/pr/1",
             "last_question": "Which **one**?", "result_summary": "Done", "sprint": 7, "model_tier": "simple",
@@ -523,6 +526,8 @@ def _contexts(name: str) -> list[dict]:
         "_own_projects_hint.html": [{}, {"user": SimpleNamespace(name="alex", is_admin=False, role="viewer")}],
         "_sprint_filter.html": [filters, {**filters, "sprint_filter": "none"}],
         "_sprint_hint.html": [{"t": card, "sprint_names": {7: "Sprint A"}}],
+        "_blocked_hint.html": [{"t": card, "blocked_hints": {"DEMO-0001": {**hint, "via": via}}, "bh_tag": tag}
+                               for via, tag in ((None, "span"), ("DEMO-0002", "p"))] + [{"t": card}],
         "sprint.html": [{**c, "p": project} for c in (
             {**sprint_page, "sprint": sprint, "preview": preview, "batch_lines": "a\nb | x | 9",
              "batch_rows": [{"n": 1, "title": "a", "assigned_to": None, "prio": 3, "error": None},
@@ -571,6 +576,11 @@ def _contexts(name: str) -> list[dict]:
                         "inbox": {k: [{**card, "reviewer": "checker", "review_claimed": True}]
                                   for k in ("questions", "unassigned", "aborted", "for_review", "lease_expired",
                                             "agent_review")},
+                        "blocked_agents": [{"name": "claude-code", "agent_kind": "claude_code", "kind": "login",
+                                            "label": "login expired", "reason": "run claude /login", "host": "box",
+                                            "task_nr": "DEMO-0001", "since": NOW, "direct": 1, "deps": 2,
+                                            "waiting": 3, "can_clear": can}
+                                           for can in (True, False)],
                         **inbox_extra},
                        {**locked_ctx, "managed": [],
                         "inbox": {k: [] for k in ("questions", "unassigned", "aborted", "for_review",
@@ -672,7 +682,8 @@ def _contexts(name: str) -> list[dict]:
         "email_verified.html": [{}],
         "admin/users.html": [{"actors": [actor, SimpleNamespace(**{**vars(actor), "actor_type": "agent",
                                                                    "is_active": True, "api_key_hash": None,
-                                                                   "gitea_username": None})],
+                                                                   "gitea_username": None, **blocked_attrs})],
+                              "block_kinds": {"login": "login expired"},
                               "counts": {1: {"current": "DEMO-0001", "open": 2}}, "owners": {1: "alex"},
                               "filters": f, "filtered": any(f.values()), "total": 3, "owner_choices": ["alex"],
                               "roles": ["worker"], "kinds": ["other"],
@@ -690,6 +701,11 @@ def _contexts(name: str) -> list[dict]:
                                          "gitea_username": None}),
              "form": {}, "kinds": ["other"], "roles": ["worker"], "counts": {"open": 0}, "access": []},
             {"actor": None, "form": {"actor_type": "human"}, "kinds": ["other"], "roles": ["worker"]},
+            {"actor": SimpleNamespace(**{**vars(actor), "actor_type": "agent", **blocked_attrs}), "form": {},
+             "kinds": ["other"], "roles": ["worker"], "counts": {"open": 0}, "access": [],
+             "models": {"default": None, "tiers": {}, "allowed": [], "applies": False},
+             "model_tiers": {"simple": "simple", "standard": "standard", "complex": "complex"},
+             "block_kinds": {"login": "login expired"}},
             *({"actor": SimpleNamespace(**{**vars(actor), "actor_type": "agent", "agent_kind": "claude_code"}),
                "form": {}, "kinds": ["other"], "roles": ["worker"], "counts": {"open": 0}, "access": [],
                "models": {"default": "sonnet", "tiers": {"simple": "haiku"}, "allowed": ["opus"], "applies": applies},

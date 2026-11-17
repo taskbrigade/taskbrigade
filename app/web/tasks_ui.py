@@ -18,8 +18,8 @@ from app.i18n import N_, ngettext
 from app.i18n import gettext as _
 from app.logging_setup import audit
 from app.models import TASK_STATUSES, Actor, Notification, Project, ProjectOwner, Sprint, Task
-from app.services import (access, data_refs, model_choice, notifications, output_gate, result_mail, reviews,
-                          sprints, state_machine, telegram_actions, zones)
+from app.services import (access, agent_blocks, data_refs, model_choice, notifications, output_gate, result_mail,
+                          reviews, sprints, state_machine, telegram_actions, zones)
 from app.services import tasks as svc
 from app.services.state_machine import InvalidTransition
 from app.web.common import inbox_badge, is_htmx, render, render_markdown, ui_actor, ui_actor_or_none, web_session
@@ -192,6 +192,7 @@ def inbox(request: Request, user: UiUser = Depends(require_user)):
         opts = _filter_options(s, me)
         mail_approvals = result_mail.pending_for(s, me)
         data_releases = output_gate.pending_for(s, me)
+        blocked_agents = agent_blocks.visible_for(s, me)
         on_approve = {m["task_nr"] for m in mail_approvals if m["on_approve"]}
         for t in data["for_review"]:
             t["on_approve_mails"] = t["task_nr"] in on_approve
@@ -231,7 +232,7 @@ def inbox(request: Request, user: UiUser = Depends(require_user)):
                                      notices_all=notices_all, notices_more=notices_more,
                                      notices_until=notices_until.isoformat() + "Z", notices_max_id=notices_max_id,
                                      mail_approvals=mail_approvals, data_releases=data_releases, inbox_badge=badge,
-                                     **octx, **opts), octx)
+                                     blocked_agents=blocked_agents, **octx, **opts), octx)
 
 
 def _notice_origin(request: Request):

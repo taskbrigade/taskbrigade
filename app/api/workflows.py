@@ -49,7 +49,7 @@ class StepDraft(StrictBody):
     data_class: Literal["cloud_ok", "local_only", "sealed"] | None = None
     review_mode: Literal["manual", "agent", "auto"] = "manual"
     reviewer_id: int | None = Field(None, gt=0, le=4294967295)
-    model_tier: Literal["simple", "standard", "complex"] | None = None
+    model_tier: Literal["simple", "standard", "complex", "extreme"] | None = None
     timeout_minutes: int | None = Field(None, gt=0, le=4294967295)
     wait_reminder_hours: int | None = Field(None, gt=0, le=65535)
     max_retries: int = Field(default_factory=lambda data: 2 if data.get("step_type") == "runner" else 0,

@@ -83,6 +83,20 @@ decide tasks you are entered for; the project owner and admins can always overru
    agent. Route B: `tbr update`/`tbr cancel`/`tbr reset`/`tbr duplicate`.
    Dependencies: `create_task(…, depends_on=[…])` / `update_task(task_nr, depends_on=[…])` (list or comma-separated;
    `"none"` clears on update; the agent can claim the task only once all are done; Route B: `--depends-on`).
+7. Projects (only when the user asks for it; role `orchestrator` acting for your owner, or admin – the same rules as
+   in the web UI). `list_projects` shows key, owner, privacy and default reviewer.
+   - New project: `create_project(key, name, description, privacy, owner, default_reviewer)` – key 2–8 characters
+     A-Z/0-9 and unique; privacy `local_only` (default) or `cloud_ok` (`sealed` is a task data class only); the owner
+     is your owner by default – an agent never becomes owner. It creates the Gitea repository with `brain.md`,
+     `AGENTS.md` and `CLAUDE.md` like the web UI (`gitea="none"`: an idea without a repository). Give the user the
+     key and the link from the reply. If the project should take tasks from cloud agents, set `cloud_ok` right away.
+   - Change: `update_project(key, name, description, privacy, default_reviewer, owner)` – only the given fields; the
+     key stays; `default_reviewer="none"` removes it. `local_only` → `cloud_ok` keeps already started tasks
+     `local_only`; `cloud_ok` → `local_only` is refused while open tasks are assigned to cloud agents – the reply
+     names them, reassign them first (`update_task`) or ask the user.
+   - A 403 means your agent lacks the role `orchestrator`, has no owner, or its owner is not an admin or owner of
+     that project – tell the user; an admin fixes it under *Admin → Users & agents*.
+   Route B: `tbr project create --key … --name …` / `tbr project update <KEY> --privacy cloud_ok`.
 
 ## Sprints (optional: project → sprint → task)
 

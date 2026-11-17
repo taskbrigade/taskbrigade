@@ -130,6 +130,36 @@
 
 <div class="inbox-cols">
   <div class="inbox-main">
+  {% if blocked_agents %}
+  <section class="inbox-blocked" id="blocked-agents" aria-labelledby="blocked-agents-title">
+    <h2 class="inbox-action-title" id="blocked-agents-title">{{ _("Blocked agents") }} <span class="count-pill">{{ blocked_agents | length }}</span></h2>
+    <p class="inbox-agent-reviews-hint">{{ _("These agents claim no tasks until the cause is fixed – the entry stays until the block is cleared.") }}</p>
+    <ul class="blocked-agent-list">
+      {% for b in blocked_agents %}
+      <li class="blocked-agent-row" data-agent="{{ b.name }}">
+        <div class="blocked-agent-top">
+          <span class="pill pill-changes">{{ b.label }}</span>
+          {{ ui.actor(b.name, b.agent_kind) }}
+          <span class="age" title="{{ b.since | localtime }}">{{ _("since %(time)s", time=b.since | localtime("short")) }}</span>
+        </div>
+        <div class="blocked-agent-reason md">{{ b.reason }}</div>
+        <div class="agent-review-meta">
+          {% if b.host %}<span>{{ _("Host: %(host)s", host=b.host) }}</span><span aria-hidden="true">·</span>{% endif %}
+          {% if b.task_nr %}<a href="/tasks/{{ b.task_nr }}">{{ b.task_nr }}</a><span aria-hidden="true">·</span>{% endif %}
+          <span>{{ ngettext("%(num)d task waiting", "%(num)d tasks waiting", b.waiting) }}{% if b.waiting %} ({{ _("%(direct)s assigned, %(deps)s through dependencies", direct=b.direct, deps=b.deps) }}){% endif %}</span>
+        </div>
+        {% if b.can_clear %}
+        <form method="post" action="/admin/users/{{ b.name }}/unblock?back=inbox" class="blocked-agent-actions" onsubmit="return confirm({{ _('Clear the blocked state? The runner claims tasks again on its next pass.')|tojson|forceescape }})">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button type="submit" class="ui-btn ui-btn-secondary ui-btn-xs">{{ _("Clear block") }}</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  <hr class="inbox-divider">
+  {% endif %}
   <section class="inbox-cards" aria-label="{{ _('Needs your action') }}">
     {% if not n_cards %}
     <div class="all-clear" role="status"><span aria-hidden="true">✓</span> <span>{{ _("All done – nothing to review.") }}</span></div>

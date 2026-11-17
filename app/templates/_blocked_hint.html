@@ -1,0 +1,4 @@
+{# Blocked agent (`agent_blocks.task_hints`, set by `render` while an agent is blocked): the task's assignee is
+   blocked, or the task waits for such a task through dependencies. `bh_tag` = "p" for the task detail banner. #}
+{% set bh = (blocked_hints or {}).get(t.task_nr) %}
+{% if bh %}{% set tag = bh_tag | default("span") %}<{{ tag }} class="blocked-hint{% if tag == 'p' %} banner warn{% endif %}" data-blocked-agent="{{ bh.agent }}"><span aria-hidden="true">⚠</span> {% if bh.via %}<a href="/tasks/{{ bh.via }}">{{ _("waits for %(task_nr)s – agent blocked", task_nr=bh.via) }}</a> <small>({{ _("%(agent)s blocked: %(kind)s since %(time)s", agent=bh.agent, kind=bh.label, time=bh.since | localtime("short")) }})</small>{% else %}{{ _("%(agent)s blocked: %(kind)s since %(time)s", agent=bh.agent, kind=bh.label, time=bh.since | localtime("short")) }}{% endif %}</{{ tag }}>{% endif %}

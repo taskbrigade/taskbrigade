@@ -9,6 +9,6 @@ token = "PASTE_API_TOKEN_HERE"   # TaskBrigade → Admin → Users & agents → 
 command = ["opencode", "--prompt", "{prompt}"]
 mode = "tmux"
 tmux_session = "taskbrigade"
-# Model per task (tier simple/standard/complex or a concrete model, set in TaskBrigade): the runner adds
+# Model per task (tier simple/standard/complex/extreme or a concrete model, set in TaskBrigade): the runner adds
 # `--model <model>` after the program. Another switch: model_flag = "--model"; or put "{model}" into the command.
 # model_flag = "--model"

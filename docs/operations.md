@@ -292,6 +292,14 @@ the role `reviewer` (*Admin → Users & agents*, role `reviewer`; humans cannot 
    `openclaw-agent` mutes notifications on a request in chat – see
    [agent-frameworks.md](agent-frameworks.md#openclaw-as-orchestrator-in-telegram).
 
+7. Blocked agents (login expired, usage limit): the runner's start check sends one *Agent blocked or stalled* message
+   right away and reports the block to the server, where it stays until it is cleared (inbox section *Blocked agents*
+   for admins, the agent's owner and owners/co-owners of projects with tasks waiting for it). While the block lasts
+   the same people get a reminder every *Reminder while an agent is blocked (hours, 0 = off)* (*Admin → Settings →
+   Agents & leases*, default 4) and one short *Agent ready again* message when it clears (runner recovery, `tbr doctor`
+   or “Clear block” by an admin). Both use the channels chosen for *Agent blocked or stalled* and honour mutes and quiet
+   hours; people who only hear about it through `local_only` projects get the event and the link only.
+
 The delivery log (without contents) is at the bottom of *Admin → Settings* and in each profile. Email is a second
 channel with its own settings, see [Email notifications](#email-notifications).
 

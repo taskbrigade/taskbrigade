@@ -1,9 +1,11 @@
-"""Model choice per task: a tier (simple/standard/complex) and/or a concrete model, resolved per agent.
+"""Model choice per task: a tier (simple/standard/complex/extreme) and/or a concrete model, resolved per agent.
 
 The assigned agent maps tiers to models (`actors.model_tiers`), has a default model (`actors.model_default`) and an
 allow list of models a task may name explicitly (`actors.models_allowed`). Resolution order: concrete model > tier
-mapping > default model > nothing (the agent CLI's own default). Only runner agents (`APPLYING_KINDS`) apply the
-model; Hermes, OpenClaw and desktop apps choose the model themselves and only show it.
+mapping > built-in tier mapping of the agent kind (`KIND_TIERS`) > default model > built-in default of the agent kind
+(`KIND_DEFAULTS`) > nothing (the agent CLI's own
+default). Only runner agents (`APPLYING_KINDS`) apply the model; Hermes, OpenClaw and desktop apps choose the model
+themselves and only show it.
 """
 import json
 import re
@@ -14,7 +16,13 @@ from app.models import MODEL_TIERS, Actor, Task
 
 # Agent kinds whose runner (`tbr run`) passes the model to the agent CLI.
 APPLYING_KINDS = ("claude_code", "codex", "opencode")
-TIER_LABELS = {"simple": N_("simple"), "standard": N_("standard"), "complex": N_("complex")}
+# Built-in default model per agent kind when the agent has no default model of its own: Claude Code runs on Opus
+# instead of the CLI's own default.
+KIND_DEFAULTS = {"claude_code": "opus"}
+# Built-in tier mapping per agent kind for tiers the agent does not map itself: extremely hard tasks run on Fable.
+KIND_TIERS = {"claude_code": {"extreme": "fable"}}
+TIER_LABELS = {"simple": N_("simple"), "standard": N_("standard"), "complex": N_("complex"),
+               "extreme": N_("extreme")}
 # Model names as the agent CLIs take them, e.g. `sonnet`, `gpt-5.6-terra`, `ollama/qwen3:32b`, `opus[1m]`.
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+\[\]-]{0,99}$")
 MAX_ALLOWED = 50
@@ -100,10 +108,21 @@ def set_agent_models(actor: Actor, *, default: str | None, tier_models: dict[str
     return changed
 
 
+def kind_tiers(actor: Actor | None) -> dict[str, str]:
+    """Built-in tier → model mapping of the agent's kind (only for agents that apply the model)."""
+    return dict(KIND_TIERS.get(actor.agent_kind, {})) if applies(actor) else {}
+
+
+def kind_default(actor: Actor | None) -> str | None:
+    """Built-in default model of the agent's kind (only for agents that apply the model)."""
+    return KIND_DEFAULTS.get(actor.agent_kind) if applies(actor) else None
+
+
 def settings(actor: Actor) -> dict:
     """An agent's model settings as returned by the API (`/agents/me`, admin)."""
-    return {"default": actor.model_default, "tiers": tiers(actor), "allowed": allowed(actor),
-            "applies": applies(actor)}
+    return {"default": actor.model_default, "kind_default": kind_default(actor), "tiers": tiers(actor),
+            "kind_tiers": kind_tiers(actor),
+            "allowed": allowed(actor), "applies": applies(actor)}
 
 
 def check_allowed(actor: Actor | None, model: str | None) -> None:
@@ -126,6 +145,10 @@ def resolve(task: Task, actor: Actor | None) -> dict:
         model, source = task.model, "model"
     elif task.model_tier and tiers(actor).get(task.model_tier):
         model, source = tiers(actor)[task.model_tier], "tier"
+    elif task.model_tier and kind_tiers(actor).get(task.model_tier):
+        model, source = kind_tiers(actor)[task.model_tier], "tier"
     elif actor is not None and actor.model_default:
         model, source = actor.model_default, "default"
+    elif kind_default(actor):
+        model, source = kind_default(actor), "default"
     return {"model": model, "source": source, "applies": applies(actor)}

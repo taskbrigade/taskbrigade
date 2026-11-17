@@ -98,9 +98,21 @@ def _require_admin(actor: Actor) -> None:
         raise Forbidden(_( 'Only admins can create or edit projects' ))
 
 
-def _require_creator(actor: Actor) -> None:
-    if actor.role != "admin" and not (actor.actor_type == "human" and actor.role == "member"):
-        raise Forbidden(_( 'Only admins and members can create projects' ))
+def _creator(actor: Actor) -> Actor:
+    """Who a new project is created for: admins and human members themselves, an orchestrator agent its owner (it
+    acts on that human's behalf, `access.acting_human`). Everyone else gets 403."""
+    if actor.role == "admin" or (actor.actor_type == "human" and actor.role == "member"):
+        return actor
+    human = access.acting_human(actor)
+    if human is not None:
+        return human
+    if actor.actor_type == "agent" and actor.role == "orchestrator":
+        raise Forbidden(_("An orchestrator agent creates projects on behalf of its owner – this agent has no active "
+                          "human owner (Admin → Users & agents)"), code="role_required")
+    if actor.actor_type == "agent":
+        raise Forbidden(_("Agents need the role 'orchestrator' to create projects (your role: %(role)s) – an admin "
+                          "can change it under Admin → Users & agents", role=actor.role), code="role_required")
+    raise Forbidden(_( 'Only admins and members can create projects' ))
 
 
 def resolve_owner(session: Session, actor: Actor, owner: str | None) -> Actor:
@@ -185,6 +197,12 @@ def info(session: Session, project: Project) -> dict:
             "default_reviewer": default_reviewer_name(session, project)}
 
 
+def web_url(session: Session, project: Project) -> str | None:
+    """Link to the project page (setting `app_url`); None without it."""
+    base = (settings_store.get(session, "app_url") or "").rstrip("/")
+    return f"{base}/projects/{project.project_key}" if base else None
+
+
 def default_reviewer_name(session: Session, project: Project) -> str | None:
     reviewer = session.get(Actor, project.default_reviewer_id) if project.default_reviewer_id else None
     return reviewer.name if reviewer else None
@@ -193,15 +211,22 @@ def default_reviewer_name(session: Session, project: Project) -> str | None:
 def create(session: Session, actor: Actor, *, key: str, name: str, description: str | None = None,
            status: str = "idea", privacy: str = "local_only", gitea_mode: str = "none",
            gitea_owner: str | None = None, gitea_repo: str | None = None, add_missing_files: bool = True,
-           protect_branch: bool | None = None, owner: str | None = None) -> tuple[Project, SetupResult | None]:
-    _require_creator(actor)
-    owner_actor = resolve_owner(session, actor, owner)
-    if actor.role != "admin" and owner_actor.id != actor.id:
+           protect_branch: bool | None = None, owner: str | None = None,
+           default_reviewer: str | None = None) -> tuple[Project, SetupResult | None]:
+    """Create a project (web UI, API, MCP `create_project`, `tbr project create`). Errors before or while creating
+    or finding the Gitea repo raise and roll back with the caller's transaction, so no half project is left."""
+    principal = _creator(actor)
+    owner_actor = resolve_owner(session, principal, owner)
+    if principal.role != "admin" and owner_actor.id != principal.id:
+        if principal is not actor:
+            raise Forbidden(_("An orchestrator agent can only create projects owned by its own owner (%(owner)s)",
+                              owner=principal.name))
         raise Forbidden(_( 'Members can only create projects for themselves' ))
     key = key.strip().upper()
     if not KEY_RE.match(key):
         raise Unprocessable(_("Project key: 2–8 characters A-Z/0-9"))
-    if status not in PROJECT_STATUSES or privacy not in ("local_only", "cloud_ok"):
+    _check_privacy_value(privacy)
+    if status not in PROJECT_STATUSES:
         raise Unprocessable(_( 'Invalid status or privacy value' ))
     if gitea_mode not in ("create", "link", "none"):
         raise Unprocessable(_( "gitea_mode must be 'create', 'link', or 'none'" ))
@@ -218,6 +243,9 @@ def create(session: Session, actor: Actor, *, key: str, name: str, description: 
                       brain_path="brain.md")
     session.add(project)
     session.flush()
+    if default_reviewer is not None:
+        reviewer = _default_reviewer(session, actor, project, default_reviewer)
+        project.default_reviewer_id = reviewer.id if reviewer else None
     result = None
     if gitea_mode != "none":
         result = setup_gitea(session, project, gitea_mode, gitea_owner, gitea_repo, add_missing_files,
@@ -292,6 +320,29 @@ def missing_files(session: Session, project: Project) -> list[str]:
             if not client.file_exists(project.gitea_owner, project.gitea_repo, f, project.default_branch)]
 
 
+def _check_privacy_value(privacy: str | None) -> None:
+    if privacy == "sealed":
+        raise Unprocessable(_("Projects are 'local_only' or 'cloud_ok'; 'sealed' is a data class of single tasks "
+                              "(data_class)"), code="invalid_privacy")
+    if privacy not in ("local_only", "cloud_ok"):
+        raise Unprocessable(_( "Privacy must be 'local_only' or 'cloud_ok'" ), code="invalid_privacy")
+
+
+def _default_reviewer(session: Session, actor: Actor, project: Project, name: str | None,
+                      privacy: str | None = None) -> Actor | None:
+    """The default reviewer by name (`none`/empty = None), with the checks of a task reviewer against the project's
+    privacy (or the new `privacy`); `actor` must be allowed to use a reviewer agent."""
+    from app.services import reviews
+
+    reviewer = reviews.find(session, name)
+    if reviewer is not None and reviewer.id != project.default_reviewer_id:
+        access.require_may_use_agent(actor, reviewer)
+    if reviewer is not None:
+        reviews.check(project if privacy is None else Project(privacy=privacy, project_key=project.project_key),
+                      reviewer, None)
+    return reviewer
+
+
 def _pin_started_classes(session: Session, project: Project) -> None:
     """Before a `local_only` project becomes `cloud_ok`: tasks whose work has started and that inherit the class
     keep `local_only` as their own class – a class can only be made stricter once work began (rule 4,
@@ -305,8 +356,10 @@ def _pin_started_classes(session: Session, project: Project) -> None:
                     .values(data_class="local_only").execution_options(synchronize_session="fetch"))
 
 
-def update(session: Session, actor: Actor, project: Project, changes: dict) -> list[str]:
-    access.require_manage_project(project, actor)
+def update(session: Session, actor: Actor, project: Project, changes: dict, via: str = "web") -> list[str]:
+    """Change the given fields only (web UI, API, MCP `update_project`, `tbr project update`). `via` is the channel
+    written to the data audit for a privacy change."""
+    access.require_edit_project(project, actor)
     changes = dict(changes)
     new_owner = None
     if "owner" in changes:  # An admin or current owner may transfer ownership to an active human.
@@ -316,15 +369,7 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
         new_co_owners = resolve_co_owners(session, actor, changes.pop("co_owners"), project)
     reviewer_changed = "default_reviewer" in changes
     if reviewer_changed:
-        from app.services import reviews
-
-        reviewer = reviews.find(session, changes.pop("default_reviewer"))
-        if reviewer is not None and reviewer.id != project.default_reviewer_id:
-            access.require_may_use_agent(actor, reviewer)
-        if reviewer is not None:
-            reviews.check(project if "privacy" not in changes else Project(privacy=changes["privacy"],
-                                                                           project_key=project.project_key),
-                          reviewer, None)
+        reviewer = _default_reviewer(session, actor, project, changes.pop("default_reviewer"), changes.get("privacy"))
     allowed = {"name", "description", "status", "privacy", "serialize_reviews", "data_four_eyes"}
     if set(changes) - allowed:
         raise Unprocessable(_("Cannot change: %(fields)s", fields=", ".join(sorted(set(changes) - allowed))))
@@ -333,18 +378,13 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
             raise Unprocessable(_( 'Invalid status' ))
         if changes["status"] == "active" and not project.gitea_repo:
             raise Unprocessable(_( 'Create or link a Gitea repository before activating' ))
+    if "privacy" in changes:
+        _check_privacy_value(changes["privacy"])
     if changes.get("privacy") == "local_only" and project.privacy != "local_only":
-        from app.services import zones
-
-        cls = func.coalesce(Task.data_class, literal("local_only"))  # A task's own class stays (rule 2).
-        cloud = session.scalar(select(func.count()).select_from(Task).join(Actor, Actor.id == Task.assigned_to)
-                               .where(Task.project_id == project.id, Task.status.in_(OPEN_STATUSES),
-                                      ~zones.sql_may_handle(Actor, cls, zones.enforced(session))))
+        cloud = cloud_assigned_tasks(session, project)
         if cloud:
-            raise Unprocessable(_("%(count)d open task(s) are assigned to cloud agents – reassign them first", count=cloud),
-                                code="privacy_violation")
-    elif changes.get("privacy") not in (None, "local_only", "cloud_ok"):
-        raise Unprocessable(_( "Privacy must be 'local_only' or 'cloud_ok'" ))
+            raise Unprocessable(_("%(count)d open task(s) are assigned to cloud agents – reassign them first: "
+                                  "%(tasks)s", count=len(cloud), tasks=", ".join(cloud)), code="privacy_violation")
     if "name" in changes and not (changes["name"] or "").strip():
         raise Unprocessable(_( 'Name must not be empty' ))
     if changes.get("privacy") == "cloud_ok" and project.privacy == "local_only":
@@ -357,8 +397,16 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
             if k == "data_four_eyes":  # Output gate rule: every change goes to the data audit
                 from app.services import data_audit
 
-                data_audit.append(session, "four_eyes_changed", "project", project.id, actor=actor,
+                data_audit.append(session, "four_eyes_changed", "project", project.id, actor=actor, via=via,
                                   detail={"project": project.project_key, "old": project.data_four_eyes, "new": v})
+            if k == "privacy":  # Who changed the privacy, from what to what (data audit and audit log)
+                from app.logging_setup import audit
+                from app.services import data_audit
+
+                data_audit.append(session, "privacy_changed", "project", project.id, actor=actor, via=via,
+                                  detail={"project": project.project_key, "old": project.privacy, "new": v})
+                audit(actor.name, "project_privacy_changed", project=project.project_key, old=project.privacy,
+                      new=v, via=via)
             setattr(project, k, v)
             changed.append(k)
     if reviewer_changed and (reviewer.id if reviewer else None) != project.default_reviewer_id:
@@ -381,6 +429,18 @@ def update(session: Session, actor: Actor, project: Project, changes: dict) -> l
                 owner_collaborator(session, project, person)
     session.flush()
     return changed
+
+
+def cloud_assigned_tasks(session: Session, project: Project) -> list[str]:
+    """Open tasks of the project assigned to an agent that may not handle them once the project is `local_only`
+    (a task's own class stays, rule 2) – they block switching the privacy to `local_only`."""
+    from app.services import zones
+
+    cls = func.coalesce(Task.data_class, literal("local_only"))
+    return list(session.scalars(select(Task.task_nr).join(Actor, Actor.id == Task.assigned_to)
+                                .where(Task.project_id == project.id, Task.status.in_(OPEN_STATUSES),
+                                       ~zones.sql_may_handle(Actor, cls, zones.enforced(session)))
+                                .order_by(Task.id)))
 
 
 def brain(session: Session, project: Project) -> str:

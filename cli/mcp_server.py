@@ -20,6 +20,7 @@ from cli.client import duplicate_task, model_line, model_value, parse_tier, reso
 from cli.client import agent_scope, heartbeat_task, review_task, waiting_report
 from cli.client import data_class_line, parse_data_class
 from cli.client import email_report, emails_report, recipients_report, send_email
+from cli.client import project_create_body, project_line, project_patch_body, project_report
 from cli import attachments as att, sftp
 from cli.i18n import N_, _
 from cli.prepare import PrepareError, _git, prepare, unresolved_conflicts
@@ -59,6 +60,9 @@ Creating new tasks (when the user asks for it, e.g. "Create a task for codex …
   Write the description and criteria so concretely that the agent can work without asking back. If something
   essential is missing (project, goal, form of the result), ask first. Without assigned_to nobody claims the task.
 - Assign projects with privacy "local_only" only to agents with a local model (model location local, runtime local).
+- Projects (role orchestrator acting for its owner, or admin – as in the web UI): create_project(key, name,
+  description, privacy, owner, default_reviewer) creates one with its Gitea repository; update_project(key, …)
+  changes only the given fields, e.g. privacy local_only ↔ cloud_ok. Only when the user asks for it.
 - Attachments: create_task(…, attachments=[paths]) or attach_files(task_nr, paths) attach files from this machine –
   only from the allowed folders (work directory, ~/Downloads, ~/Documents, ~/Desktop unless configured otherwise),
   never hidden files or keys. A file you cannot reach by path (e.g. dropped into the chat) can be attached as text
@@ -299,9 +303,46 @@ class TaskBrigadeMCP(WorkflowTools):
         items = [p for p in self.client.get("/projects") if p.get("status", "active") == "active"]
         if not items:
             return _("No active projects.")
-        return (_("Active projects (key – name, owner, privacy). Only create tasks in projects the user wants them "
-                  "in – the owner is responsible there:") + "\n" + "\n".join(
-                    f"  - {p['key']} – {p['name']} (Owner {p.get('owner') or '–'}, {p.get('privacy')})" for p in items))
+        return (_("Active projects (key – name, owner, privacy, default reviewer). Only create tasks in projects the "
+                  "user wants them in – the owner is responsible there:") + "\n" + "\n".join(
+                    f"  - {project_line(p)}" for p in items))
+
+    def create_project(self, key: str, name: str, description: str = "", privacy: str | None = None,
+                       owner: str | None = None, default_reviewer: str | None = None, gitea: str = "create") -> str:
+        try:
+            body = project_create_body(key, name, description, privacy, owner, default_reviewer, gitea)
+            p = self.client.request("POST", "/projects", json=body).json()
+        except ValueError as e:
+            return _("Project not created: %(error)s", error=e)
+        except ApiError as e:
+            return _("Project not created: %(error)s", error=explain(e, "create_project")) + self._role_hint(e)
+        return project_report(p, _("Project %(key)s created.", key=p["key"]))
+
+    def update_project(self, key: str, name: str | None = None, description: str | None = None,
+                       privacy: str | None = None, default_reviewer: str | None = None,
+                       owner: str | None = None) -> str:
+        try:
+            body = project_patch_body(name, description, privacy, owner, default_reviewer)
+        except ValueError as e:
+            return _("Not changed: %(error)s", error=e)
+        if not body:
+            return _("Nothing to change – give at least one field.")
+        try:
+            p = self.client.request("PATCH", f"/projects/{key.strip().upper()}", json=body).json()
+        except ApiError as e:
+            return _("Not changed: %(error)s", error=explain(e, "update_project")) + self._role_hint(e)
+        changed = p.get("changed")
+        head = (_("Project %(key)s changed (%(fields)s).", key=p["key"], fields=", ".join(changed)) if changed
+                else _("Project %(key)s: nothing changed – the values were already set.", key=p["key"]))
+        return project_report(p, head)
+
+    @staticmethod
+    def _role_hint(e: ApiError) -> str:
+        if e.status != 403:
+            return ""
+        return "\n" + _("Note: agents create and change projects only with role \"orchestrator\" and on behalf of "
+                         "their owner (a human who is admin or owner of the project) – an admin can change the role "
+                         "and owner under Admin → Users & agents.")
 
     def list_agents(self) -> str:
         actors = self.client.get("/actors")
@@ -731,9 +772,33 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
     def release_task(task_nr: str, reason: str) -> str:
         return app.release_task(task_nr, reason)
 
-    @server.tool(description=_("Lists the active TaskBrigade projects (key, name, privacy) – for create_task."))
+    @server.tool(description=_("Lists the active TaskBrigade projects (key, name, owner, privacy, default reviewer) – "
+                               "for create_task."))
     def list_projects() -> str:
         return app.list_projects()
+
+    @server.tool(description=_("Creates a project when the user asks for it (role orchestrator acting for its owner, "
+                               "or admin). key: 2–8 characters A-Z/0-9, unique; name required; description "
+                               "optional; privacy: local_only (default, as in the web UI) or cloud_ok; owner: a human "
+                               "(default: your owner – an agent never becomes owner; another human only if your owner "
+                               "is an admin); default_reviewer: a human or an agent with role reviewer for new tasks. "
+                               "gitea: create (default: repository with brain.md, AGENTS.md, CLAUDE.md, status active – "
+                               "like the web UI) or none (an idea without a repository). Returns key, name, owner, "
+                               "privacy, default reviewer and the link."))
+    def create_project(key: str, name: str, description: str = "", privacy: str | None = None,
+                       owner: str | None = None, default_reviewer: str | None = None, gitea: str = "create") -> str:
+        return app.create_project(key, name, description, privacy, owner, default_reviewer, gitea)
+
+    @server.tool(description=_("Changes a project (role orchestrator acting for its owner, or admin; same rules as the "
+                               "web UI). Only the given fields change; the key stays. privacy: local_only or cloud_ok – "
+                               "switching to local_only is refused while open tasks are assigned to cloud agents (the "
+                               "reply names them; reassign first); switching to cloud_ok keeps started tasks "
+                               "local_only. default_reviewer: human or reviewer agent (\"none\" removes it). owner: "
+                               "a human (only if your owner is an admin or an owner of the project)."))
+    def update_project(key: str, name: str | None = None, description: str | None = None,
+                       privacy: str | None = None, default_reviewer: str | None = None,
+                       owner: str | None = None) -> str:
+        return app.update_project(key, name, description, privacy, default_reviewer, owner)
 
     @server.tool(description=_("Lists agents and humans a task can be assigned to (with runtime cloud/local)."))
     def list_agents() -> str:
@@ -746,9 +811,9 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
                                "concrete). draft=True creates a draft. due_date: due date YYYY-MM-DD (optional, for "
                                "information only – does not affect claiming). sprint: sprint id or name (list_sprints); in a "
                                "sprint that is not released yet the task is always a draft. tier: model tier simple, "
-                               "standard or complex (\"with a simple model\" → simple); model: concrete model from the "
-                               "agent's allow list (only when asked for explicitly). Without both the agent uses its "
-                               "default model. reviewer: a human or an agent with role reviewer (not the assignee); "
+                               "standard, complex or extreme (\"with a simple model\" → simple); model: concrete "
+                               "model from the agent's allow list (only when asked for explicitly). Without both the "
+                               "agent uses its default model. reviewer: a human or an agent with role reviewer (not the assignee); "
                                "empty = the project's default reviewer, \"none\" = the owner and admins. "
                                "depends_on: list of task numbers (or comma-separated string) this task depends on – "
                                "the agent can claim it only once all of them are done. "
@@ -784,12 +849,12 @@ def build_server(app: TaskBrigadeMCP) -> MCPServer:
     @server.tool(description=_("Changes an existing task (role orchestrator/admin only). Only the given fields are "
                                "changed. assigned_to: new assignee (\"none\" removes the assignment); due_date "
                                "YYYY-MM-DD (\"none\" removes it); sprint: sprint id or name (\"none\" detaches the "
-                               "task); tier: model tier simple, standard or complex (\"none\" removes it); model: "
-                               "concrete model from the agent's allow list (\"none\" removes it); reviewer: human or "
-                               "reviewer agent (\"none\" removes it – the owner and admins review); depends_on: list of "
-                               "task numbers (or comma-separated string) that REPLACES the dependencies (\"none\" "
-                               "removes all; omitted = unchanged) – the agent can claim the task only once all of "
-                               "them are done.") + " "
+                               "task); tier: model tier simple, standard, complex or extreme (\"none\" removes it); "
+                               "model: concrete model from the agent's allow list (\"none\" removes it); reviewer: "
+                               "human or reviewer agent (\"none\" removes it – the owner and admins review); "
+                               "depends_on: list of task numbers (or comma-separated string) that REPLACES the "
+                               "dependencies (\"none\" removes all; omitted = unchanged) – the agent can claim the "
+                               "task only once all of them are done.") + " "
                  + _(DATA_CLASS_HELP))
     def update_task(task_nr: str, title: str | None = None, description: str | None = None,
                     acceptance_criteria: str | None = None, assigned_to: str | None = None, prio: int | None = None,

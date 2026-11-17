@@ -136,7 +136,13 @@ def _users_page(request: Request, selected: str | None = None, status: int = 200
                   hidden_agents=len(every) - len(everyone), all_agents=all_agents,
                   all_agents_url=request.url_for("list_users").include_query_params(**f, all_agents="1"),
                   filters=f, filtered=any(f.values()), roles=ROLES, kinds=AGENT_KINDS,
-                  section="users", **ctx)
+                  block_kinds=_block_kinds(), section="users", **ctx)
+
+
+def _block_kinds() -> dict[str, str]:
+    from app.services import agent_blocks
+
+    return {k: agent_blocks.kind_label(k) for k in agent_blocks.KINDS}
 
 
 def humans(session) -> list[str]:
@@ -228,7 +234,7 @@ def _detail(request: Request, name: str, status: int = 200, **ctx):
         owner = s.get(Actor, actor.owner_id).name if actor.owner_id else None
     return render(request, "admin/user_form.html", status, actor=actor, roles=ROLES, kinds=AGENT_KINDS,
                   section="users", counts=counts, form={}, access=access, models=models, humans=names, owner=owner,
-                  model_tiers=model_choice.TIER_LABELS, sftp_enabled=sftp_enabled,
+                  model_tiers=model_choice.TIER_LABELS, sftp_enabled=sftp_enabled, block_kinds=_block_kinds(),
                   **ctx)
 
 
@@ -255,6 +261,7 @@ def update(request: Request, name: str, user: UiUser = Depends(require_admin), d
            lease_minutes: str = Form(...), max_parallel_tasks: str = Form(...), notes: str = Form(""),
            email: str = Form(""), tailscale_login: str = Form(""), model_default: str = Form(""),
            model_simple: str = Form(""), model_standard: str = Form(""), model_complex: str = Form(""),
+           model_extreme: str = Form(""),
            models_allowed: str = Form(""), owner: str = Form(""), is_public: bool = Form(False),
            model_location: str = Form(""), confirm_local_model: bool = Form(False)):
     def fn(s, actor):
@@ -271,7 +278,7 @@ def update(request: Request, name: str, user: UiUser = Depends(require_admin), d
                 changes["owner"] = owner
             changes.update(model_default=model_default, models_allowed=model_choice.parse_list(models_allowed),
                            model_tiers={"simple": model_simple, "standard": model_standard,
-                                        "complex": model_complex})
+                                        "complex": model_complex, "extreme": model_extreme})
         else:
             changes.update(email=email, tailscale_login=tailscale_login)
         before = actor.model_location
@@ -294,6 +301,19 @@ def update_summary(request: Request, name: str, user: UiUser = Depends(require_a
         changed = svc.update(s, actor, changes)
         audit(user.name, "actor_updated", target=name, fields=changed, via="ui")
     return _action(request, name, fn, _("Saved."))
+
+
+@router.post("/{name}/unblock", dependencies=POST)
+def unblock(request: Request, name: str, user: UiUser = Depends(require_admin)):
+    """Clear the blocked state an agent's runner reported (`agent_blocks.clear`); the runner notices it on its next
+    pass. `?back=inbox` returns to the inbox."""
+    from app.services import agent_blocks
+
+    def fn(s, actor):
+        agent_blocks.clear(s, actor, by=_me(s, user), via="ui")
+        if request.query_params.get("back") == "inbox":
+            return RedirectResponse("/#blocked-agents", status_code=303)
+    return _action(request, name, fn, _("Blocked state cleared."))
 
 
 @router.post("/{name}/revoke-token", dependencies=POST)

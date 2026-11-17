@@ -14,6 +14,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 def _out(session: Session, project, counts: dict | None = None, setup=None) -> dict:
     out = {**projects.info(session, project), "description": project.description,
+           "url": projects.web_url(session, project),
            "created_at": project.created_at, "updated_at": project.updated_at}
     if counts is not None:
         out["task_counts"] = counts
@@ -48,9 +49,9 @@ def get_project(key: str, session: Session = SessionDep, _: Actor = Depends(curr
 def patch_project(key: str, body: ProjectPatch, session: Session = SessionDep,
                   me: Actor = Depends(current_actor)):
     project = projects.get(session, key)
-    changed = projects.update(session, me, project, body.model_dump(exclude_unset=True))
+    changed = projects.update(session, me, project, body.model_dump(exclude_unset=True), via="api")
     audit(me.name, "project_updated", project=project.project_key, fields=changed)
-    return _out(session, project)
+    return {**_out(session, project), "changed": changed}
 
 
 @router.post("/{key}/gitea")
@@ -58,11 +59,11 @@ def project_gitea(key: str, body: ProjectGitea, session: Session = SessionDep,
                   me: Actor = Depends(current_actor)):
     """Create or link a repo later (promote an idea), or repeat setup."""
     project = projects.get(session, key)
-    access.require_manage_project(project, me)
+    access.require_edit_project(project, me)
     setup = projects.setup_gitea(session, project, body.mode, body.gitea_owner, body.gitea_repo,
                                  body.add_missing_files, body.protect_branch)
     if body.activate:
-        projects.update(session, me, project, {"status": "active"})
+        projects.update(session, me, project, {"status": "active"}, via="api")
     audit(me.name, "project_gitea", project=project.project_key, mode=body.mode, ok=setup.ok)
     return _out(session, project, setup=setup)
 

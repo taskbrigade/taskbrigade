@@ -16,5 +16,6 @@
       {% if sid %}<li><button type="button" data-move-sprint="none" data-label="{{ _('No sprint') }}">{{ _("No sprint") }}</button></li>{% endif %}
     </ul>
   </details>
+  {% with bh_tag="span" %}{% include "_blocked_hint.html" %}{% endwith %}
   {% for nr in t.waits %}<span class="plan-waits"><span aria-hidden="true">⚠</span> <a href="/tasks/{{ nr }}">{{ _("waits for %(task_nr)s", task_nr=nr) }}</a></span>{% endfor %}
 </li>

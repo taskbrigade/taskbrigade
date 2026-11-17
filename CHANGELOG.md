@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.15.0 – 2026-11-17
+
+- Claude Code agents run on Opus by default: without their own default model, a tier mapping or a model on the task,
+  TaskBrigade now resolves `opus` (built-in default of the agent kind) instead of leaving the choice to the Claude CLI.
+  An agent's own default model still wins; *Admin → Users & agents → Models* shows `opus` as the placeholder.
+- New model tier `extreme` (UI *extrem*, migration 0043) for extremely hard tasks: task form, sprint editor,
+  workflows, `tbr create/update --tier extreme` (`extrem` works too) and MCP `tier`. Claude Code agents map it to
+  Fable by default; an own model for the tier under *Admin → Users & agents → Models* replaces it.
+- Agents can create and change projects: MCP tools `create_project` and `update_project`, CLI `tbr project create`
+  and `tbr project update`, and `default_reviewer` on `POST /api/v1/projects`. They share `projects.create`/`update`
+  with the web UI (Gitea repository and initial files, owner collaborator, members, privacy rules). Agents need the
+  role `orchestrator` and act on behalf of their owner: they create projects owned by that human and change a
+  project only if their owner is an admin or one of its owners; other agents get `403 role_required`.
+- Project privacy changes are written to the data audit (`privacy_changed` with actor, old and new value) and the
+  audit log; switching to `local_only` while open tasks sit with cloud agents now lists those tasks in the error.
+  `sealed` as project privacy is refused with a clear message (it is a task data class).
+- `list_projects` (MCP) and `tbr projects` show the default reviewer; project API responses include the `url` of
+  the project page and `PATCH /api/v1/projects/{key}` returns the `changed` fields.
+- Blocked agents stay visible until fixed: the runner reports a login/limit blocker to the server
+  (`POST`/`DELETE /api/v1/agents/me/blocked`, migration 0042) and TaskBrigade shows it in the inbox section
+  "Blocked agents" (fix command, host, since, waiting tasks), as a warning on the agent's tasks and on tasks that wait
+  for them through dependencies (task detail, backlog, kanban, planning) and under *Admin → Users & agents*, where
+  admins can clear it ("Clear block", also in the inbox).
+- Runner auto-recovery: while blocked, every `tbr run` pass runs the agent's login status check (login blockers) or
+  waits for the reset time / `limit_wait_minutes` (limit blockers), then clears the block locally and on the server and
+  claims again; both transitions are logged in `runner.log`. `tbr doctor` clears the server state too.
+- Notifications: reminder while an agent stays blocked (*Admin → Settings*: "Reminder while an agent is blocked",
+  default 4 h, 0 = off) and an "Agent ready again" message when it clears, on the channels chosen for "Agent blocked or
+  stalled", honouring mutes and quiet hours.
+- README: new head with a video poster linking to taskbrigade.dev, a short "What it is", "Try it in 5 minutes"
+  (Docker Compose with bundled Gitea and demo project) and a new section "How is this different?"; the Taskmeister
+  rename note moved to "Upgrading", and the navigation line covers every section.
+- `promotion/github-about.md`: description, website, topics and a ready `gh repo edit` command for the GitHub About box.
+
 ## 0.14.3 – 2026-10-27
 
 - Projects can have several owners: besides the primary owner, co-owners (project page, or

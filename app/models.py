@@ -38,7 +38,7 @@ AGENT_KINDS = ("hermes", "openclaw", "codex", "claude_code", "opencode", "other"
 ROLES = ("admin", "orchestrator", "worker", "member", "reviewer")
 COMMENT_TYPES = ("comment", "question", "answer", "review", "system")
 SPRINT_STATUSES = ("planned", "released", "closed")
-MODEL_TIERS = ("simple", "standard", "complex")  # Task model tier; the agent maps it to a model.
+MODEL_TIERS = ("simple", "standard", "complex", "extreme")  # Task model tier; the agent maps it to a model.
 TASK_KINDS = ("work", "profile", "run", "approval")
 DATA_CLASSES = ("cloud_ok", "local_only", "sealed")
 
@@ -99,6 +99,13 @@ class Actor(Base):
     # tasks, emergency download (admins). Set under Admin → Users & agents; changes are written to `data_audit`.
     data_access: Mapped[bool] = mapped_column(Boolean, server_default=text("0"))
     notes: Mapped[str | None] = mapped_column(Text)
+    # Agents: blocked state reported by the runner (`app/services/agent_blocks.py`, migration 0042); NULL = ready.
+    blocked_kind: Mapped[str | None] = mapped_column(String(20))
+    blocked_reason: Mapped[str | None] = mapped_column(String(1000))
+    blocked_host: Mapped[str | None] = mapped_column(String(255))
+    blocked_task_nr: Mapped[str | None] = mapped_column(String(30))
+    blocked_since: Mapped[datetime | None] = mapped_column(DateTime)
+    blocked_reminded_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=NOW)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=NOW_ON_UPDATE)
@@ -106,6 +113,14 @@ class Actor(Base):
     @property
     def owner_name(self) -> str | None:
         return self.owner.name if self.owner_id and self.owner else None
+
+    @property
+    def blocked_info(self) -> dict | None:
+        """Blocked state reported by the agent's runner, or None while it is ready."""
+        if self.blocked_since is None:
+            return None
+        return {"kind": self.blocked_kind, "reason": self.blocked_reason, "host": self.blocked_host,
+                "task_nr": self.blocked_task_nr, "since": self.blocked_since}
 
 
 class Project(Base):

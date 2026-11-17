@@ -56,6 +56,8 @@ class ActorOut(BaseModel):
     notes: str | None
     last_seen_at: datetime | None
     created_at: datetime
+    # Blocked state reported by the runner (`app/services/agent_blocks.py`): {kind, reason, host, task_nr, since}.
+    blocked: dict | None = Field(default=None, validation_alias="blocked_info")
     # Model choice (`app/services/model_choice.py`); stored as JSON text in the actors table.
     model_default: str | None = None
     model_tiers: dict[str, str] = {}
@@ -178,7 +180,8 @@ class DatabaseIn(BaseModel):
 # --- Projects -------------------------------------------------------------------------------
 
 ProjectStatus = Literal["idea", "active", "paused", "archived"]
-Privacy = Literal["local_only", "cloud_ok"]
+# `sealed` is accepted here only so the service can answer with a clear message (it is a task data class).
+Privacy = Literal["local_only", "cloud_ok", "sealed"]
 DataClassIn = Literal["cloud_ok", "local_only", "sealed", "inherit"]  # Task data class (`app/services/zones.py`)
 
 
@@ -193,7 +196,8 @@ class ProjectCreate(BaseModel):
     gitea_repo: str | None = None
     add_missing_files: bool = True
     protect_branch: bool | None = None
-    owner: str | None = None  # Human; defaults to the creator.
+    owner: str | None = None  # Human; defaults to the creator (an orchestrator agent: its owner).
+    default_reviewer: str | None = None  # Human or reviewer agent for new tasks.
 
 
 class ProjectPatch(BaseModel):
@@ -240,7 +244,7 @@ class TaskCreate(BaseModel):
     status: Literal["draft", "defined"] = "defined"
     sprint: int | None = None  # Sprint id; in a planned sprint the task starts as a draft.
     follow_up_of: str | None = None  # Origin task (same project) this task follows up on.
-    model_tier: Literal["simple", "standard", "complex"] | None = None
+    model_tier: Literal["simple", "standard", "complex", "extreme"] | None = None
     model: str | None = Field(default=None, max_length=100)  # Must be on the assignee's allow list.
     # Human or reviewer agent; missing/null = the project's default reviewer, "none" = nobody (owner/admins review).
     reviewer: str | None = Field(default=None, max_length=50)
@@ -301,7 +305,7 @@ class TaskPatch(BaseModel):
     sprint: int | None = None  # Sprint id; null detaches.
     parent_task_nr: str | None = None  # null removes the parent task
     depends_on: list[str] | None = None  # replaces the dependencies; [] or null removes them
-    model_tier: Literal["simple", "standard", "complex"] | None = None  # null removes the tier
+    model_tier: Literal["simple", "standard", "complex", "extreme"] | None = None  # null removes the tier
     model: str | None = Field(default=None, max_length=100)  # null removes the concrete model
     reviewer: str | None = Field(default=None, max_length=50)  # null removes the reviewer (owner/admins review)
     data_class: DataClassIn | None = None  # null/"inherit" = inherit the project's privacy
@@ -371,6 +375,15 @@ class TransitionIn(BaseModel):
     to: str
     comment: str | None = None
     override: bool = False
+
+
+class BlockedIn(BaseModel):
+    """`POST /agents/me/blocked`: the runner found a blocker (`cli/runner.py` BLOCKERS) and stopped claiming."""
+    kind: Literal["login", "limit", "unsent", "other"]
+    reason: str = Field(min_length=1)
+    host: str | None = Field(default=None, max_length=255)
+    task_nr: str | None = Field(default=None, max_length=30)
+    since: datetime | None = None
 
 
 class ClaimIn(BaseModel):

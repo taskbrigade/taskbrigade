@@ -411,7 +411,7 @@ def explain(e: ApiError, action: str) -> str:
     hint = {
         403: _("No permission for %(action)s – only allowed with role orchestrator or admin, or as in the web UI "
                "(your own role: tbr whoami)", action=action),
-        404: _("Task not found"),
+        404: _("Project not found") if "project" in action else _("Task not found"),
         409: (_("Version conflict – the task was changed in the meantime; check with tbr show and run again")
               if e.code == "version_conflict" else _("Not possible in the current state (tbr show shows the state)")),
     }.get(e.status)
@@ -454,16 +454,17 @@ def duplicate_task(client: "Client", task_nr: str, body: dict) -> dict:
 
 # Model tier of a task (`tbr create/update --tier`, MCP `tier`): English and German names, "none" removes it.
 TIERS = {"simple": "simple", "einfach": "simple", "easy": "simple", "standard": "standard", "normal": "standard",
-         "medium": "standard", "complex": "complex", "komplex": "complex", "hard": "complex", "schwer": "complex"}
+         "medium": "standard", "complex": "complex", "komplex": "complex", "hard": "complex", "schwer": "complex",
+         "extreme": "extreme", "extrem": "extreme"}
 
 
 def parse_tier(value: str | None) -> str | None:
-    """Tier name → `simple`|`standard`|`complex`; "none"/"-"/"" → None (removes the tier); unknown → ValueError."""
+    """Tier name → `simple`|`standard`|`complex`|`extreme`; "none"/"-"/"" → None (removes the tier); unknown → ValueError."""
     key = (value or "").strip().lower()
     if key in ("", "none", "-"):
         return None
     if key not in TIERS:
-        raise ValueError(_("Unknown model tier '%(value)s' – allowed: simple, standard, complex (or none)",
+        raise ValueError(_("Unknown model tier '%(value)s' – allowed: simple, standard, complex, extreme (or none)",
                            value=value))
     return TIERS[key]
 
@@ -532,7 +533,8 @@ def model_line(t: dict) -> str | None:
     return line
 
 
-TIER_LABELS = {"simple": N_("simple"), "standard": N_("standard"), "complex": N_("complex")}
+TIER_LABELS = {"simple": N_("simple"), "standard": N_("standard"), "complex": N_("complex"),
+               "extreme": N_("extreme")}
 
 
 def transition(client: "Client", task_nr: str, to: str, comment: str | None = None) -> dict:
@@ -749,3 +751,88 @@ def recipients_report(data: dict) -> str:
     if data.get("data_class") != "cloud_ok":
         lines.append(_("Note: results of local-only tasks cannot be sent by email yet."))
     return "\n".join(lines)
+
+
+# --- Projects (MCP create_project/update_project, `tbr project create|update`) ------------------------------
+
+PROJECT_PRIVACY = ("local_only", "cloud_ok")
+
+
+def parse_privacy(value: str | None) -> str | None:
+    """Project privacy: None stays None (default/unchanged); `sealed` and unknown values are ValueErrors."""
+    if value is None or not value.strip():
+        return None
+    key = value.strip().lower()
+    if key == "sealed":
+        raise ValueError(_("Projects are local_only or cloud_ok; sealed is a data class of single tasks (data_class "
+                           "of create_task/update_task)"))
+    if key not in PROJECT_PRIVACY:
+        raise ValueError(_("Unknown privacy '%(value)s' – allowed: local_only, cloud_ok", value=value))
+    return key
+
+
+def project_create_body(key: str, name: str, description: str | None = None, privacy: str | None = None,
+                        owner: str | None = None, default_reviewer: str | None = None,
+                        gitea: str = "create") -> dict:
+    """POST /projects body with the web UI defaults: Gitea repo created (with brain.md, AGENTS.md, …), status active,
+    privacy local_only. `gitea="none"` creates an idea without a repository. ValueError for invalid input."""
+    mode = (gitea or "create").strip().lower()
+    if mode not in ("create", "none"):
+        raise ValueError(_("gitea must be 'create' or 'none'"))
+    body = {"key": key.strip().upper(), "name": name.strip(), "privacy": parse_privacy(privacy) or "local_only",
+            "gitea_mode": mode, "status": "active" if mode == "create" else "idea"}
+    if (description or "").strip():
+        body["description"] = description.strip()
+    if (owner or "").strip():
+        body["owner"] = owner.strip()
+    if (default_reviewer or "").strip() and default_reviewer.strip().lower() not in ("none", "-"):
+        body["default_reviewer"] = default_reviewer.strip()
+    return body
+
+
+def project_patch_body(name: str | None = None, description: str | None = None, privacy: str | None = None,
+                       owner: str | None = None, default_reviewer: str | None = None) -> dict:
+    """PATCH /projects/{key} body with only the given fields; `default_reviewer="none"` removes it, an empty
+    description clears it. The key cannot change. ValueError for invalid input."""
+    body: dict = {}
+    if name is not None:
+        body["name"] = name.strip()
+    if description is not None:
+        body["description"] = description.strip() or None
+    if privacy is not None:
+        body["privacy"] = parse_privacy(privacy)
+    if owner is not None and owner.strip():
+        body["owner"] = owner.strip()
+    if default_reviewer is not None:
+        body["default_reviewer"] = default_reviewer.strip() or "none"
+    return {k: v for k, v in body.items() if v is not None or k == "description"}
+
+
+def project_report(p: dict, head: str) -> str:
+    """Reply to create/update project: key, name, owner, privacy, default reviewer, status, link and the Gitea
+    setup (with what to do by hand when it is incomplete)."""
+    lines = [head, f"- {p['key']} – {p['name']}",
+             _("- Owner: %(owner)s", owner=p.get("owner") or "–")
+             + (" (" + _("co-owners: %(names)s", names=", ".join(p["co_owners"])) + ")" if p.get("co_owners") else ""),
+             _("- Privacy: %(privacy)s", privacy=p.get("privacy")),
+             _("- Default reviewer: %(name)s", name=p.get("default_reviewer") or _("none (the owner and admins)")),
+             _("- Status: %(status)s", status=p.get("status"))]
+    if p.get("url"):
+        lines.append(_("- Link: %(url)s", url=p["url"]))
+    if p.get("repo_url"):
+        lines.append(_("- Repository: %(url)s", url=p["repo_url"]))
+    setup = p.get("gitea_setup")
+    if setup:
+        lines += [f"  {step}" for step in setup.get("steps") or []]
+        if not setup.get("ok"):
+            lines.append(_("Gitea setup incomplete: %(error)s – the project and its repository exist; an admin or the "
+                           "owner repeats the setup on the project page (\"Repeat setup (add missing files)\").",
+                           error=setup.get("error")))
+    return "\n".join(lines)
+
+
+def project_line(p: dict) -> str:
+    """One line of `list_projects`/`tbr projects`: key – name, owner, privacy, default reviewer."""
+    return _("%(key)s – %(name)s (Owner %(owner)s, %(privacy)s, default reviewer %(reviewer)s)", key=p["key"],
+             name=p["name"], owner=p.get("owner") or "–", privacy=p.get("privacy"),
+             reviewer=p.get("default_reviewer") or "–")

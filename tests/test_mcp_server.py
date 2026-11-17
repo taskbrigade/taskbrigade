@@ -112,7 +112,8 @@ def test_mcp_protocol_over_stdio(tmp_path):
     init, tools = asyncio.run(asyncio.wait_for(run(), timeout=30))
     assert init.server_info.name == "taskbrigade" and "submit_task" in (init.instructions or "")
     assert set(tools) == {"list_tasks", "start_task", "show_task", "show_changes", "submit_task", "ask",
-                          "abort_task", "release_task", "comment", "list_projects", "list_agents", "create_task",
+                          "abort_task", "release_task", "comment", "list_projects", "create_project", "update_project",
+                              "list_agents", "create_task",
                           "update_task", "cancel_task", "reset_task", "duplicate_task", "list_sprints", "show_sprint", "create_sprint",
                           "add_sprint_tasks", "release_sprint", "close_sprint", "update_sprint", "reopen_sprint",
                           "notify", "sftp_put", "sftp_ls", "send_email", "list_emails", "list_mail_recipients",

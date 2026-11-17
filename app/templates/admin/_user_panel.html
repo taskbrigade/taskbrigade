@@ -17,6 +17,13 @@
       <label>{{ _("Max. parallel tasks") }}<input type="number" name="max_parallel_tasks" min="1" max="50" required value="{{ a.max_parallel_tasks }}"></label>
     </div>
   </form>
+  {% if a.blocked_since %}
+  <section class="user-blocked"><h3 class="ui-label">{{ _("Blocked") }}</h3>
+    <p class="banner warn">{{ _("%(agent)s blocked: %(kind)s since %(time)s", agent=a.name, kind=block_kinds.get(a.blocked_kind, a.blocked_kind), time=a.blocked_since | localtime("short")) }}{% if a.blocked_host %} · {{ _("Host: %(host)s", host=a.blocked_host) }}{% endif %}{% if a.blocked_task_nr %} · <a href="/tasks/{{ a.blocked_task_nr }}">{{ a.blocked_task_nr }}</a>{% endif %}</p>
+    <p><small>{{ a.blocked_reason }}</small></p>
+    <div class="ui-row">{{ action('unblock', _('Clear block'), _('Clear the blocked state? The runner claims tasks again on its next pass.')) }}</div>
+  </section>
+  {% endif %}
   <section><h3 class="ui-label">{{ _("Data zone") }}</h3><div class="ui-row"><span>{{ _("Data:") }} {% with cls=zone_max[a.id], compact=False %}{% include "_data_class.html" %}{% endwith %}</span><span class="ui-pill">{{ _(model_locations[a.model_location]) }}</span>{% if a.actor_type == 'agent' %}<span class="ui-pill">{{ _("Public") if a.is_public else _("private") }}</span>{% endif %}</div></section>
   <section><h3 class="ui-label">{{ _("API token") }}</h3>
     {% if a.api_key_hash %}<code>{{ a.api_key_prefix }}••••••••••••</code><small>{{ _("created %(date)s", date=a.api_key_created_at|localtime('date')) }}</small>{% else %}<p>{{ _("No valid token.") }}</p>{% endif %}

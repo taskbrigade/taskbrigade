@@ -53,7 +53,8 @@ STATUS_LABELS = {"queued": N_("queued"), "held": N_("held (quiet hours)"), "sent
 REVIEW_EVENTS = frozenset({"review"})  # Muted separately ("review requests")
 # Someone else (an orchestrator) changed a person's settings: always delivered, not a choosable event
 SETTINGS_EVENT = "settings_changed"
-LOG_EVENTS = {**EVENTS, SETTINGS_EVENT: N_("Notification settings changed")}
+# The blocked agent works again (`agent_blocks.clear`): sent on the channels chosen for `agent_blocked`.
+LOG_EVENTS = {**EVENTS, SETTINGS_EVENT: N_("Notification settings changed"), "agent_ready": N_("Agent ready again")}
 FOREVER = datetime(9999, 12, 31)
 CONTENT_CHARS = 300
 MAX_ATTEMPTS = 8

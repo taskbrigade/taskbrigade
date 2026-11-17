@@ -44,6 +44,13 @@ def lease_sweep() -> None:
     _with_session("lease_sweep", sweep_expired_leases)
 
 
+def agent_block_reminders() -> None:
+    """Repeat the message about a blocked agent while the block lasts (`agent_block_reminder_hours`)."""
+    from app.services.agent_blocks import remind
+
+    _with_session("agent_block_reminders", remind)
+
+
 def collaborator_sync() -> None:
     from app.services.members import sync_pending
 
@@ -119,6 +126,7 @@ def create_scheduler() -> BackgroundScheduler:
     scheduler.add_job(gitea_health, "interval", minutes=5, id="gitea_health", **opts)
     scheduler.add_job(telegram_deliver, "interval", seconds=15, id="telegram_deliver", **opts)
     scheduler.add_job(email_deliver, "interval", seconds=30, id="email_deliver", **opts)
+    scheduler.add_job(agent_block_reminders, "interval", minutes=5, id="agent_block_reminders", **opts)
     scheduler.add_job(collaborator_sync, "interval", minutes=15, id="collaborator_sync", **opts)
     scheduler.add_job(workflow_tick, "interval", minutes=1, id="workflow_tick", **opts)
     scheduler.add_job(data_retention, "interval", minutes=60, id="data_retention", **opts)

@@ -18,6 +18,7 @@ from cli.client import heartbeat_task, parse_usage, sprint_line, version_warning
 from cli.client import transition as do_transition
 from cli.client import agent_scope, duplicate_task, model_line, model_value, parse_tier, review_task
 from cli.client import data_class_line, data_refs_lines, parse_data_class, parse_depends_on
+from cli.client import project_create_body, project_patch_body, project_report
 from cli import sftp as sftp_lib
 from cli.i18n import _
 from cli.outputs import parse_output_args, required_outputs_lines, submitted_outputs_lines
@@ -685,14 +686,16 @@ def _review_jobs() -> list[dict]:
         return []
 
 
-@app.command(help=_("List the active projects: key, privacy, owner, name."))
+@app.command(help=_("List the active projects: key, privacy, owner, name, default reviewer."))
 def projects(as_json: bool = JsonOpt):
     items = [p for p in _call("GET", "/projects") if p.get("status", "active") == "active"]
     if as_json:
         _dump(items)
         return
     for p in items:
-        typer.echo(f"{p['key']:<8} {p.get('privacy') or '-':<10} {p.get('owner') or '-':<12} {p['name']}")
+        typer.echo(f"{p['key']:<8} {p.get('privacy') or '-':<10} {p.get('owner') or '-':<12} {p['name']}"
+                   + (" " + _("(default reviewer %(name)s)", name=p["default_reviewer"]) if p.get("default_reviewer")
+                      else ""))
 
 
 @app.command(help=_("List the agents you may assign (own, your owner's and public ones; name, runtime local/cloud, "
@@ -719,8 +722,8 @@ def create(project: str = typer.Option(...), title: str = typer.Option(...),
            due: str = typer.Option(None, "--due", help=_("Due date YYYY-MM-DD")),
            sprint: str = typer.Option(None, "--sprint", help=_("Sprint (id or name); in a sprint that is not "
                                                                "released yet the task becomes a draft")),
-           tier: str = typer.Option(None, "--tier", help=_("Model tier: simple, standard or complex – the agent maps "
-                                                           "it to a model")),
+           tier: str = typer.Option(None, "--tier", help=_("Model tier: simple, standard, complex or extreme – the "
+                                                           "agent maps it to a model")),
            model: str = typer.Option(None, "--model", help=_("Concrete model; must be on the agent's allow list")),
            reviewer: str = typer.Option(None, "--reviewer", help=_("Reviewer: a human or an agent with role reviewer "
                                                                    "(default: the project's default reviewer; 'none' "
@@ -816,8 +819,8 @@ def update(task_nr: str,
            description: str = typer.Option(None, "--description", help=_("Description; '-' reads from stdin")),
            acceptance: str = typer.Option(None, "--acceptance", help=_("Acceptance criteria; '-' reads from stdin")),
            sprint: str = typer.Option(None, "--sprint", help=_("Sprint (id or name); 'none' detaches the task")),
-           tier: str = typer.Option(None, "--tier", help=_("Model tier: simple, standard or complex; 'none' removes "
-                                                           "it")),
+           tier: str = typer.Option(None, "--tier", help=_("Model tier: simple, standard, complex or extreme; 'none' "
+                                                           "removes it")),
            model: str = typer.Option(None, "--model", help=_("Concrete model from the agent's allow list; 'none' "
                                                              "removes it")),
            reviewer: str = typer.Option(None, "--reviewer", help=_("Reviewer (human or reviewer agent); 'none' "
@@ -910,6 +913,75 @@ def duplicate(task_nr: str,
         typer.echo(r["task_nr"])
     for warning in create_warnings(r):
         typer.echo(_("Warning: %(text)s", text=warning), err=True)
+
+
+# --- Projects ---------------------------------------------------------------------------------
+
+project_app = typer.Typer(help=_("Create and change projects (admins, and agents with role orchestrator on behalf of "
+                                 "their owner – the same rules as in the web UI). List them with tbr projects."),
+                          no_args_is_help=True)
+app.add_typer(project_app, name="project")
+PrivacyOpt = typer.Option(None, "--privacy", help=_("local_only or cloud_ok"))
+ReviewerOpt = typer.Option(None, "--default-reviewer", help=_("Default reviewer for new tasks: a human or an agent "
+                                                              "with role reviewer"))
+
+
+def _project_result(r: dict, head: str, as_json: bool) -> None:
+    if as_json:
+        _dump(r)
+    else:
+        typer.echo(project_report(r, head))
+
+
+@project_app.command("create", help=_("Create a project with its Gitea repository (brain.md, AGENTS.md, …) like the "
+                                      "web UI. The owner defaults to you (an agent: its owner)."))
+def project_create(key: str = typer.Option(..., "--key", help=_("Project key: 2–8 characters A-Z/0-9")),
+                   name: str = typer.Option(..., "--name"),
+                   description: str = typer.Option(None, "--description", help=_("Description; '-' reads from "
+                                                                                 "stdin")),
+                   privacy: str = typer.Option(None, "--privacy", help=_("local_only (default) or cloud_ok")),
+                   owner: str = typer.Option(None, "--owner", help=_("Owner (a human)")),
+                   default_reviewer: str = ReviewerOpt,
+                   no_repo: bool = typer.Option(False, "--no-repo", help=_("Create an idea without a Gitea "
+                                                                         "repository")),
+                   as_json: bool = JsonOpt):
+    try:
+        body = project_create_body(key, name, sys.stdin.read() if description == "-" else description, privacy,
+                                   owner, default_reviewer, "none" if no_repo else "create")
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from e
+    r = _orchestrate("tbr project create", lambda c: c.request("POST", "/projects", json=body).json())
+    _project_result(r, _("Project %(key)s created.", key=r["key"]), as_json)
+
+
+@project_app.command("update", help=_("Change a project: only the given fields change, the key stays. Switching "
+                                      "privacy to local_only is refused while open tasks are assigned to cloud agents "
+                                      "(the error names them)."))
+def project_update(key: str = typer.Argument(..., help=_("Project key")),
+                   name: str = typer.Option(None, "--name"),
+                   description: str = typer.Option(None, "--description", help=_("Description; '-' reads from stdin, "
+                                                                                 "an empty string clears it")),
+                   privacy: str = PrivacyOpt,
+                   owner: str = typer.Option(None, "--owner", help=_("New owner (a human)")),
+                   default_reviewer: str = typer.Option(None, "--default-reviewer",
+                                                        help=_("Default reviewer for new tasks; 'none' removes it")),
+                   as_json: bool = JsonOpt):
+    try:
+        body = project_patch_body(name, sys.stdin.read() if description == "-" else description, privacy, owner,
+                                  default_reviewer)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from e
+    if not body:
+        typer.echo(_("Give at least one of --name, --description, --privacy, --owner or --default-reviewer."), err=True)
+        raise typer.Exit(2)
+    r = _orchestrate("tbr project update", lambda c: c.request("PATCH", f"/projects/{key.strip().upper()}",
+                                                               json=body).json())
+    changed = r.get("changed")
+    head = (_("Project %(key)s changed (%(fields)s).", key=r["key"], fields=", ".join(changed)) if changed
+            else _("Project %(key)s: nothing changed – the values were already set.", key=r["key"]))
+    _project_result(r, head, as_json)
 
 
 # --- Sprints ----------------------------------------------------------------------------------
